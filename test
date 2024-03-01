@@ -1,1 +1,70 @@
+pipeline {
+    agent {
+        label 'AutoInferno-Production'
+    }
+    stages {
+        stage('Compare License File') {
+            steps {
+                script {
+                    // Set build display name
+                    currentBuild.displayName = env.BUILD_NUMBER
 
+                    // Run the command and capture the output
+                    def output = sh(script: '''
+                        su-s/bin/bash flames <<EOF
+                        whoami
+                        ls /opt/autoInferno/license_files
+                        cd /opt/autoInferno/license_files
+                        pwd
+                        /home/flames/bin/compare_lic file1 file2
+                        EOF
+                    ''', returnStdout: true).trim()
+
+                    // Split the output by newline
+                    def lines = output.split('\n')
+
+                    // Find the index where "OMITTED/ADDED FEATURES:" appears
+                    def omittedAddedIndex = lines.indexOf('OMITTED/ADDED FEATURES:')
+
+                    // Extract relevant information after the header
+                    def relevantLines = lines.subList(omittedAddedIndex + 2, lines.size() - 1)
+
+                    // Initialize variables to store parsed data
+                    def featureNames = []
+                    def file1Values = []
+                    def file2Values = []
+
+                    // Loop through relevant lines to extract data
+                    relevantLines.each { line ->
+                        // Split the line by whitespace to separate columns
+                        def columns = line.split()
+
+                        // Extract feature name, file1 value, and file2 value
+                        def featureName = columns[0]
+                        def file1Value = columns[1]
+                        def file2Value = columns[2]
+
+                        // Add extracted data to respective arrays
+                        featureNames.add(featureName)
+                        file1Values.add(file1Value)
+                        file2Values.add(file2Value)
+                    }
+
+                    // Print the extracted data
+                    println "FEATURE NAME: ${featureNames}"
+                    println "file1: ${file1Values}"
+                    println "file2: ${file2Values}"
+
+                    // Extract and print omitted/added features
+                    def omittedFeatures = lines[omittedAddedIndex + 2]
+                    def addedFeatures = lines[omittedAddedIndex + 4]
+                    println omittedFeatures
+                    println addedFeatures
+
+                    // Echo completion message
+                    echo "Pipeline completed successfully."
+                }
+            }
+        }
+    }
+}
