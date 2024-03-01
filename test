@@ -3,57 +3,13 @@ pipeline {
         label 'AutoInferno-Production'
     }
     stages {
-        stage('Compare License File') {
+        stage('Run compare_lic') {
             steps {
                 script {
                     currentBuild.displayName = env.BUILD_NUMBER
-                    def output = sh(script: '''
-                        su -s /bin/bash flames <<EOF
-                        whoami
-                        ls /opt/autoInferno/license_files
-                        cd /opt/autoInferno/license_files
-                        pwd
-                        /home/flames/bin/compare_lic file1 file2
-                        EOF
-                    ''', returnStdout: true).trim()
-
-                    // Split the output by lines
-                    def lines = output.split('\n')
-
-                    // Find the starting index of the table
-                    def startIndex = lines.findIndex { it.contains('FEATURE NAME') } + 2
-
-                    // Initialize variables to store table data and omitted/added features
-                    def tableData = []
-                    def omittedAddedFeatures = []
-
-                    // Process table data
-                    for (int i = startIndex; i < lines.size() - 2; i++) {
-                        def parts = lines[i].trim().split(/\s+/)
-                        def row = [:]
-                        row['FEATURE NAME'] = parts[0].trim()
-                        row['file1'] = parts[1].trim()
-                        row['file2'] = parts[2].trim()
-                        tableData.add(row)
-                    }
-
-                    // Process omitted/added features
-                    def omittedAddedIndex = lines.findIndex { it.contains('OMITTED/ADDED FEATURES') } + 3
-                    for (int i = omittedAddedIndex; i < lines.size() - 2; i++) {
-                        def parts = lines[i].trim().split(/\s+/)
-                        if (parts.size() == 3) {
-                            def feature = [:]
-                            feature['Feature'] = parts[0].trim()
-                            feature['Description'] = parts[1].trim() + " " + parts[2].trim()
-                            omittedAddedFeatures.add(feature)
-                        }
-                    }
-
-                    // Print table data and omitted/added features
-                    echo "Table Data: ${tableData}"
-                    echo "Omitted/Added Features: ${omittedAddedFeatures}"
-
-                    echo "Pipeline completed hurray"
+                    sh '''
+                        su -s /bin/bash flames -c 'cd /opt/autoInferno/license_files && /home/flames/bin/compare_lic file1 file2'
+                    '''
                 }
             }
         }
