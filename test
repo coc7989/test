@@ -3,13 +3,44 @@ pipeline {
         label 'AutoInferno-Production'
     }
     stages {
-        stage('Run compare_lic') {
+        stage('Compare License File') {
             steps {
                 script {
-                    currentBuild.displayName = env.BUILD_NUMBER
-                    sh '''
-                        su -s /bin/bash flames -c 'cd /opt/autoInferno/license_files && /home/flames/bin/compare_lic file1 file2'
-                    '''
+                    // Run the command and capture the output
+                    def output = sh(script: '''
+                        /home/flames/bin/compare_lic file1 file2
+                    ''', returnStdout: true).trim()
+
+                    // Split the output by newline
+                    def lines = output.split('\n')
+
+                    // Skip the header line
+                    def dataLines = lines.drop(1)
+
+                    // Initialize an empty array to store parsed data
+                    def dataArray = []
+
+                    // Loop through data lines and parse each line
+                    dataLines.each { line ->
+                        // Split the line by whitespace to separate columns
+                        def columns = line.split()
+
+                        // Extract feature name, file1 value, and file2 value
+                        def featureName = columns[0]
+                        def file1Value = columns[1]
+                        def file2Value = columns[2]
+
+                        // Create an object with extracted data and add it to the array
+                        def dataObject = [
+                            feature_name: featureName,
+                            file1: file1Value,
+                            file2: file2Value
+                        ]
+                        dataArray.add(dataObject)
+                    }
+
+                    // Print the array of parsed data
+                    println dataArray
                 }
             }
         }
