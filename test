@@ -21,23 +21,31 @@ pipeline {
                     def dataArray = []
 
                     // Loop through data lines and parse each line
-                    dataLines.each { line ->
-                        // Split the line by whitespace to separate columns
-                        def columns = line.split()
+                    // Loop through data lines and parse each line
+dataLines.each { line ->
+    // Check if the line contains "OMMITTED/ADDED"
+    if (line.contains("OMMITTED/ADDED")) {
+        // If it does, break out of the loop
+        return
+    }
 
-                        // Extract feature name, file1 value, and file2 value
-                        def featureName = columns[0]
-                        def file1Value = columns[1]
-                        def file2Value = columns[2]
+    // Split the line by whitespace to separate columns
+    def columns = line.split()
 
-                        // Create an object with extracted data and add it to the array
-                        def dataObject = [
-                            feature_name: featureName,
-                            file1: file1Value,
-                            file2: file2Value
-                        ]
-                        dataArray.add(dataObject)
-                    }
+    // Extract feature name, file1 value, and file2 value
+    def featureName = columns[0]
+    def file1Value = columns[1]
+    def file2Value = columns[2]
+
+    // Create an object with extracted data and add it to the array
+    def dataObject = [
+        feature_name: featureName,
+        file1: file1Value,
+        file2: file2Value
+    ]
+    dataArray.add(dataObject)
+}
+
 
                     // Print the array of parsed data
                     println dataArray
