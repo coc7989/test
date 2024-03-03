@@ -1,57 +1,41 @@
-pipeline {
-    agent {
-        label 'AutoInferno-Production'
-    }
-    stages {
-        stage('Compare License File') {
-            steps {
-                script {
-                    // Run the command and capture the output
-                    def output = sh(script: '''
-                        /home/flames/bin/compare_lic file1 file2
-                    ''', returnStdout: true).trim()
+from flask import Flask, request, jsonify
+import cx_Oracle
 
-                    // Split the output by newline
-                    def lines = output.split('\n')
+app = Flask(__name__)
 
-                    // Find the index of the line containing "FEATURE NAME"
-                    def featureIndex = lines.indexOf { it.contains("FEATURE NAME") }
+# Database connection configuration
+db_user = 'your_username'
+db_password = 'your_password'
+db_host = 'your_host'
+db_port = 'your_port'
+db_service = 'your_service_name'
 
-                    // Remove all lines up to the line containing "FEATURE NAME"
-                    def dataLines = lines.drop(featureIndex + 1)
+# Function to get user role from the database
+def get_user_role(user_id):
+    connection = cx_Oracle.connect(db_user, db_password, db_host + ':' + db_port + '/' + db_service)
+    cursor = connection.cursor()
+    cursor.execute("SELECT role FROM user_roles WHERE id = :user_id", {'user_id': user_id})
+    role = cursor.fetchone()
+    cursor.close()
+    connection.close()
+    return role[0] if role else None
 
-                    // Initialize an empty array to store parsed data
-                    def dataArray = []
+# Endpoint to handle /logs page
+@app.route('/logs', methods=['GET'])
+def get_logs():
+    user_id = request.args.get('id')
+    user_role = get_user_role(user_id)
+    if user_role == 'user':
+        # Fetch logs for users from the database
+        # Implement your logic here
+        logs = [...]  # Fetch logs for users
+    elif user_role == 'admin':
+        # Fetch logs for admins from the database
+        # Implement your logic here
+        logs = [...]  # Fetch logs for admins
+    else:
+        return jsonify({'error': 'Invalid user ID'}), 400
+    return jsonify({'logs': logs})
 
-                    // Loop through data lines and parse each line
-                    dataLines.each { line ->
-                        // Check if the line contains "OMMITTED/ADDED"
-                        if (line.contains("OMMITTED/ADDED")) {
-                            // If it does, break out of the loop
-                            return
-                        }
-
-                        // Split the line by whitespace to separate columns
-                        def columns = line.split()
-
-                        // Extract feature name, file1 value, and file2 value
-                        def featureName = columns[0]
-                        def file1Value = columns[1]
-                        def file2Value = columns[2]
-
-                        // Create an object with extracted data and add it to the array
-                        def dataObject = [
-                            feature_name: featureName,
-                            file1: file1Value,
-                            file2: file2Value
-                        ]
-                        dataArray.add(dataObject)
-                    }
-
-                    // Print the array of parsed data
-                    println dataArray
-                }
-            }
-        }
-    }
-}
+if __name__ == '__main__':
+    app.run(debug=True)
