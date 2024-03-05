@@ -1,27 +1,13 @@
-import React from 'react';
-import { Button, Modal } from '@mui/material';
+#!/bin/bash
 
-const FileButton = ({ rowId, onClick }) => {
-  const [open, setOpen] = React.useState(false);
+whoami
 
-  const handleButtonClick = () => {
-    onClick(rowId);
-    setOpen(true);
-  };
+output=$(su -s /bin/bash flames <<EOF
+whoami
+cd /opt/autoInferno/license_files
+ls
+/home/flames/bin/compare_lic file1 file2
+EOF
+)
 
-  const handleClose = () => {
-    setOpen(false);
-  };
-
-  return (
-    <>
-      <Button onClick={handleButtonClick}>Open Modal</Button>
-      <Modal open={open} onClose={handleClose}>
-        {/* Your modal content */}
-        <div>This is the modal content for row ID: {rowId}</div>
-      </Modal>
-    </>
-  );
-};
-
-export default FileButton;
+echo "$output"
