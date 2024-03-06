@@ -1,2 +1,1 @@
-def jsonData = "{ \"feature_name\": \"$featureName\", \"file1\": \"$file1Value\", \"file2\": \"$file2Value\" }"
-                            dataArray.add(jsonData)
+
