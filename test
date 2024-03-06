@@ -1,1 +1,31 @@
 
+import React from 'react';
+
+function ApplyColors({ result }) {
+    if (result.length !== 2) {
+        return null; // Expected array length is 2
+    }
+
+    return (
+        <div>
+            {result[0] > result[1] ? (
+                <>
+                    <span style={{ color: 'red' }}>{result[0]}</span>
+                    <span style={{ color: 'blue' }}>{result[1]}</span>
+                </>
+            ) : result[0] < result[1] ? (
+                <>
+                    <span style={{ color: 'red' }}>{result[0]}</span>
+                    <span style={{ color: 'blue' }}>{result[1]}</span>
+                </>
+            ) : (
+                <>
+                    <span>{result[0]}</span>
+                    <span>{result[1]}</span>
+                </>
+            )}
+        </div>
+    );
+}
+
+export default ApplyColors;
