@@ -1,13 +1,57 @@
-#!/bin/bash
+pipeline {
+    agent {
+        label 'AutoInferno-Production'
+    }
+    stages {
+        stage('Compare License File') {
+            steps {
+                script {
+                    // Run the command and capture the output
+                    def output = sh(script: '''
+                        /home/flames/bin/compare_lic file1 file2
+                    ''', returnStdout: true).trim()
 
-whoami
+                    // Split the output by newline
+                    def lines = output.split('\n')
 
-output=$(su -s /bin/bash flames <<EOF
-whoami
-cd /opt/autoInferno/license_files
-ls
-/home/flames/bin/compare_lic file1 file2
-EOF
-)
+                    // Find the index of the line containing "FEATURE NAME"
+                    def featureIndex = lines.findIndex { it.contains("FEATURE NAME") }
 
-echo "$output"
+                    // Remove all lines up to the line containing "FEATURE NAME"
+                    def dataLines = lines.drop(featureIndex + 1)
+
+                    // Initialize an empty array to store parsed data
+                    def dataArray = []
+
+                    // Loop through data lines and parse each line
+                    dataLines.each { line ->
+                        // Check if the line contains "OMMITTED/ADDED"
+                        if (line.contains("OMMITTED/ADDED")) {
+                            // If it does, break out of the loop
+                            return
+                        }
+
+                        // Split the line by whitespace to separate columns
+                        def columns = line.split()
+
+                        // Extract feature name, file1 value, and file2 value
+                        def featureName = columns[0]
+                        def file1Value = columns[1]
+                        def file2Value = columns[2]
+
+                        // Create an object with extracted data and add it to the array
+                        def dataObject = [
+                            feature_name: featureName,
+                            file1: file1Value,
+                            file2: file2Value
+                        ]
+                        dataArray.add(dataObject)
+                    }
+
+                    // Print the array of parsed data
+                    println dataArray
+                }
+            }
+        }
+    }
+}
