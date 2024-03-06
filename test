@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 function ApplyColors({ result }) {
@@ -8,22 +7,18 @@ function ApplyColors({ result }) {
 
     return (
         <div>
-            {result[0] > result[1] ? (
-                <>
-                    <span style={{ color: 'red' }}>{result[0]}</span>
-                    <span style={{ color: 'blue' }}>{result[1]}</span>
-                </>
-            ) : result[0] < result[1] ? (
-                <>
-                    <span style={{ color: 'red' }}>{result[0]}</span>
-                    <span style={{ color: 'blue' }}>{result[1]}</span>
-                </>
-            ) : (
-                <>
-                    <span>{result[0]}</span>
-                    <span>{result[1]}</span>
-                </>
-            )}
+            <p>
+                <span style={{ color: result[0] > result[1] ? 'red' : result[0] < result[1] ? 'blue' : 'black' }}>
+                    {result[0]}
+                </span>
+                Feature(s) not in /opt/license_files/file1 :
+            </p>
+            <p>
+                <span style={{ color: result[1] > result[0] ? 'red' : result[1] < result[0] ? 'blue' : 'black' }}>
+                    {result[1]}
+                </span>
+                Feature(s) not in /opt/license_files/file2 :
+            </p>
         </div>
     );
 }
