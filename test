@@ -1,31 +1,73 @@
-// Find the index of the line containing "FEATURE NAME"
-def featureIndex = -1
-for (int i = 0; i < lines.size(); i++) {
-    if (lines[i].contains("FEATURE NAME")) {
-        featureIndex = i
-        break
-    }
-}
+pipeline {
+    agent any
 
-// Check if "FEATURE NAME" was found and handle accordingly
-if (featureIndex != -1) {
-    // Initialize an empty list to store the filtered data lines
-    def dataLines = []
+    stages {
+        stage('Compare License File') {
+            steps {
+                script {
+                    // Run the command and capture the output
+                    def output = sh(script: '''
+                        /home/flames/bin/compare_lic file1 file2
+                    ''', returnStdout: true).trim()
 
-    // Loop through lines starting from featureIndex + 1 and filter data lines
-    for (int i = featureIndex + 1; i < lines.size(); i++) {
-        def line = lines[i]
-        // Check if the line contains "OMMITTED/ADDED"
-        if (line.contains("OMMITTED/ADDED")) {
-            // If it does, break out of the loop
-            break
+                    // Split the output by newline
+                    def lines = output.split('\n')
+
+                    // Initialize featureIndex variable
+                    def featureIndex = -1
+
+                    // Loop through lines to find the index of the line containing "FEATURE NAME"
+                    for (int i = 0; i < lines.size(); i++) {
+                        if (lines[i].contains("FEATURE NAME")) {
+                            featureIndex = i
+                            break
+                        }
+                    }
+
+                    // Check if "FEATURE NAME" was found and handle accordingly
+                    if (featureIndex != -1) {
+                        // Remove all lines up to the line containing "FEATURE NAME"
+                        def dataLines = lines.drop(featureIndex + 1)
+
+                        // Initialize an empty array to store parsed data
+                        def dataArray = []
+
+                        // Loop through data lines and parse each line
+                        dataLines.each { line ->
+                            // Check if the line contains "OMMITTED/ADDED"
+                            if (line.contains("OMMITTED/ADDED")) {
+                                // If it does, break out of the loop
+                                return
+                            }
+
+                            // Check if the line is not empty
+                            if (!line.trim().isEmpty()) {
+                                // Split the line by whitespace to separate columns
+                                def columns = line.split()
+
+                                // Extract feature name, file1 value, and file2 value
+                                def featureName = columns[0]
+                                def file1Value = columns[1]
+                                def file2Value = columns[2]
+
+                                // Create an object with extracted data and add it to the array
+                                def dataObject = [
+                                    feature_name: featureName,
+                                    file1: file1Value,
+                                    file2: file2Value
+                                ]
+                                dataArray.add(dataObject)
+                            }
+                        }
+
+                        // Print the array of parsed data
+                        println dataArray
+                    } else {
+                        // Handle case when "FEATURE NAME" is not found
+                        println "Error: 'FEATURE NAME' not found in the output."
+                    }
+                }
+            }
         }
-        // Add the line to the dataLines list
-        dataLines.add(line)
     }
-
-    // Continue with your remaining code...
-} else {
-    // Handle case when "FEATURE NAME" is not found
-    println "Error: 'FEATURE NAME' not found in the output."
 }
