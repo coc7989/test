@@ -1,1 +1,43 @@
+import React, { useState, useEffect } from 'react';
+import { DiffViewer } from 'react-diff-viewer';
+import axios from 'axios';
 
+const MyDiffViewer = () => {
+  const [modifiedChunks, setModifiedChunks] = useState([]);
+  const [originalChunks, setOriginalChunks] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    loadChunks();
+  }, []);
+
+  const loadChunks = async () => {
+    try {
+      const response = await axios.get(`/chunks?index=${currentIndex}`);
+      setModifiedChunks([...modifiedChunks, response.data.modified_chunk]);
+      setOriginalChunks([...originalChunks, response.data.original_chunk]);
+    } catch (error) {
+      console.error('Error fetching chunks:', error);
+    }
+  };
+
+  const loadNextChunk = () => {
+    setCurrentIndex(currentIndex + 1);
+  };
+
+  return (
+    <div>
+      {modifiedChunks.map((modifiedChunk, index) => (
+        <DiffViewer
+          key={index}
+          oldValue={originalChunks[index]}
+          newValue={modifiedChunk}
+          splitView={true}
+        />
+      ))}
+      <button onClick={loadNextChunk}>Load More</button>
+    </div>
+  );
+};
+
+export default MyDiffViewer;
