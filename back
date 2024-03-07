@@ -1,0 +1,17 @@
+@app.route('/chunks')
+def get_chunks():
+    chunk_size= 1000
+    index = int(request.args.get('index', 0))
+    start_index = index * chunk_size
+    end_index = (index + 1) * chunk_size
+    modified_chunk = modified_text[start_index:end_index]
+    original_chunk = original_text[start_index:end_index]
+
+    # Calculate the total number of chunks
+    total_chunks = max(len(modified_text), len(original_text)) // chunk_size + 1
+
+    return jsonify({
+        'modified_chunk': modified_chunk,
+        'original_chunk': original_chunk,
+        'total_chunks': total_chunks
+    })
