@@ -4,14 +4,24 @@ app = Flask(__name__)
 # Sample data, you would replace this with your actual data
 modified_text = "Your modified text here"
 original_text = "Your original text here"
+chunk_size = 1000
 
 @app.route('/chunks')
 def get_chunks():
     index = int(request.args.get('index', 0))
-    chunk_size = 1000
-    modified_chunk = modified_text[index * chunk_size: (index + 1) * chunk_size]
-    original_chunk = original_text[index * chunk_size: (index + 1) * chunk_size]
-    return jsonify({'modified_chunk': modified_chunk, 'original_chunk': original_chunk})
+    start_index = index * chunk_size
+    end_index = (index + 1) * chunk_size
+    modified_chunk = modified_text[start_index:end_index]
+    original_chunk = original_text[start_index:end_index]
+
+    # Calculate the total number of chunks
+    total_chunks = max(len(modified_text), len(original_text)) // chunk_size + 1
+
+    return jsonify({
+        'modified_chunk': modified_chunk,
+        'original_chunk': original_chunk,
+        'total_chunks': total_chunks
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)
