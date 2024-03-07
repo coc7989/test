@@ -1,0 +1,17 @@
+from flask import Flask, jsonify, request
+app = Flask(__name__)
+
+# Sample data, you would replace this with your actual data
+modified_text = "Your modified text here"
+original_text = "Your original text here"
+
+@app.route('/chunks')
+def get_chunks():
+    index = int(request.args.get('index', 0))
+    chunk_size = 1000
+    modified_chunk = modified_text[index * chunk_size: (index + 1) * chunk_size]
+    original_chunk = original_text[index * chunk_size: (index + 1) * chunk_size]
+    return jsonify({'modified_chunk': modified_chunk, 'original_chunk': original_chunk})
+
+if __name__ == '__main__':
+    app.run(debug=True)
