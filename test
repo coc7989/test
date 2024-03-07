@@ -16,7 +16,7 @@ const MyDiffViewer = () => {
   const loadChunks = async () => {
     try {
       const response = await axios.get(
-        `http://localhost:5000/chunks?index=${currentPage}`
+        `http://localhost:5000/chunks?index=${currentPage}&rowId=${rowId}`
       )
       setModifiedChunks([response.data.modified_chunk])
       setOriginalChunks([response.data.original_chunk])
