@@ -1,0 +1,61 @@
+import React, { useState, useEffect } from "react"
+import ReactDiffViewer from "react-diff-viewer-continued"
+
+import axios from "axios"
+
+const MyDiffViewer = () => {
+  const [originalText, setOriginalText] = useState("")
+  const [modifiedText, setModifiedText] = useState("")
+  const [currentPage, setCurrentPage] = useState(0)
+  const [totalChunks, setTotalChunks] = useState(0)
+
+  useEffect(() => {
+    loadChunks()
+  }, [currentPage]) // Reload chunks whenever currentPage changes
+
+  const loadChunks = async () => {
+    try {
+      const response = await axios.get(
+        `http://localhost:5000/chunks?index=${currentPage}`
+      )
+      const { original_chunk, modified_chunk, total_chunks } = response.data
+      setOriginalText(original_chunk)
+      setModifiedText(modified_chunk)
+      setTotalChunks(total_chunks)
+    } catch (error) {
+      console.error("Error fetching chunks:", error)
+    }
+  }
+
+  const loadNextPage = () => {
+    setCurrentPage(currentPage + 1)
+  }
+
+  const loadPreviousPage = () => {
+    setCurrentPage(currentPage - 1)
+  }
+
+  return (
+    <div>
+      <ReactDiffViewer
+        oldValue={originalText}
+        newValue={modifiedText}
+        splitView={true}
+      />
+
+      <div>
+        <button onClick={loadPreviousPage} disabled={currentPage === 0}>
+          Previous
+        </button>
+        <button
+          onClick={loadNextPage}
+          disabled={currentPage === totalChunks - 1}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default MyDiffViewer
