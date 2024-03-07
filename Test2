@@ -9,6 +9,7 @@ chunk_size = 1000
 @app.route('/chunks')
 def get_chunks():
     index = int(request.args.get('index', 0))
+    row_id = request.args.get('rowId')
     start_index = index * chunk_size
     end_index = (index + 1) * chunk_size
     modified_chunk = modified_text[start_index:end_index]
