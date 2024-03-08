@@ -1,0 +1,24 @@
+pipeline {
+    agent any
+    stages {
+        stage('Build') {
+            steps {
+                // Your build steps here
+                sh 'your_build_command' // Replace 'your_build_command' with the command causing the build
+            }
+        }
+    }
+    post {
+        failure {
+            emailext (
+                to: 'recipient@example.com',
+                subject: 'Build Failed: ${currentBuild.fullDisplayName}',
+                body: 'The build failed. Please find attached the build log containing the failure data and the command that caused the error.',
+                attachLog: true,
+                compressLog: true,
+                replyTo: '$DEFAULT_REPLYTO',
+                attachmentsPattern: 'build.log'
+            )
+        }
+    }
+}
