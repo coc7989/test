@@ -1,30 +1,26 @@
-import React from 'react';
-import { Button } from '@mui/material';
-
-function MyComponent() {
-  const handleClick = (value) => {
-    // Send the value to your backend Flask server
-    fetch('/your-flask-endpoint', {
-      method: 'POST',
-      body: JSON.stringify({ value }),
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    })
-    .then(response => {
-      // Handle response from server if needed
-    })
-    .catch(error => {
-      console.error('Error:', error);
-    });
-  };
-
-  return (
-    <div>
-      <Button onClick={() => handleClick('submit')} variant="contained">Submit</Button>
-      <Button onClick={() => handleClick('abort')} variant="contained">Abort</Button>
-    </div>
-  );
+pipeline {
+    agent any
+    environment {
+        ENV_FILE = credentials('your-credentials-id')
+    }
+    stages {
+        stage('Build') {
+            steps {
+                // Copy the .env file to the workspace
+                withCredentials([file(credentialsId: 'your-credentials-id', variable: 'ENV_FILE')]) {
+                    sh 'cp $ENV_FILE .env'
+                }
+                // Run any necessary build steps for your Flask application
+                sh 'pip install -r requirements.txt'
+                // etc.
+            }
+        }
+        stage('Deploy') {
+            steps {
+                // Deploy your Flask application
+                // This might involve Docker build and push steps, or deploying to a server
+                // Adjust according to your deployment strategy
+            }
+        }
+    }
 }
-
-export default MyComponent;
