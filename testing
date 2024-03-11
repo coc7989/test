@@ -1,1 +1,30 @@
+import React from 'react';
+import { Button } from '@mui/material';
 
+function MyComponent() {
+  const handleClick = (value) => {
+    // Send the value to your backend Flask server
+    fetch('/your-flask-endpoint', {
+      method: 'POST',
+      body: JSON.stringify({ value }),
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(response => {
+      // Handle response from server if needed
+    })
+    .catch(error => {
+      console.error('Error:', error);
+    });
+  };
+
+  return (
+    <div>
+      <Button onClick={() => handleClick('submit')} variant="contained">Submit</Button>
+      <Button onClick={() => handleClick('abort')} variant="contained">Abort</Button>
+    </div>
+  );
+}
+
+export default MyComponent;
