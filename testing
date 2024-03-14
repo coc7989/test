@@ -1,1 +1,35 @@
+from flask import Flask, jsonify
+import os
 
+app = Flask(__name__)
+
+@app.route('/chunks', methods=['GET'])
+def read_files():
+    row_id = 'your_row_id'  # Provide the row ID here
+    folder_path = os.path.join('/opt/license_files', row_id)
+
+    current_folder_path = os.path.join(folder_path, 'Current')
+    updated_folder_path = os.path.join(folder_path, 'Updated')
+
+    current_files = os.listdir(current_folder_path)
+    updated_files = os.listdir(updated_folder_path)
+
+    original_text = ''
+    modified_text = ''
+
+    # Read file inside 'Current' folder
+    if current_files:
+        current_file_path = os.path.join(current_folder_path, current_files[0])  # Assuming only one file for simplicity
+        with open(current_file_path, 'r') as current_file:
+            original_text = current_file.read()
+
+    # Read file inside 'Updated' folder
+    if updated_files:
+        updated_file_path = os.path.join(updated_folder_path, updated_files[0])  # Assuming only one file for simplicity
+        with open(updated_file_path, 'r') as updated_file:
+            modified_text = updated_file.read()
+
+    return jsonify({'original_text': original_text, 'modified_text': modified_text}), 200
+
+if __name__ == '__main__':
+    app.run(debug=True)
