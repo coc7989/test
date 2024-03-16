@@ -2,15 +2,19 @@ def dataLines = ["Feature 1", "Feature2", "OMITTED/ADDED FEATURES:", "60 Feature
 
 def numericalValues = []
 
-for (line in dataLines) {
-    def matcher = line =~ /(\d+)\s+Feature\(s\) not in \/opt\/license_files\/(?:current|updated)\s+:/
-    if (matcher.find()) {
-        numericalValues.add(matcher[0][1])
+// Iterate over dataLines array from the end
+for (int i = dataLines.size() - 1; i >= 0; i--) {
+    def line = dataLines[i]
+    
+    // Check if the line contains "Feature(s) not in /opt/license_files/"
+    if (line =~ /Feature\(s\) not in \/opt\/license_files\//) {
+        // Extract the numerical value using regex
+        def numericalValue = line =~ /\d+/
+        if (numericalValue) {
+            numericalValues.add(numericalValue[0])
+        }
     }
 }
 
-// Print the numerical values
+// Print or use the numerical values
 println numericalValues
-
-// Store the numerical values in a variable accessible in your pipeline
-def numericalValuesArray = numericalValues.collect { it.toInteger() }
