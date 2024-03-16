@@ -1,18 +1,16 @@
-pipeline {
-    agent any
-    stages {
-        stage('Example') {
-            steps {
-                script {
-                    // Run shell command to get the build log with max lines
-                    def buildLog = sh(script: "echo '\${BUILD_LOG}' | tail -n 30", returnStdout: true).trim()
+def dataLines = ["Feature 1", "Feature2", "OMITTED/ADDED FEATURES:", "60 Feature(s) not in /opt/license_files/current :", "21400", "32510", "267", "21", "4565", "ade_mastermind", "champion", "20 Feature(s) not in /opt/license_files/updated :", "450", "ademant", "sceptic"]
 
-                    // Sending email notification with build log
-                    mail to: 'recipient@example.com',
-                         subject: 'Build Notification',
-                         body: "Build Log:\n${buildLog}"
-                }
-            }
-        }
+def numericalValues = []
+
+for (line in dataLines) {
+    def matcher = line =~ /(\d+)\s+Feature\(s\) not in \/opt\/license_files\/(?:current|updated)\s+:/
+    if (matcher.find()) {
+        numericalValues.add(matcher[0][1])
     }
 }
+
+// Print the numerical values
+println numericalValues
+
+// Store the numerical values in a variable accessible in your pipeline
+def numericalValuesArray = numericalValues.collect { it.toInteger() }
