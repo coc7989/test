@@ -1,20 +1,28 @@
-def dataLines = ["Feature 1", "Feature2", "OMITTED/ADDED FEATURES:", "60 Feature(s) not in /opt/license_files/current :", "21400", "32510", "267", "21", "4565", "ade_mastermind", "champion", "20 Feature(s) not in /opt/license_files/updated :", "450", "ademant", "sceptic"]
+pipeline {
+    agent any
 
-def numericalValues = []
+    environment {
+        compareData = '[{"color": "red", "value": "23"}, {"color": "blue", "value": "13"}]'
+        featureData = '[22, 45]'
+        apiUrl = 'http://your-flask-backend-url'
+    }
 
-// Iterate over dataLines array from the end
-for (int i = dataLines.size() - 1; i >= 0; i--) {
-    def line = dataLines[i]
-    
-    // Check if the line contains "Feature(s) not in /opt/license_files/"
-    if (line =~ /Feature\(s\) not in \/opt\/license_files\//) {
-        // Extract the numerical value using regex
-        def numericalValue = line =~ /\d+/
-        if (numericalValue) {
-            numericalValues.add(numericalValue[0])
+    stages {
+        stage('Send Data to Flask') {
+            steps {
+                script {
+                    def payload = "{\"compareData\": ${env.compareData}, \"featureData\": ${env.featureData}}"
+
+                    def response = httpRequest(
+                        contentType: 'APPLICATION_JSON',
+                        httpMode: 'POST',
+                        requestBody: payload,
+                        url: env.apiUrl
+                    )
+
+                    echo "Response from Flask: ${response.content}"
+                }
+            }
         }
     }
 }
-
-// Print or use the numerical values
-println numericalValues
