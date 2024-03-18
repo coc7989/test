@@ -4,16 +4,22 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                // Your build steps here
-                // Assuming you have the necessary data available
+                // Generate compare data and feature data
+                script {
+                    def compareData = // Your compare data generation logic
+                    def featureData = // Your feature data generation logic
+                    // Store the data in environment variables for access in later stages
+                    env.COMPARE_DATA = compareData
+                    env.FEATURE_DATA = featureData
+                }
             }
         }
     }
     post {
         always {
             script {
-                def compareData = // Your compare data
-                def featureData = // Your feature data
+                def compareData = env.COMPARE_DATA
+                def featureData = env.FEATURE_DATA
                 def jobResult = currentBuild.result ?: 'UNKNOWN'
                 
                 def payload = [
