@@ -1,27 +1,34 @@
 pipeline {
     agent any
-
-    environment {
-        compareData = '[{"color": "red", "value": "23"}, {"color": "blue", "value": "13"}]'
-        featureData = '[22, 45]'
-        apiUrl = 'http://your-flask-backend-url'
-    }
-
+    
     stages {
-        stage('Send Data to Flask') {
+        stage('Build') {
             steps {
-                script {
-                    def payload = "{\"compareData\": ${env.compareData}, \"featureData\": ${env.featureData}}"
-
-                    def response = httpRequest(
-                        contentType: 'APPLICATION_JSON',
-                        httpMode: 'POST',
-                        requestBody: payload,
-                        url: env.apiUrl
-                    )
-
-                    echo "Response from Flask: ${response.content}"
-                }
+                // Your build steps here
+                // Assuming you have the necessary data available
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                def compareData = // Your compare data
+                def featureData = // Your feature data
+                def jobResult = currentBuild.result ?: 'UNKNOWN'
+                
+                def payload = [
+                    compare_data: compareData,
+                    feature_data: featureData,
+                    job_result: jobResult
+                ]
+                
+                // Send data to Flask backend
+                httpRequest(
+                    contentType: 'APPLICATION_JSON',
+                    httpMode: 'POST',
+                    requestBody: groovy.json.JsonOutput.toJson(payload),
+                    url: 'http://your_flask_server/jenkins-webhook'
+                )
             }
         }
     }
