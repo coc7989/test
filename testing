@@ -1,35 +1,158 @@
-from flask import Flask, jsonify
-import os
+import React, { useState, useEffect } from "react"
+import "./Load.css"
 
-app = Flask(__name__)
+const Load = () => {
+  const [loadingPercentage, setLoadingPercentage] = useState(0)
+  const [text, setText] = useState("Generating files")
 
-@app.route('/chunks', methods=['GET'])
-def read_files():
-    row_id = 'your_row_id'  # Provide the row ID here
-    folder_path = os.path.join('/opt/license_files', row_id)
+  useEffect(() => {
+    const updateProgress = () => {
+      setTimeout(() => {
+        setLoadingPercentage(25)
+        setText("File Generating")
+      }, 1000) // 1 second delay
 
-    current_folder_path = os.path.join(folder_path, 'Current')
-    updated_folder_path = os.path.join(folder_path, 'Updated')
+      setTimeout(() => {
+        setLoadingPercentage(50)
+        setText("File Generated")
+      }, 2000) // 2 second delay
 
-    current_files = os.listdir(current_folder_path)
-    updated_files = os.listdir(updated_folder_path)
+      setTimeout(() => {
+        setLoadingPercentage(75)
+        setText("Comparing files")
+      }, 3000) // 3 second delay
 
-    original_text = ''
-    modified_text = ''
+      setTimeout(() => {
+        setLoadingPercentage(100)
+        setText("File Comparison completed")
+      }, 4000) // 4 second delay
+    }
 
-    # Read file inside 'Current' folder
-    if current_files:
-        current_file_path = os.path.join(current_folder_path, current_files[0])  # Assuming only one file for simplicity
-        with open(current_file_path, 'r') as current_file:
-            original_text = current_file.read()
+    updateProgress()
+  }, [])
 
-    # Read file inside 'Updated' folder
-    if updated_files:
-        updated_file_path = os.path.join(updated_folder_path, updated_files[0])  # Assuming only one file for simplicity
-        with open(updated_file_path, 'r') as updated_file:
-            modified_text = updated_file.read()
+  return (
+    <div className='container'>
+      <div className='loader'>
+        <div className='flex'>
+          <div className='title'>
+            <p className='loading-text'>{text}</p>
+            <div className='therefore'>∴</div>
+          </div>
+          <p className='loading-number'>{loadingPercentage}%</p>
+        </div>
+        <div className='loading-bar-border'>
+          <div
+            className='loading-bar'
+            style={{ width: `${loadingPercentage}%` }}
+          ></div>
+        </div>
+        <div className='warning'>
+          <div className='exclamation'>!</div>
+          <span>CAUTION, Do not turn off.</span>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-    return jsonify({'original_text': original_text, 'modified_text': modified_text}), 200
+export default Load
 
-if __name__ == '__main__':
-    app.run(debug=True)
+
+
+
+@keyframes opcty {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes rotate {
+  0% {
+    transform: rotate(0);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.title {
+  display: flex;
+}
+.flex {
+  display: flex;
+  justify-content: space-between;
+}
+
+body {
+  /* background-color: #000; */
+  color: black;
+  overflow: hidden;
+  height: 100%;
+}
+
+.container {
+  display: flex;
+  height: 100vh;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.loader {
+  display: flex;
+  flex-direction: column;
+  width: 30%;
+  animation: opcty 1s ease-in-out;
+}
+
+.loading-text {
+  font-family: "Orbitron";
+  letter-spacing: 0.3rem;
+}
+
+.therefore {
+  font-size: 24px;
+  animation: rotate 1s linear infinite;
+  padding-top: 9.5px;
+  height: fit;
+}
+
+.loading-bar-border {
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 3px;
+  border-top: 1px solid rgba(3, 2, 2, 0.795);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.821);
+  border-left: 1px solid rgba(0, 0, 0, 0.821);
+  border-right: 1px solid rgba(0, 0, 0, 0.821);
+  width: 100%;
+}
+
+.loading-bar {
+  height: 0.6rem;
+  margin: 1px 0px;
+  background: black;
+  transition: width 0.5s ease-in-out;
+}
+
+.warning {
+  margin-top: 0.5rem;
+  font-family: "Orbitron";
+  display: flex;
+  gap: 5px;
+  height: 1.2rem;
+}
+
+.exclamation {
+  width: 1rem;
+  display: flex;
+  justify-content: center;
+  background-color: black;
+  color: white;
+  border-radius: 3px;
+}
