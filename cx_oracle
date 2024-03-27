@@ -1,0 +1,87 @@
+# Importing necessary libraries
+import os
+import re
+from datetime import datetime  # Date and time functionality
+
+# Regular expressions
+from flask import Flask, request, jsonify  # Flask for web framework
+from flask_cors import CORS  # Cross-Origin Resource Sharing support
+import requests
+import json
+import time
+import uuid
+import cx_Oracle
+import shutil
+from sqlalchemy import create_engine  # SQLAlchemy for database operations
+from credentials import *
+
+# Initializing Flask app and enabling CORS
+app = Flask(__name__)
+CORS(app)  # Enabling Cross-Origin Resource Sharing
+app.app_context().push()  # Pushing the application context
+req_id = str(uuid.uuid4())
+
+# Configuring upload folder and allowed file types
+UPLOAD_FOLDER = req_id  # Folder to store uploaded files
+ALLOWED_EXTENSIONS = {'txt'}  # Allowed file extensions for upload
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER  # Setting the upload folder in the app configuration
+
+# Copy files from "Existing" folder to new UUID-named folder with prefix "existing_"
+existing_folder = "Existing"
+if os.path.exists(existing_folder):
+    for existing_file in os.listdir(existing_folder):
+        existing_file_path = os.path.join(existing_folder, existing_file)
+        if os.path.isfile(existing_file_path):
+            new_file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"existing_{existing_file}")
+            # Ensure the destination directory exists before copying the file
+            os.makedirs(os.path.dirname(new_file_path), exist_ok=True)
+            shutil.copy(existing_file_path, new_file_path)
+
+# Function to check if the file type is allowed.
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Functions to extract features from license files
+def extract_features(text):
+    pattern = r'(?<=USE_SERVER)\n(?: FEATURE INCREMENT)(\n].)*?(?=#\s*DAEMON |#-+)'
+    match = re.search(pattern, text, re.MULTILINE)
+    if match:
+        return match.group()
+    else:
+        print("no features got extracted")
+
+# Function to extract beta features section from a text
+def extract_beta_features(text):
+    pattern = r'(?<=****###### LICENSE KEYS END HERE #######)(\n.)*?(?=#+\s*PRODUCT TO FEATURE MAPPING)-'
+    match = re.search(pattern, text, re.MULTILINE)
+    if match:
+        return match.group()
+    else:
+        print("no beta features got extracted")
+
+vendor_license_files = {
+    "cdsimd": "Cadence_license.txt",
+    "snpslmd": "Synopsys_license.txt",
+}
+
+# SQLAlchemy engine creation with connection pooling
+engine = create_engine(f'oracle+cx_oracle://{username}:{password}@{dsn}', pool_size=20, max_overflow=0)
+
+@app.route('/fetch_vendors', methods=['GET'])
+def fetch_vendors():
+    with engine.connect() as connection:
+        vendors = connection.execute("SELECT DISTINCT Vendor FROM mapping WHERE Vendor IN ('cdslmd', 'snpslmd')").fetchall()
+    vendors = [row[0] for row in vendors]
+    print("Vendors Fetched:", vendors)
+    return jsonify({'vendors': vendors})
+
+@app.route('/fetch_servers', methods=['GET'])
+def fetch_servers():
+    vendor = request.args.get('vendor')
+    with engine.connect() as connection:
+        servers = connection.execute("SELECT server FROM mapping WHERE vendor = :vendor", {'vendor': vendor}).fetchall()
+    servers = [row[0] for row in servers]
+    print("Servers Fetched:", servers)
+    return jsonify({'servers': servers})
+
+# Remaining routes and functions remain unchanged...
