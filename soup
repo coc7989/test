@@ -2,38 +2,37 @@
 tables = soup.find_all('table')
 
 for table in tables:
-    # Initialize variables to keep track of rowspan
-    rowspan_map = {}
+    # Initialize variables to keep track of constant values
+    constant_values = {}
 
     # Extract table headers
     headers = [header.text.strip() for header in table.find_all('th')]
 
     # Extract table rows
     rows = []
-    for row_idx, row in enumerate(table.find_all('tr')):
+    for row in table.find_all('tr'):
         row_data = []
-        col_idx = 0
-        for cell_idx, cell in enumerate(row.find_all(['td', 'th'])):
-            # Check rowspan
-            while (row_idx, col_idx) in rowspan_map:
-                rowspan_map.pop((row_idx, col_idx))
-                col_idx += 1
+        cells = row.find_all(['td', 'th'])
 
+        for col_idx, cell in enumerate(cells):
             rowspan = int(cell.get('rowspan', 1))
             colspan = int(cell.get('colspan', 1))
             cell_text = cell.text.strip()
 
-            # Update rowspan map
-            for i in range(rowspan):
-                for j in range(colspan):
-                    if (row_idx + i, col_idx + j) != (row_idx, col_idx):
-                        rowspan_map[(row_idx + i, col_idx + j)] = True
+            # If cell spans multiple rows, store its value for future rows
+            if rowspan > 1:
+                for i in range(rowspan):
+                    constant_values[(row.index(cell), col_idx)] = cell_text
+
+            # Check if the current cell corresponds to a constant value
+            constant_value = constant_values.get((row.index(cell), col_idx))
+
+            # If it does, use the constant value instead of the cell value
+            if constant_value is not None:
+                cell_text = constant_value
 
             # Append cell value to row data
             row_data.append(cell_text)
-
-            # Move to next column
-            col_idx += 1
 
         # Append row data to rows
         rows.append(row_data)
