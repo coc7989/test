@@ -1,10 +1,6 @@
-# Find all table elements
 tables = soup.find_all('table')
 
 for table in tables:
-    # Initialize variables to keep track of constant values
-    constant_values = {}
-
     # Extract table headers
     headers = [header.text.strip() for header in table.find_all('th')]
 
@@ -14,25 +10,16 @@ for table in tables:
         row_data = []
         cells = row.find_all(['td', 'th'])
 
-        for col_idx, cell in enumerate(cells):
+        for cell in cells:
             rowspan = int(cell.get('rowspan', 1))
-            colspan = int(cell.get('colspan', 1))
             cell_text = cell.text.strip()
 
-            # If cell spans multiple rows, store its value for future rows
+            # If cell spans multiple rows, replicate its value for those rows
             if rowspan > 1:
                 for i in range(rowspan):
-                    constant_values[(row.index(cell), col_idx)] = cell_text
-
-            # Check if the current cell corresponds to a constant value
-            constant_value = constant_values.get((row.index(cell), col_idx))
-
-            # If it does, use the constant value instead of the cell value
-            if constant_value is not None:
-                cell_text = constant_value
-
-            # Append cell value to row data
-            row_data.append(cell_text)
+                    row_data.append(cell_text)
+            else:
+                row_data.append(cell_text)
 
         # Append row data to rows
         rows.append(row_data)
