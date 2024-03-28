@@ -1,3 +1,4 @@
+# Find all table elements
 tables = soup.find_all('table')
 
 for table in tables:
@@ -6,20 +7,29 @@ for table in tables:
 
     # Extract table rows
     rows = []
+    rowspan_map = {}
     for row in table.find_all('tr'):
         row_data = []
+        col_idx = 0
         cells = row.find_all(['td', 'th'])
-
-        for cell in cells:
+        for cell_idx, cell in enumerate(cells):
             rowspan = int(cell.get('rowspan', 1))
+            colspan = int(cell.get('colspan', 1))
             cell_text = cell.text.strip()
 
-            # If cell spans multiple rows, replicate its value for those rows
-            if rowspan > 1:
-                for i in range(rowspan):
-                    row_data.append(cell_text)
-            else:
-                row_data.append(cell_text)
+            # Propagate rowspan value across columns in the same row
+            for i in range(rowspan):
+                if i > 0:
+                    rowspan_map[(len(rows) + i, col_idx)] = cell_text
+
+            # Check if the cell should inherit value from rowspan
+            cell_text = rowspan_map.get((len(rows), col_idx), cell_text)
+
+            # Append cell value to row data
+            row_data.append(cell_text)
+
+            # Move to next column index
+            col_idx += colspan
 
         # Append row data to rows
         rows.append(row_data)
