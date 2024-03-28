@@ -1,22 +1,52 @@
-important_heading = soup.find('h2', text=lambda text: text and 'Yellow - Important' in text)
+# Find all table elements
+tables = soup.find_all('table')
 
-# Navigate to the <div> tag containing the table
-div_containing_table = important_heading.find_next('p').find_next('div')
+# Initialize a counter for the tables
+table_count = 0
 
-# Find the table within the <div>
-table = div_containing_table.find('table')
+for table in tables:
+    # Increment the table count
+    table_count += 1
 
-# Extract table headers
-headers = [header.text.strip() for header in table.find_all('th')]
+    # If this is the second table, process it
+    if table_count == 2:
+        # Extract table headers
+        headers = [header.text.strip() for header in table.find_all('th')]
 
-# Extract table rows
-rows = []
-for row in table.find_all('tr'):
-    row_data = [cell.text.strip() for cell in row.find_all('td')]
-    if row_data:  # Ignore empty rows
-        rows.append(row_data)
+        # Extract table rows
+        rows = []
+        rowspan_map = {}
+        for row in table.find_all('tr'):
+            row_data = []
+            col_idx = 0
+            cells = row.find_all(['td', 'th'])
+            for cell_idx, cell in enumerate(cells):
+                rowspan = int(cell.get('rowspan', 1))
+                colspan = int(cell.get('colspan', 1))
+                cell_text = cell.text.strip()
 
-# Print table headers and data
-print("Headers:", headers)
-for row in rows:
-    print("Row:", row)
+                # Propagate rowspan value across columns in the same row
+                for i in range(rowspan):
+                    if i > 0:
+                        rowspan_map[(len(rows) + i, col_idx)] = cell_text
+
+                # Check if the cell should inherit value from rowspan
+                cell_text = rowspan_map.get((len(rows), col_idx), cell_text)
+
+                # Append cell value to row data
+                row_data.append(cell_text)
+
+                # Move to next column index
+                col_idx += colspan
+
+            # Append row data to rows
+            rows.append(row_data)
+
+        # Print table headers and data
+        print("Headers:", headers)
+        for row in rows:
+            print("Row:", row)
+        print()  # Print an empty line for readability
+
+        # Exit loop after processing the second table
+        break
