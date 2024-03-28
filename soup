@@ -1,7 +1,10 @@
-important_section = soup.find(text="Yellow - Important").find_parent("h2")
+important_heading = soup.find('h2', text=lambda text: text and 'Yellow - Important' in text)
 
-# Find the table after the "Yellow - Important" section
-table = important_section.find_next_sibling("table")
+# Navigate to the <div> tag containing the table
+div_containing_table = important_heading.find_next('p').find_next('div')
+
+# Find the table within the <div>
+table = div_containing_table.find('table')
 
 # Extract table headers
 headers = [header.text.strip() for header in table.find_all('th')]
