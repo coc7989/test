@@ -1,0 +1,110 @@
+import os
+import re
+from datetime import datetime  # Date and time functionality
+
+# Regular expressions
+from flask import Flask, request, jsonify  # Flask for web framework
+from flask_cors import CORS  # Cross-Origin Resource Sharing support
+import requests
+import json
+import time
+import uuid
+import cx_Oracle
+import shutil
+from credentials import *
+
+# Connection Pooling with cx_Oracle.SessionPool
+pool = cx_Oracle.SessionPool(user=username, password=password, dsn=dsn, min=1, max=5, increment=1)
+
+# Making connection using pool
+def get_connection():
+    connection = pool.acquire()
+    return connection
+
+# Releasing connection back to pool
+def release_connection(connection):
+    pool.release(connection)
+
+
+# Initializing Flask app and enabling CORS
+app = Flask(__name__)
+
+# Creating a Flask web application
+CORS(app)  # Enabling Cross-Origin Resource Sharing
+app.app_context().push()  # Pushing the application context
+req_id = str(uuid.uuid4())
+# Configuring upload folder and allowed file types
+UPLOAD_FOLDER = req_id  # Folder to store uploaded files
+ALLOWED_EXTENSIONS = {'txt'}  # Allowed file extensions for upload
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER  # Setting the upload folder in the app configuration
+
+# Copy files from "Existing" folder to new UUID-named folder with prefix "existing_"
+existing_folder = "Existing"
+if os.path.exists(existing_folder):
+    for existing_file in os.listdir(existing_folder):
+        existing_file_path = os.path.join(existing_folder, existing_file)
+        if os.path.isfile(existing_file_path):
+            new_file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"existing_{existing_file}")
+            # Ensure the destination directory exists before copying the file
+            os.makedirs(os.path.dirname(new_file_path), exist_ok=True)
+            shutil.copy(existing_file_path, new_file_path)
+
+# Function to check if the file type is allowed.
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+# Functions to extract features from license files
+def extract_features(text):
+    pattern = r'(?<=USE_SERVER)\n(?: FEATURE INCREMENT)(\n].)*?(?=#\s*DAEMON |#-+)'
+    match = re.search(pattern, text, re.MULTILINE)
+    if match:
+        return match.group()
+    else:
+        print("no features got extracted")
+
+
+# Function to extract beta features section from a text
+def extract_beta_features(text):
+    pattern = r'(?<=****###### LICENSE KEYS END HERE #######)(\n.)*?(?=#+\s*PRODUCT TO FEATURE MAPPING)-'
+    match = re.search(pattern, text, re.MULTILINE)
+    if match:
+        return match.group()
+    else:
+        print("no beta features got extracted")
+
+
+vendor_license_files = {
+    "cdsimd": "Cadence_license.txt",
+    "snpslmd": "Synopsys_license.txt",
+}
+
+
+@app.route('/fetch_vendors', methods=['GET'])
+def fetch_vendors():
+    connection = get_connection()
+    cursor = connection.cursor()
+    query = "SELECT DISTINCT Vendor FROM mapping WHERE Vendor IN ('cdslmd', 'snpslmd')"
+    cursor.execute(query)
+    vendors = [row[0] for row in cursor.fetchall()]
+    print("Vendors Fetched:", vendors)
+    cursor.close()
+    release_connection(connection)
+    return jsonify({'vendors': vendors})
+
+
+@app.route('/fetch_servers', methods=['GET'])
+def fetch_servers():
+    vendor = request.args.get('vendor')
+    connection = get_connection()
+    cursor = connection.cursor()
+    query = "SELECT server FROM mapping WHERE vendor = :vendor"
+    cursor.execute(query, {'vendor': vendor})
+    servers = [row[0] for row in cursor.fetchall()]
+    print("Servers Fetched:", servers)
+    cursor.close()
+    release_connection(connection)
+    return jsonify({'servers': servers})
+
+
+@app.route('/upload', methods=['POST
