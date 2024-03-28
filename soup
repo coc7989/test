@@ -1,41 +1,19 @@
-# Find all table elements
-tables = soup.find_all('table')
+important_section = soup.find(text="Yellow - Important").find_parent("h2")
 
-for table in tables:
-    # Extract table headers
-    headers = [header.text.strip() for header in table.find_all('th')]
+# Find the table after the "Yellow - Important" section
+table = important_section.find_next_sibling("table")
 
-    # Extract table rows
-    rows = []
-    rowspan_map = {}
-    for row in table.find_all('tr'):
-        row_data = []
-        col_idx = 0
-        cells = row.find_all(['td', 'th'])
-        for cell_idx, cell in enumerate(cells):
-            rowspan = int(cell.get('rowspan', 1))
-            colspan = int(cell.get('colspan', 1))
-            cell_text = cell.text.strip()
+# Extract table headers
+headers = [header.text.strip() for header in table.find_all('th')]
 
-            # Propagate rowspan value across columns in the same row
-            for i in range(rowspan):
-                if i > 0:
-                    rowspan_map[(len(rows) + i, col_idx)] = cell_text
-
-            # Check if the cell should inherit value from rowspan
-            cell_text = rowspan_map.get((len(rows), col_idx), cell_text)
-
-            # Append cell value to row data
-            row_data.append(cell_text)
-
-            # Move to next column index
-            col_idx += colspan
-
-        # Append row data to rows
+# Extract table rows
+rows = []
+for row in table.find_all('tr'):
+    row_data = [cell.text.strip() for cell in row.find_all('td')]
+    if row_data:  # Ignore empty rows
         rows.append(row_data)
 
-    # Print table headers and data
-    print("Headers:", headers)
-    for row in rows:
-        print("Row:", row)
-    print()  # Print an empty line for readability
+# Print table headers and data
+print("Headers:", headers)
+for row in rows:
+    print("Row:", row)
