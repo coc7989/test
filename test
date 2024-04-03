@@ -1,10 +1,8 @@
-output=$(/home/flames/vendors/cds/pgms.linux/lmreread -c /home/flames/data/\$mappedlicense)
+output=$(/home/flames/vendors/cds/pgms.linux/lmstat -c /home/flames/data/\$mappedlicense)
 
-# Extract vendor name and status
-vendor_status=$(echo "$output" | grep -o 'vendorName: [^ ]*')
-echo "Vendor Status: $vendor_status"
-
-
-def vendorName = 'cdslmd'
-            def vendor_status = output =~ /${vendorName}: (UP|DOWN)/ ? "${vendorName}: ${it[0][1]}" : "Status not found"
-            echo "Vendor Status: $vendor_status"
+# Check if the output contains both "lmreread successful" and "lmreread- Copyright 1980"
+if [[ $output == *"lmreread successful"* && $output == *"lmreread- Copyright 1980"* ]]; then
+    echo "lmreread was successful"
+else
+    echo "lmreread failed or not successful"
+fi
