@@ -4,3 +4,7 @@ output=$(/home/flames/vendors/cds/pgms.linux/lmreread -c /home/flames/data/\$map
 vendor_status=$(echo "$output" | grep -o 'vendorName: [^ ]*')
 echo "Vendor Status: $vendor_status"
 
+
+def vendorName = 'cdslmd'
+            def vendor_status = output =~ /${vendorName}: (UP|DOWN)/ ? "${vendorName}: ${it[0][1]}" : "Status not found"
+            echo "Vendor Status: $vendor_status"
