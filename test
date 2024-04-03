@@ -1,1 +1,6 @@
+output=$(/home/flames/vendors/cds/pgms.linux/lmreread -c /home/flames/data/\$mappedlicense)
+
+# Extract vendor name and status
+vendor_status=$(echo "$output" | grep -o 'vendorName: [^ ]*')
+echo "Vendor Status: $vendor_status"
 
