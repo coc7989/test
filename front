@@ -1,0 +1,55 @@
+import React, { useState } from 'react';
+import { FormControl, InputLabel, MenuItem, Select, Button } from '@mui/material';
+import { PieChart } from './PieChart'; // assuming PieChart is another component for rendering pie chart
+
+function App() {
+  const [selection, setSelection] = useState('');
+  const [chartData, setChartData] = useState(null);
+
+  const handleSelectionChange = (event) => {
+    setSelection(event.target.value);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const response = await fetch('/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ selection }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+
+      const data = await response.json();
+      setChartData(data);
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  return (
+    <div>
+      <FormControl fullWidth>
+        <InputLabel id="selection-label">Select</InputLabel>
+        <Select
+          labelId="selection-label"
+          id="selection"
+          value={selection}
+          label="Select"
+          onChange={handleSelectionChange}
+        >
+          <MenuItem value="region">Region</MenuItem>
+          <MenuItem value="server">Server</MenuItem>
+        </Select>
+      </FormControl>
+      <Button variant="contained" onClick={handleSubmit}>Submit</Button>
+      {chartData && <PieChart data={chartData} />}
+    </div>
+  );
+}
+
+export default App;
