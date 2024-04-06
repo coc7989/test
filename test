@@ -1,1 +1,46 @@
 
+from flask import Flask, request, jsonify
+import cx_Oracle
+
+app = Flask(__name__)
+
+# Database connection configuration
+oracle_username = 'your_username'
+oracle_password = 'your_password'
+oracle_host = 'your_host'
+oracle_port = 'your_port'
+oracle_service = 'your_service_name'
+
+# Route to handle the form submission
+@app.route('/submit', methods=['POST'])
+def submit():
+    selection = request.json['selection']
+    data = []
+
+    # Database connection
+    conn = cx_Oracle.connect(
+        user=oracle_username,
+        password=oracle_password,
+        dsn=f"{oracle_host}:{oracle_port}/{oracle_service}"
+    )
+    cursor = conn.cursor()
+
+    # Fetch data based on user selection
+    if selection == 'region':
+        cursor.execute("SELECT region, COUNT(DISTINCT vendor_id) FROM mapping GROUP BY region")
+    elif selection == 'server':
+        cursor.execute("SELECT server, COUNT(DISTINCT vendor_id) FROM mapping GROUP BY server")
+
+    result = cursor.fetchall()
+
+    # Prepare data for JSON response
+    for row in result:
+        data.append({'id': row[0], 'value': row[1], 'label': row[0]})
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(data)
+
+if __name__ == '__main__':
+    app.run(debug=True)
