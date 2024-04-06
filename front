@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FormControl, InputLabel, MenuItem, Select, Button } from '@mui/material';
-import { PieChart } from './PieChart'; // assuming PieChart is another component for rendering pie chart
+import { PieChart } from '@mui/x-charts/PieChart';
 import axios from 'axios';
 
 function App() {
@@ -19,8 +19,13 @@ function App() {
         throw new Error('Network response was not ok');
       }
 
-      const data = response.data;
-      setChartData(data);
+      const data = response.data.map((item, index) => ({
+        id: index,
+        value: item.value,
+        label: item.id
+      }));
+
+      setChartData([{ data }]);
     } catch (error) {
       console.error('Error:', error);
     }
@@ -42,7 +47,7 @@ function App() {
         </Select>
       </FormControl>
       <Button variant="contained" onClick={handleSubmit}>Submit</Button>
-      {chartData && <PieChart data={chartData} />}
+      {chartData && <PieChart series={chartData} width={400} height={200} />}
     </div>
   );
 }
