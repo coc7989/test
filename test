@@ -1,52 +1,10 @@
-from flask import Flask, jsonify
-import cx_Oracle
+# Fetch number of servers in different regions
+cursor.execute("SELECT region, COUNT(DISTINCT server) FROM mapping GROUP BY region")
+servers_data = [{'id': i, 'value': count, 'label': region} for i, (region, count) in enumerate(cursor.fetchall())]
 
-app = Flask(__name__)
+# Fetch number of vendors in different regions
+cursor.execute("SELECT region, COUNT(DISTINCT vendor_id) FROM mapping GROUP BY region")
+vendors_data = [{'id': j, 'value': count, 'label': region} for j, (region, count) in enumerate(cursor.fetchall())]
 
-# Database connection configuration
-oracle_username = 'your_username'
-oracle_password = 'your_password'
-oracle_host = 'your_host'
-oracle_port = 'your_port'
-oracle_service = 'your_service_name'
-
-# Route to fetch data when the page loads
-@app.route('/fetch-data')
-def fetch_data():
-    data = {}
-
-    # Database connection
-    conn = cx_Oracle.connect(
-        user=oracle_username,
-        password=oracle_password,
-        dsn=f"{oracle_host}:{oracle_port}/{oracle_service}"
-    )
-    cursor = conn.cursor()
-
-    # Fetch number of regions
-    cursor.execute("SELECT COUNT(DISTINCT region) FROM mapping")
-    data['num_regions'] = cursor.fetchone()[0]
-
-    # Fetch number of servers
-    cursor.execute("SELECT COUNT(DISTINCT server) FROM mapping")
-    data['num_servers'] = cursor.fetchone()[0]
-
-    # Fetch number of vendors
-    cursor.execute("SELECT COUNT(DISTINCT vendor_id) FROM mapping")
-    data['num_vendors'] = cursor.fetchone()[0]
-
-    # Fetch number of servers in different regions
-    cursor.execute("SELECT region, COUNT(DISTINCT server) FROM mapping GROUP BY region")
-    data['servers_in_regions'] = {row[0]: row[1] for row in cursor.fetchall()}
-
-    # Fetch number of vendors in different regions
-    cursor.execute("SELECT region, COUNT(DISTINCT vendor_id) FROM mapping GROUP BY region")
-    data['vendors_in_regions'] = {row[0]: row[1] for row in cursor.fetchall()}
-
-    cursor.close()
-    conn.close()
-
-    return jsonify(data)
-
-if __name__ == '__main__':
-    app.run(debug=True)
+data['servers_in_regions'] = servers_data
+data['vendors_in_regions'] = vendors_data
