@@ -1,53 +1,49 @@
-import React, { useState } from 'react';
-import { FormControl, InputLabel, MenuItem, Select, Button } from '@mui/material';
-import { PieChart } from '@mui/x-charts/PieChart';
+import React, { useState, useEffect } from 'react';
+import { Typography } from '@mui/material';
 import axios from 'axios';
 
 function App() {
-  const [selection, setSelection] = useState('');
-  const [chartData, setChartData] = useState(null);
+  const [data, setData] = useState(null);
 
-  const handleSelectionChange = (event) => {
-    setSelection(event.target.value);
-  };
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await axios.get('/fetch-data');
 
-  const handleSubmit = async () => {
-    try {
-      const response = await axios.post('/submit', { selection });
+        if (response.status !== 200) {
+          throw new Error('Network response was not ok');
+        }
 
-      if (response.status !== 200) {
-        throw new Error('Network response was not ok');
+        setData(response.data);
+      } catch (error) {
+        console.error('Error:', error);
       }
+    };
 
-      const data = response.data.map((item, index) => ({
-        id: index,
-        value: item.value,
-        label: item.id
-      }));
-
-      setChartData([{ data }]);
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
+    fetchData();
+  }, []);
 
   return (
     <div>
-      <FormControl fullWidth>
-        <InputLabel id="selection-label">Select</InputLabel>
-        <Select
-          labelId="selection-label"
-          id="selection"
-          value={selection}
-          label="Select"
-          onChange={handleSelectionChange}
-        >
-          <MenuItem value="region">Region</MenuItem>
-          <MenuItem value="server">Server</MenuItem>
-        </Select>
-      </FormControl>
-      <Button variant="contained" onClick={handleSubmit}>Submit</Button>
-      {chartData && <PieChart series={chartData} width={400} height={200} />}
+      {data && (
+        <div>
+          <Typography variant="h5">Number of Regions: {data.num_regions}</Typography>
+          <Typography variant="h5">Number of Servers: {data.num_servers}</Typography>
+          <Typography variant="h5">Number of Vendors: {data.num_vendors}</Typography>
+          <Typography variant="h5">Servers in Different Regions:</Typography>
+          <ul>
+            {Object.entries(data.servers_in_regions).map(([region, numServers]) => (
+              <li key={region}>{region}: {numServers}</li>
+            ))}
+          </ul>
+          <Typography variant="h5">Vendors in Different Regions:</Typography>
+          <ul>
+            {Object.entries(data.vendors_in_regions).map(([region, numVendors]) => (
+              <li key={region}>{region}: {numVendors}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
