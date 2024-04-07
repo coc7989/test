@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 import cx_Oracle
 
 app = Flask(__name__)
@@ -10,11 +10,10 @@ oracle_host = 'your_host'
 oracle_port = 'your_port'
 oracle_service = 'your_service_name'
 
-# Route to handle the form submission
-@app.route('/submit', methods=['POST'])
-def submit():
-    selection = request.json['selection']
-    data = []
+# Route to fetch data when the page loads
+@app.route('/fetch-data')
+def fetch_data():
+    data = {}
 
     # Database connection
     conn = cx_Oracle.connect(
@@ -24,17 +23,25 @@ def submit():
     )
     cursor = conn.cursor()
 
-    # Fetch data based on user selection
-    if selection == 'region':
-        cursor.execute("SELECT region, COUNT(DISTINCT vendor_id) FROM mapping GROUP BY region")
-    elif selection == 'server':
-        cursor.execute("SELECT server, COUNT(DISTINCT vendor_id) FROM mapping GROUP BY server")
+    # Fetch number of regions
+    cursor.execute("SELECT COUNT(DISTINCT region) FROM mapping")
+    data['num_regions'] = cursor.fetchone()[0]
 
-    result = cursor.fetchall()
+    # Fetch number of servers
+    cursor.execute("SELECT COUNT(DISTINCT server) FROM mapping")
+    data['num_servers'] = cursor.fetchone()[0]
 
-    # Prepare data for JSON response
-    for row in result:
-        data.append({'id': row[0], 'value': row[1], 'label': row[0]})
+    # Fetch number of vendors
+    cursor.execute("SELECT COUNT(DISTINCT vendor_id) FROM mapping")
+    data['num_vendors'] = cursor.fetchone()[0]
+
+    # Fetch number of servers in different regions
+    cursor.execute("SELECT region, COUNT(DISTINCT server) FROM mapping GROUP BY region")
+    data['servers_in_regions'] = {row[0]: row[1] for row in cursor.fetchall()}
+
+    # Fetch number of vendors in different regions
+    cursor.execute("SELECT region, COUNT(DISTINCT vendor_id) FROM mapping GROUP BY region")
+    data['vendors_in_regions'] = {row[0]: row[1] for row in cursor.fetchall()}
 
     cursor.close()
     conn.close()
