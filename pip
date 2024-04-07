@@ -22,29 +22,29 @@ pipeline {
         stage('Execute SSH Commands') {
             steps {
                 script {
-                    def counter = 0
-                    sshScript = '''
-                    while [ $counter -lt 2 ]; do
-                        if [ $(( $(date +%s) - $(stat -c %Y /home/flames/data/${mappedlicense}) )) -lt 120 ]; then
-                            lmreread=$(/home/flames/vendors/cds/pgms.linux/lmreread -c /home/flames/data/${mappedlicense})
-                            reread_status=$(echo "$lmreread" | grep -o "lmreread successful")
-                            lmstat=$(/home/flames/vendors/cds/pgms.linux/lmstat -c /home/flames/data/${mappedlicense})
-                            vendor_status=$(echo "$lmstat" | grep -o "${vendor}: [^ ]*" | awk '{print $NF}')
+                    set counter = 0
+                    set sshScript = '''
+                    while ($counter < 2)
+                        if (`expr \( \`date +%s\` - \`stat -c %Y /home/flames/data/${mappedlicense}\` \) \< 120`) then
+                            set lmreread = `/home/flames/vendors/cds/pgms.linux/lmreread -c /home/flames/data/${mappedlicense}`
+                            set reread_status = `echo "$lmreread" | grep -o "lmreread successful"`
+                            set lmstat = `/home/flames/vendors/cds/pgms.linux/lmstat -c /home/flames/data/${mappedlicense}`
+                            set vendor_status = `echo "$lmstat" | grep -o "${vendor}: [^ ]*" | awk '{print $NF}'`
                             
-                            if [[ $reread_status == "lmreread successful" && $lmstat == "UP" ]]; then
+                            if ("$reread_status" == "lmreread successful" && "$lmstat" == "UP") then
                                 echo "lmreread was successful"
                             else
                                 echo "lmreread failed or not successful"
                                 rsync -avz /history/${backupFile} /.
-                            fi
+                            endif
                         else
                             echo 'File copy failed or timestamp is not recent'
                             exit 1
-                        fi
-                        ((counter++))  # Increment counter
-                    done
+                        endif
+                        @ counter++  # Increment counter
+                    end
                     '''
-                    sh "ssh -tt fllv.com '/bin/bash' << 'EOF'\n${sshScript}\nEOF"
+                    sh "ssh -tt fllv.com '/bin/csh' << 'EOF'\n${sshScript}\nEOF"
                 }
             }
         }
