@@ -1,10 +1,41 @@
-# Fetch number of servers in different regions
-cursor.execute("SELECT region, COUNT(DISTINCT server) FROM mapping GROUP BY region")
-servers_data = [{'id': i, 'value': count, 'label': region} for i, (region, count) in enumerate(cursor.fetchall())]
+from flask import Flask, request, jsonify
+import cx_Oracle
 
-# Fetch number of vendors in different regions
-cursor.execute("SELECT region, COUNT(DISTINCT vendor_id) FROM mapping GROUP BY region")
-vendors_data = [{'id': j, 'value': count, 'label': region} for j, (region, count) in enumerate(cursor.fetchall())]
+app = Flask(__name__)
 
-data['servers_in_regions'] = servers_data
-data['vendors_in_regions'] = vendors_data
+# Database connection configuration
+oracle_username = 'your_username'
+oracle_password = 'your_password'
+oracle_host = 'your_host'
+oracle_port = 'your_port'
+oracle_service = 'your_service_name'
+
+# Route to fetch vendor counts by region
+@app.route('/vendor-count-by-region', methods=['POST'])
+def vendor_count_by_region():
+    vendor = request.json['vendor']
+    data = []
+
+    # Database connection
+    conn = cx_Oracle.connect(
+        user=oracle_username,
+        password=oracle_password,
+        dsn=f"{oracle_host}:{oracle_port}/{oracle_service}"
+    )
+    cursor = conn.cursor()
+
+    # Fetch vendor count by region
+    cursor.execute("SELECT region, COUNT(DISTINCT vendor_id) FROM mapping WHERE vendor_name = :vendor GROUP BY region", {'vendor': vendor})
+    result = cursor.fetchall()
+
+    # Prepare data for JSON response
+    for row in result:
+        data.append({'id': row[0], 'value': row[1], 'label': row[0]})
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(data)
+
+if __name__ == '__main__':
+    app.run(debug=True)
