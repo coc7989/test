@@ -10,9 +10,8 @@ How updated license file is generated:
 -First three lines SERVER/USE_SERVER/DAEMON/VENDOR remain unchanged.
 - For Merge requests, existing FEATURES are retained and new FEATURES are appended.
 - For Replace requests, all contents below the DAEMON line are replaced with new FEATURES.
-step5: Once updated license file is generated, the portal compares the FEATURES difference between the exisitng file and the updated file and shows the comparison details in the dashboard.
-step6: After verification, if not satisfied with the comparison details then click on ABORT button that will log and abort the current request.
-step7: If satisfied, submit to push the updated file to the production server.
+Step 5: Once the updated license file is generated, the portal compares the FEATURES difference between the existing and updated files, displaying the details on the dashboard.
+Step 6: If not satisfied with the comparison, click the ABORT button to log and abort the request; otherwise, submit to push the updated file to the production server.
 
 2. Change Logs:
 step1: Track changes easily by visiting the Change Log page at autoinferno/change-log.
