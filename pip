@@ -1,52 +1,55 @@
-pipeline {
-    agent any
-    
-    environment {
-        buildNum = 'be2cdcc8-66c8-431e-8be7-d106ccd5cc6a'
-        mappedlicense = 'cds.fllvflamesai.lic'
-        backupFile = "${mappedlicense}.${buildNum}"
-        vendor = 'cdslmd'
-    }
-    
-    stages {
-        stage('Copy File') {
-            steps {
-                script {
-                    sh "rsync -v /opt/license_files/${buildNum}/current/${mappedlicense} /home/flames/data/history/${backupFile}"
-                    sh "rsync -v /opt/license_files/${buildNum}/current/${mappedlicense} fllv.com:/tmp/${backupFile}"
-                    sh "rsync -v /opt/license_files/${buildNum}/updated/${mappedlicense} /home/flames/data/."
-                    sh "rsync -v /opt/license_files/${buildNum}/updated/${mappedlicense} fllv.com:/home/flames/data/."
-                }
-            }
-        }
-        stage('Execute SSH Commands') {
-            steps {
-                script {
-                    set counter = 0
-                    set sshScript = '''
-                    while ($counter < 2)
-                        if (`expr \( \`date +%s\` - \`stat -c %Y /home/flames/data/${mappedlicense}\` \) \< 120`) then
-                            set lmreread = `/home/flames/vendors/cds/pgms.linux/lmreread -c /home/flames/data/${mappedlicense}`
-                            set reread_status = `echo "$lmreread" | grep -o "lmreread successful"`
-                            set lmstat = `/home/flames/vendors/cds/pgms.linux/lmstat -c /home/flames/data/${mappedlicense}`
-                            set vendor_status = `echo "$lmstat" | grep -o "${vendor}: [^ ]*" | awk '{print $NF}'`
-                            
-                            if ("$reread_status" == "lmreread successful" && "$lmstat" == "UP") then
-                                echo "lmreread was successful"
-                            else
-                                echo "lmreread failed or not successful"
-                                rsync -avz /history/${backupFile} /.
-                            endif
-                        else
-                            echo 'File copy failed or timestamp is not recent'
-                            exit 1
-                        endif
-                        @ counter++  # Increment counter
-                    end
-                    '''
-                    sh "ssh -tt fllv.com '/bin/csh' << 'EOF'\n${sshScript}\nEOF"
-                }
-            }
-        }
-    }
-}
+## Auto Inferno: Your One-Stop License Management Portal
+
+Auto Inferno simplifies license installation and management for your production servers. This user-friendly portal streamlines the process, allowing you to install new licenses quickly and effortlessly.
+
+### Getting Started with Auto Inferno
+
+1. **Navigate to the Auto Inferno Dashboard:** Visit [https://www.facebook.com/INFERNO.AUTOMOBILI/](https://www.facebook.com/INFERNO.AUTOMOBILI/) to access the Auto Inferno dashboard.
+
+2. **Install a New License:**
+
+    * **Select Vendor, Server, and Operation:** From the dropdown menus, choose the vendor, server, and desired operation (e.g., Merge or Replace).
+    * **Upload License File (.txt):** Click "Browse" and select the new license file in TXT format.
+    * **Add Comments (Optional):** Include any relevant comments for reference.
+    * **Submit or Reset:** Click "Submit" to initiate the license installation process or "Reset" to clear your selections.
+
+3. **License File Processing:**
+
+    * Upon submission, Auto Inferno analyzes the selected options and your uploaded license file.
+    * **Preserving Base Information:** The first three lines (SERVER/USE_SERVER/DAEMON/VENDOR) will remain unchanged.
+    * **Merging vs. Replacing Licenses:**
+        * **Merge:** Existing FEATURES in the current license file are preserved, and new FEATURES from your upload are appended.
+        * **Replace:** All content below the DAEMON line is removed, and FEATURES from the uploaded file are used entirely.
+
+4. **Comparison Review:**
+
+    * Once processed, Auto Inferno generates a comparison highlighting the differences between the existing and updated license files.
+    * Carefully review the comparison details to ensure accuracy.
+
+5. **Taking Action:**
+
+    * **Abort Installation:** If you're not satisfied with the changes, click "Abort" to cancel the process and log the request.
+    * **Push to Production:** If the comparison is correct, click "Submit" to deploy the updated license file to your production server.
+
+### Additional Features
+
+* **Change Logs:** Track all actions and requests within Auto Inferno. Access the change log at [https://www.infernoexoticcar.com/](https://www.infernoexoticcar.com/) for detailed information, including:
+    * Vendor name
+    * Server name
+    * Date and time the request was submitted and completed
+    * Downloaded files: View and download existing, new, updated, and comparison files. You can also visually compare the original and updated versions.
+
+* **Feature Expiry Monitoring:** Proactively manage license expiration. Visit the Auto Inferno Expiry page at [https://www.reddit.com/r/2007scape/comments/xi1fxs/should_i_even_start_attempting_the_inferno_yet/](https://www.reddit.com/r/2007scape/comments/xi1fxs/should_i_even_start_attempting_the_inferno_yet/) to identify expiring features:
+    * **Critical:** Features nearing expiry (within 15 days) with no redundant licenses available.
+    * **Non-Critical:** User-defined expiry alerts based on chosen interval, vendor, and server.
+
+* **Master List Management:** (For Admins Only) Add, update, or delete records within the Auto Inferno system. Access this feature at [http://www.masterunitlist.info/Unit/Details/7717/inferno-inf-nob](http://www.masterunitlist.info/Unit/Details/7717/inferno-inf-nob).
+
+* **License Access:** Retrieve specific licenses. Navigate to the Auto Inferno License Access page at [https://www.sythe.org/threads/inferno-auto-prayer/](https://www.sythe.org/threads/inferno-auto-prayer/) and enter the AID, vendor, and server details.
+
+* **Interactive Charts:** Gain valuable insights with visual representations. Visit the Auto Inferno Charts page at [https://www.sythe.org/threads/inferno-auto-prayer/](https://www.sythe.org/threads/inferno-auto-prayer/) to explore:
+    * Number of regions, servers, and vendors
+    * Pie charts showcasing server count by region and vendor distribution
+    * Bar chart comparisons of vendor representation across regions
+
+By leveraging Auto Inferno's functionalities, you can efficiently manage your licenses, ensuring seamless operation and optimal software performance.
