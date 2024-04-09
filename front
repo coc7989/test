@@ -1,78 +1,50 @@
-import React, { useState, useEffect } from 'react';
-import { FormControl, InputLabel, MenuItem, Select } from '@mui/material';
-import axios from 'axios';
+AutoInferno is a comprehensive portal designed to streamline license installation processes and more. This platform facilitates users in swiftly installing new licenses onto production servers with ease and efficiency.
 
-function App() {
-  const [vendors, setVendors] = useState([]);
-  const [selectedVendor, setSelectedVendor] = useState('');
-  const [vendorData, setVendorData] = useState(null);
+Usability of the Portal:
 
-  useEffect(() => {
-    const fetchVendors = async () => {
-      try {
-        const response = await axios.get('/vendors');
+Installing New Licenses:
+Step 1: Navigate to the AutoInferno dashboard at autoinferno.com.
+Step 2: Choose the vendor, server, operation, upload new license files (in txt format), and add any pertinent comments.
+Step 3: Click the submit button to initiate the current request or the reset button to clear all selected fields.
+Step 4: Upon submission, the existing license file is modified based on the selected options, generating an updated file as follows:
 
-        if (response.status !== 200) {
-          throw new Error('Network response was not ok');
-        }
+The first three lines (SERVER/USE_SERVER/DAEMON/VENDOR) remain unchanged.
+For Merge requests, existing FEATURES remain intact, while new FEATURES are appended to the license file.
+For Replace requests, all contents below the DAEMON line are removed, and FEATURES from the new license file are copied.
+Step 5: Once the updated license file is generated, the portal displays a comparison of FEATURES between the existing and updated files on the dashboard.
+Step 6: After verification, if users are unsatisfied with the comparison details, they can click the ABORT button to log and abort the current request.
+Step 7: If users are satisfied, they can click the submit button to push the updated file to the production server.
+Change Logs:
+Step 1: Visit the AutoInferno change log page at autoinferno/change-log.
+Step 2: Each request or action is logged to facilitate change tracking, providing details such as:
 
-        setVendors(response.data);
-      } catch (error) {
-        console.error('Error:', error);
-      }
-    };
+Vendor: Vendor name
+Server: Server name
+DateTime started: Time request was submitted
+DateTime completed: Time request was completed
+Files: Options to view and download existing, new, updated, and comparison files, with the ability to visualize a side-by-side comparison of existing and updated files.
+Checking Features Expiry:
+Step 1: Visit the AutoInferno Expiry page at autoinferno/expiry.
+Step 2: Feature Expiry is categorized into two types:
 
-    fetchVendors();
-  }, []);
+Critical: Features expiring within the next 15 days without redundant license files.
+Non-Critical: Features fetched based on user input selection, such as expiry interval, Vendor, and Server.
+Master List:
+Step 1: Visit the AutoInferno Master List page at autoinferno/master-list.
+Step 2: Administrators can add, update, or delete records.
 
-  const handleVendorChange = async (event) => {
-    const vendor = event.target.value;
+License Access:
+Step 1: Visit the AutoInferno License Access page at autoinferno/license-access.
+Step 2: Users can enter AID, select Vendor and Server to gain access to a license.
 
-    try {
-      const response = await axios.post('/vendor-count-by-region', { vendor });
+Charts:
+Step 1: Visit the AutoInferno Charts page at autoinferno/charts.
+Step 2: Users can view the number of regions, servers, and vendors available.
+Step 3: Users can visualize pie charts displaying server count by regions and vendor count or specific vendor count by regions.
+Step 4: Users can also view bar chart comparisons of the portion occupied by vendors in different regions.
 
-      if (response.status !== 200) {
-        throw new Error('Network response was not ok');
-      }
 
-      setVendorData(response.data);
-    } catch (error) {
-      console.error('Error:', error);
-    }
 
-    setSelectedVendor(vendor);
-  };
 
-  return (
-    <div>
-      <FormControl fullWidth>
-        <InputLabel id="vendor-label">Select Vendor</InputLabel>
-        <Select
-          labelId="vendor-label"
-          id="vendor"
-          value={selectedVendor}
-          label="Select Vendor"
-          onChange={handleVendorChange}
-        >
-          {vendors.map((vendor) => (
-            <MenuItem key={vendor} value={vendor}>
-              {vendor}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-      {vendorData && (
-        <div>
-          <h2>Vendor Counts by Region for {selectedVendor}</h2>
-          <ul>
-            {vendorData.map(({ label, value }) => (
-              <li key={label}>{label}: {value}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
 
-export default App;
+
