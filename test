@@ -1,41 +1,45 @@
-from flask import Flask, request, jsonify
-import cx_Oracle
+Auto Inferno is a one stop portal for license installation and many more. This portal helps user to install new licenses into the production server with fast and seamless way. 
 
-app = Flask(__name__)
+Usability of the portal:
+1. Install new licenses:
+Step1: Visit the Auto Inferno dashboard autoinferno.com
+step2: Select vendor, server, operation, upload new license files (txt format) and write any valuable comments.
+step3: Click submit button to submit the current request and initiate the process or click reset button to reset all the selected fields.
+step4: On Submit based on the options selected above the exiting file is modified and a new updated file is generated:
+How updated license file is generated:
+-First three lines SERVER/USE_SERVER/DAEMON/VENDOR remain as they currently exist
+-If Merge request then keep the existing FEATURES as it is and append new FEATURES into the -license file.
+-If Replace request then remove all contents below the DAEMON line and copy FEATURES of new  license file.
+step5: Once updated license file is generated, the portal compares the FEATURES difference between the exisitng file and the updated file and shows the comparison details in the dashboard.
+step6: After verification, if they are not satisfied with the comparison details then they can click on ABORT button that will logs and abort the current request.
+step7: If user is satisfied with the comparison details then they can click on submit button that will push the updated file to the production server.
 
-# Database connection configuration
-oracle_username = 'your_username'
-oracle_password = 'your_password'
-oracle_host = 'your_host'
-oracle_port = 'your_port'
-oracle_service = 'your_service_name'
+2. Change Logs:
+step1: Visit the Auto Inferno change log page autoinferno/change-log
+step2: Each request or action is logged to make it easy to track changes. Each log provides details such as 
+-Vendor : Vendor name
+-Server : Server name
+-DateTime started : Time request was submitted
+-DateTime completed : Time request was completed
+-Files : Provide option to view and download existing, new, updated and comparison files with feature to visualize side by side comparison of the existing file and updated file.
 
-# Route to fetch vendor counts by region
-@app.route('/vendor-count-by-region', methods=['POST'])
-def vendor_count_by_region():
-    vendor = request.json['vendor']
-    data = []
 
-    # Database connection
-    conn = cx_Oracle.connect(
-        user=oracle_username,
-        password=oracle_password,
-        dsn=f"{oracle_host}:{oracle_port}/{oracle_service}"
-    )
-    cursor = conn.cursor()
+3. Check Features Expiry:
+step1: Visit the Auto Inferno Expiry page autoinferno/expiry
+step2: Feature Expiry is classified into two categories:
+ - Critical: Critical features are those that are getting expired within coming 15 days and do      not have any redundant license file with those features.
+ - Non-Critical: These are the features that are fetched based on the user input selection like    expiry interval, Vendor and Server.
 
-    # Fetch vendor count by region
-    cursor.execute("SELECT region, COUNT(DISTINCT vendor_id) FROM mapping WHERE vendor_name = :vendor GROUP BY region", {'vendor': vendor})
-    result = cursor.fetchall()
+4. Master List:
+step1: Visit the Auto Inferno Master List page autoinferno/master-list
+step2: Admins can add, update or delete records 
 
-    # Prepare data for JSON response
-    for row in result:
-        data.append({'id': row[0], 'value': row[1], 'label': row[0]})
+5. License Access:
+step1: Visit the Auto Inferno License Access page autoinferno/license-access
+step2: User can enter AID, select Vendor and Server to gain access to a license.
 
-    cursor.close()
-    conn.close()
-
-    return jsonify(data)
-
-if __name__ == '__main__':
-    app.run(debug=True)
+6. Charts:
+step1: Visit the Auto Inferno Charts page autoinferno/charts
+step2: User can first see the number of regions, server and vendor available. 
+step3: User can also see the pie chart visualization of server count by regions and vendor count or specific vendor count by regions
+step4: User can also see the bar chart comparison visualization of portion occupied by vendors in different regions.
