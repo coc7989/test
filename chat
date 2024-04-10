@@ -1,4 +1,20 @@
-cursor.execute("""
+import cx_Oracle
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+# Database connection details
+username = 'your_username'
+password = 'your_password'
+dsn = 'your_dsn'
+
+@app.route('/vendor_counts')
+def vendor_counts():
+    connection = cx_Oracle.connect(user=username, password=password, dsn=dsn)
+    cursor = connection.cursor()
+
+    # Querying vendor counts for different regions
+    cursor.execute("""
         SELECT vendor,
                SUM(CASE WHEN region = 'Dallas' THEN 1 ELSE 0 END) AS Dallas,
                SUM(CASE WHEN region = 'India' THEN 1 ELSE 0 END) AS India,
@@ -8,3 +24,22 @@ cursor.execute("""
         FROM your_mapping_table
         GROUP BY vendor
     """)
+    data = []
+    for row in cursor:
+        vendor_data = {
+            'Vendor': row[0],
+            'Dallas': row[1],
+            'India': row[2],
+            'China': row[3],
+            'Israel': row[4],
+            'Fresing': row[5]
+        }
+        data.append(vendor_data)
+
+    cursor.close()
+    connection.close()
+
+    return jsonify(data)
+
+if __name__ == '__main__':
+    app.run(debug=True)
