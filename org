@@ -1,44 +1,38 @@
-Auto Inferno is a one stop portal for license installation and many more. This portal helps user to install new licenses into the production server with fast and seamless way. 
+import * as React from 'react';
+import { PieChart } from '@mui/x-charts/PieChart';
+import html2canvas from 'html2canvas';
 
-Usability of the portal:
-1. Install new licenses:
-Step1: Visit the Auto Inferno dashboard autoinferno.com
-step2: Select vendor, server, operation, upload new license files (txt format) and add comments.
-step3: Submit your request to initiate the process or reset selected fields if needed.
-step4: The portal generates an updated license file based on your choices above:
-How updated license file is generated:
--First three lines SERVER/USE_SERVER/DAEMON/VENDOR remain unchanged.
-- For Merge requests, existing FEATURES are retained and new FEATURES are appended.
-- For Replace requests, all contents below the DAEMON line are replaced with new FEATURES.
-Step 5: Once the updated license file is generated, the portal compares the FEATURES difference between the existing and updated files, displaying the details on the dashboard.
-Step 6: If not satisfied with the comparison, click the ABORT button to log and abort the request; otherwise, submit to push the updated file to the production server.
+export default function BasicPie() {
+  const chartRef = React.useRef(null);
 
-2. Change Logs:
-step1: Track changes easily by visiting the Change Log page at autoinferno/change-log.
-step2: Each log provides essential details such as 
--Vendor : Vendor name
--Server : Server name
--DateTime started : Request submission time
--DateTime completed : Request completion time
--Files : Provide option to view and download existing, new, updated and comparison files with feature to visualize side by side comparison of the existing file and updated file.
+  const handleDownload = () => {
+    if (chartRef.current) {
+      html2canvas(chartRef.current).then((canvas) => {
+        const link = document.createElement('a');
+        link.download = 'pie_chart.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      });
+    }
+  };
 
-
-3. Check Features Expiry:
-step1: Use Auto Inferno's Expiry page at autoinferno/expiry to monitor feature expirations:
-step2: Feature Expiry is classified into two categories:
-
- - Critical: Features about to expire within 15 days without redundant licenses identified.
- - Non-Critical: Features based on user-defined criteria like expiry interval, Vendor, and Server selections.
-
-4. Master List:
-step1: Admins can easily manage records on the Master List page, ensuring accurate and up-to-date information.
-step2: Admins have the power to add, update, or delete records quickly.
-5. License Access:
-step1: Users can swiftly access licenses by entering details on the License Access page, simplifying the licensing process.
-step2: Users can enter AID, select Vendor and Server to swiftly gain access to a license.
-
-6. Charts:
-step1: Navigate to the Auto Inferno Charts page for insightful visualizations.
-step2: View statistics on number of regions, servers, and vendors available.
-step3: Pie chart visualization showcasing server count by regions and all vendor or specific vendor count by regions
-step4: Bar chart comparisons displaying vendor distribution across different regions.
+  return (
+    <div>
+      <PieChart
+        ref={chartRef}
+        series={[
+          {
+            data: [
+              { id: 0, value: 10, label: 'series A' },
+              { id: 1, value: 15, label: 'series B' },
+              { id: 2, value: 20, label: 'series C' },
+            ],
+          },
+        ]}
+        width={400}
+        height={200}
+      />
+      <button onClick={handleDownload}>Download Pie Chart</button>
+    </div>
+  );
+}
