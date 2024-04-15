@@ -1,74 +1,63 @@
-import React, { useState, useEffect } from 'react';
-import { BarChart } from '@mui/x-charts/BarChart';
-
-export default function StackBars() {
-  const [selectedCountries, setSelectedCountries] = useState({
-    london: true,
-    paris: true,
-    newYork: true,
-    seoul: true,
-  });
-
-  const [series, setSeries] = useState([]);
-
-  const data = [
-    { london: 0, paris: 1, newYork: 2, seoul: 0, vendor: 'cds' },
-    { london: 2, paris: 0, newYork: 0, seoul: 3, vendor: 'snps' },
-    { london: 1, paris: 3, newYork: 2, seoul: 1, vendor: 'ansys' },
-  ];
-
-  useEffect(() => {
-    const updatedSeries = [];
-    Object.keys(selectedCountries).forEach((country) => {
-      if (selectedCountries[country]) {
-        updatedSeries.push({
-          dataKey: country,
-          label: country.charAt(0).toUpperCase() + country.slice(1),
-          stack: 'total',
-        });
-      }
-    });
-    setSeries(updatedSeries);
-  }, [selectedCountries]);
-
-  const handleCheckboxChange = (country) => {
-    setSelectedCountries({
-      ...selectedCountries,
-      [country]: !selectedCountries[country],
-    });
-  };
-
-  const filteredData = data.map((item) => {
-    const filteredItem = {};
-    Object.keys(item).forEach((key) => {
-      if (key !== 'vendor' && selectedCountries[key]) {
-        filteredItem[key] = item[key];
-      }
-    });
-    return { ...filteredItem, vendor: item.vendor };
-  });
-
-  return (
-    <div>
-      <div>
-        {Object.keys(selectedCountries).map((country) => (
-          <label key={country}>
-            <input
-              type="checkbox"
-              checked={selectedCountries[country]}
-              onChange={() => handleCheckboxChange(country)}
-            />
-            {country}
-          </label>
-        ))}
-      </div>
-      <BarChart
-        dataset={filteredData}
-        xAxis={[{ scaleType: 'band', dataKey: 'vendor' }]}
-        series={series}
-        width={600}
-        height={350}
-      />
-    </div>
-  );
+stage('Verify File and Execute Commands') {
+    steps {
+        script {
+            # Step 2: SSH to destination server and execute commands
+            set counter = 0
+            sh '''
+                #!/bin/csh
+                
+                ssh fllvflamesai.itg.ti.com << EOF
+                
+                echo $SHELL
+                
+                echo $mappedlicense
+                
+                echo "map license: ${mappedlicense}"
+                
+                echo "vendor: ${vendor}"
+                
+                while ($counter < 2)
+                
+                    if ($(( `date +%s` - `stat -c%Y /home/flames/data/${mappedlicense}` )) < 120) then
+                        set lmreread = `/home/flames/vendors/cds/pgms.linux/lmreread -c /home/flames/data/${mappedlicense}`
+                        set reread_status = `echo "$lmreread" | grep "lmreread successful"`
+                        
+                        echo "lmreread: $lmreread"
+                        
+                        echo "reread_status: $reread_status"
+                        
+                        sleep 5
+                        
+                        set lmstat = `/home/flames/vendors/cds/pgms.linux/lmstat -c /home/flames/data/${mappedlicense}`
+                        
+                        echo "vendor is here: ${vendor}"
+                        echo "mapping: ${mappedlicense}"
+                        
+                        set vendor_status = `echo "$lmstat" | grep -o "${vendor}: [^ ]*" | awk '{print $NF}'`
+                        
+                        echo "lmstat: $lmstat"
+                        echo "Vendor Status: $vendor_status"
+                        
+                        if ("$reread_status" == "lmreread successful" && "$lmstat" == "UP") then
+                            echo "lmreread and lmstat were successful"
+                            break
+                        else
+                            echo "lmreread and lmstat failed or not successful"
+                            rsync -v /tmp/${backupFile} /home/flames/data/${mappedlicense}
+                        endif
+                    else
+                        echo "File copy failed or timestamp is not recent"
+                        exit 1
+                    endif
+                    
+                    @ counter++
+                    
+                end
+                
+                exit
+                
+                EOF
+            '''
+        }
+    }
 }
