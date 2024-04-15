@@ -1,45 +1,74 @@
-import cx_Oracle
-from flask import Flask, jsonify
+import React, { useState, useEffect } from 'react';
+import { BarChart } from '@mui/x-charts/BarChart';
 
-app = Flask(__name__)
+export default function StackBars() {
+  const [selectedCountries, setSelectedCountries] = useState({
+    london: true,
+    paris: true,
+    newYork: true,
+    seoul: true,
+  });
 
-# Database connection details
-username = 'your_username'
-password = 'your_password'
-dsn = 'your_dsn'
+  const [series, setSeries] = useState([]);
 
-@app.route('/vendor_counts')
-def vendor_counts():
-    connection = cx_Oracle.connect(user=username, password=password, dsn=dsn)
-    cursor = connection.cursor()
+  const data = [
+    { london: 0, paris: 1, newYork: 2, seoul: 0, vendor: 'cds' },
+    { london: 2, paris: 0, newYork: 0, seoul: 3, vendor: 'snps' },
+    { london: 1, paris: 3, newYork: 2, seoul: 1, vendor: 'ansys' },
+  ];
 
-    # Querying vendor counts for different regions
-    cursor.execute("""
-        SELECT vendor,
-               SUM(CASE WHEN region = 'Dallas' THEN 1 ELSE 0 END) AS Dallas,
-               SUM(CASE WHEN region = 'India' THEN 1 ELSE 0 END) AS India,
-               SUM(CASE WHEN region = 'China' THEN 1 ELSE 0 END) AS China,
-               SUM(CASE WHEN region = 'Israel' THEN 1 ELSE 0 END) AS Israel,
-               SUM(CASE WHEN region = 'Fresing' THEN 1 ELSE 0 END) AS Fresing
-        FROM your_mapping_table
-        GROUP BY vendor
-    """)
-    data = []
-    for row in cursor:
-        vendor_data = {
-            'Vendor': row[0],
-            'Dallas': row[1],
-            'India': row[2],
-            'China': row[3],
-            'Israel': row[4],
-            'Fresing': row[5]
-        }
-        data.append(vendor_data)
+  useEffect(() => {
+    const updatedSeries = [];
+    Object.keys(selectedCountries).forEach((country) => {
+      if (selectedCountries[country]) {
+        updatedSeries.push({
+          dataKey: country,
+          label: country.charAt(0).toUpperCase() + country.slice(1),
+          stack: 'total',
+        });
+      }
+    });
+    setSeries(updatedSeries);
+  }, [selectedCountries]);
 
-    cursor.close()
-    connection.close()
+  const handleCheckboxChange = (country) => {
+    setSelectedCountries({
+      ...selectedCountries,
+      [country]: !selectedCountries[country],
+    });
+  };
 
-    return jsonify(data)
+  const filteredData = data.map((item) => {
+    const filteredItem = {};
+    Object.keys(item).forEach((key) => {
+      if (key !== 'vendor' && selectedCountries[key]) {
+        filteredItem[key] = item[key];
+      }
+    });
+    return { ...filteredItem, vendor: item.vendor };
+  });
 
-if __name__ == '__main__':
-    app.run(debug=True)
+  return (
+    <div>
+      <div>
+        {Object.keys(selectedCountries).map((country) => (
+          <label key={country}>
+            <input
+              type="checkbox"
+              checked={selectedCountries[country]}
+              onChange={() => handleCheckboxChange(country)}
+            />
+            {country}
+          </label>
+        ))}
+      </div>
+      <BarChart
+        dataset={filteredData}
+        xAxis={[{ scaleType: 'band', dataKey: 'vendor' }]}
+        series={series}
+        width={600}
+        height={350}
+      />
+    </div>
+  );
+}
