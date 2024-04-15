@@ -1,38 +1,52 @@
-import * as React from 'react';
-import { PieChart } from '@mui/x-charts/PieChart';
-import html2canvas from 'html2canvas';
-
-export default function BasicPie() {
-  const chartRef = React.useRef(null);
-
-  const handleDownload = () => {
-    if (chartRef.current) {
-      html2canvas(chartRef.current).then((canvas) => {
-        const link = document.createElement('a');
-        link.download = 'pie_chart.png';
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-      });
+pipeline {
+    agent any
+    
+    environment {
+        buildNum = 'be2cdcc8-66c8-431e-8be7-d106ccd5cc6a'
+        mappedlicense = 'cds.fllvflamesai.lic'
+        backupFile = "${mappedlicense}.${buildNum}"
+        vendor = 'cdslmd'
     }
-  };
-
-  return (
-    <div>
-      <PieChart
-        ref={chartRef}
-        series={[
-          {
-            data: [
-              { id: 0, value: 10, label: 'series A' },
-              { id: 1, value: 15, label: 'series B' },
-              { id: 2, value: 20, label: 'series C' },
-            ],
-          },
-        ]}
-        width={400}
-        height={200}
-      />
-      <button onClick={handleDownload}>Download Pie Chart</button>
-    </div>
-  );
+    
+    stages {
+        stage('Copy File') {
+            steps {
+                script {
+                    sh "rsync -v /opt/license_files/${buildNum}/current/${mappedlicense} /home/flames/data/history/${backupFile}"
+                    sh "rsync -v /opt/license_files/${buildNum}/current/${mappedlicense} fllv.com:/tmp/${backupFile}"
+                    sh "rsync -v /opt/license_files/${buildNum}/updated/${mappedlicense} /home/flames/data/."
+                    sh "rsync -v /opt/license_files/${buildNum}/updated/${mappedlicense} fllv.com:/home/flames/data/."
+                }
+            }
+        }
+        stage('Execute SSH Commands') {
+            steps {
+                script {
+                    set counter = 0
+                    set sshScript = '''
+                    while ($counter < 2)
+                        if (`expr \( \`date +%s\` - \`stat -c %Y /home/flames/data/${mappedlicense}\` \) \< 120`) then
+                            set lmreread = `/home/flames/vendors/cds/pgms.linux/lmreread -c /home/flames/data/${mappedlicense}`
+                            set reread_status = `echo "$lmreread" | grep -o "lmreread successful"`
+                            set lmstat = `/home/flames/vendors/cds/pgms.linux/lmstat -c /home/flames/data/${mappedlicense}`
+                            set vendor_status = `echo "$lmstat" | grep -o "${vendor}: [^ ]*" | awk '{print $NF}'`
+                            
+                            if ("$reread_status" == "lmreread successful" && "$lmstat" == "UP") then
+                                echo "lmreread was successful"
+                            else
+                                echo "lmreread failed or not successful"
+                                rsync -avz /history/${backupFile} /.
+                            endif
+                        else
+                            echo 'File copy failed or timestamp is not recent'
+                            exit 1
+                        endif
+                        @ counter++  # Increment counter
+                    end
+                    '''
+                    sh "ssh -tt fllv.com '/bin/csh' << 'EOF'\n${sshScript}\nEOF"
+                }
+            }
+        }
+    }
 }
