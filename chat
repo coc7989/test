@@ -1,63 +1,29 @@
-stage('Verify File and Execute Commands') {
-    steps {
-        script {
-            # Step 2: SSH to destination server and execute commands
-            set counter = 0
-            sh '''
-                #!/bin/csh
-                
-                ssh fllvflamesai.itg.ti.com << EOF
-                
-                echo $SHELL
-                
-                echo $mappedlicense
-                
-                echo "map license: ${mappedlicense}"
-                
-                echo "vendor: ${vendor}"
-                
-                while ($counter < 2)
-                
-                    if ($(( `date +%s` - `stat -c%Y /home/flames/data/${mappedlicense}` )) < 120) then
-                        set lmreread = `/home/flames/vendors/cds/pgms.linux/lmreread -c /home/flames/data/${mappedlicense}`
-                        set reread_status = `echo "$lmreread" | grep "lmreread successful"`
-                        
-                        echo "lmreread: $lmreread"
-                        
-                        echo "reread_status: $reread_status"
-                        
-                        sleep 5
-                        
-                        set lmstat = `/home/flames/vendors/cds/pgms.linux/lmstat -c /home/flames/data/${mappedlicense}`
-                        
-                        echo "vendor is here: ${vendor}"
-                        echo "mapping: ${mappedlicense}"
-                        
-                        set vendor_status = `echo "$lmstat" | grep -o "${vendor}: [^ ]*" | awk '{print $NF}'`
-                        
-                        echo "lmstat: $lmstat"
-                        echo "Vendor Status: $vendor_status"
-                        
-                        if ("$reread_status" == "lmreread successful" && "$lmstat" == "UP") then
-                            echo "lmreread and lmstat were successful"
-                            break
-                        else
-                            echo "lmreread and lmstat failed or not successful"
-                            rsync -v /tmp/${backupFile} /home/flames/data/${mappedlicense}
-                        endif
-                    else
-                        echo "File copy failed or timestamp is not recent"
-                        exit 1
-                    endif
-                    
-                    @ counter++
-                    
-                end
-                
-                exit
-                
-                EOF
-            '''
+pipeline {
+    agent any
+
+    stages {
+        stage('Disable Crontab') {
+            steps {
+                script {
+                    sh 'crontab -l > mycron'
+                    sh 'sed -i "/your_cron_entry/s/^/#/" mycron' // Comment out the cron entry
+                    sh 'crontab mycron'
+                }
+            }
+        }
+        stage('Perform Actions') {
+            steps {
+                // Your actions here
+            }
+        }
+        stage('Enable Crontab') {
+            steps {
+                script {
+                    sh 'crontab -l > mycron'
+                    sh 'sed -i "/your_cron_entry/s/^#//" mycron' // Uncomment the cron entry
+                    sh 'crontab mycron'
+                }
+            }
         }
     }
 }
