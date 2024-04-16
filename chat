@@ -6,7 +6,7 @@ pipeline {
             steps {
                 script {
                     sh 'crontab -l > mycron'
-                    sh 'sed -i "/your_cron_entry/s/^/#/" mycron' // Comment out the cron entry
+                    sh 'sed -i "/0 0 \* \* \* \/path\/to\/your\/script.sh >> \/dev\/null/s/^/#/" mycron' // Comment out the cron entry
                     sh 'crontab mycron'
                 }
             }
@@ -20,7 +20,7 @@ pipeline {
             steps {
                 script {
                     sh 'crontab -l > mycron'
-                    sh 'sed -i "/your_cron_entry/s/^#//" mycron' // Uncomment the cron entry
+                    sh 'sed -i "/0 0 \* \* \* \/path\/to\/your\/script.sh >> \/dev\/null/s/^#//" mycron' // Uncomment the cron entry
                     sh 'crontab mycron'
                 }
             }
