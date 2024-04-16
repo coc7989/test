@@ -5,9 +5,9 @@ pipeline {
         stage('Disable Crontab') {
             steps {
                 script {
-                    sh 'crontab -l > mycron'
-                    sh 'sed -i "/0 0 \* \* \* \/path\/to\/your\/script.sh >> \/dev\/null/s/^/#/" mycron' // Comment out the cron entry
-                    sh 'crontab mycron'
+                    sh 'sed -i "/check_daemon_prs/s/^/#/" filename' // Comment out the first cron entry
+                    sh 'sed -i "/newlog/s/^/#/" filename' // Comment out the second cron entry
+                    sh 'sed -i "/rlmonitor/s/^/#/" filename' // Comment out the third cron entry
                 }
             }
         }
@@ -19,9 +19,9 @@ pipeline {
         stage('Enable Crontab') {
             steps {
                 script {
-                    sh 'crontab -l > mycron'
-                    sh 'sed -i "/0 0 \* \* \* \/path\/to\/your\/script.sh >> \/dev\/null/s/^#//" mycron' // Uncomment the cron entry
-                    sh 'crontab mycron'
+                    sh 'sed -i "/check_daemon_prs/s/^#//" filename' // Uncomment the first cron entry
+                    sh 'sed -i "/newlog/s/^#//" filename' // Uncomment the second cron entry
+                    sh 'sed -i "/rlmonitor/s/^#//" filename' // Uncomment the third cron entry
                 }
             }
         }
