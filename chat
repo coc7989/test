@@ -1,35 +1,41 @@
-import * as React from 'react';
-import { PieChart } from '@mui/x-charts/PieChart';
-
-export default function BasicPie({ generateData }) {
-  const assignColor = (label) => {
-    switch(label) {
-      case 'series A':
-        return '#ff0000'; // Red
-      case 'series B':
-        return '#0000ff'; // Blue
-      case 'series C':
-        return '#808080'; // Grey
-      default:
-        return '#000000'; // Black (default color)
+pipeline {
+    agent {
+        label 'Production'
     }
-  };
-
-  // Generate data using the provided function and assign colors
-  const data = generateData().map(item => ({
-    ...item,
-    color: assignColor(item.label)
-  }));
-
-  return (
-    <PieChart
-      series={[
-        {
-          data: data,
-        },
-      ]}
-      width={400}
-      height={200}
-    />
-  );
+    
+    parameters {
+        string(defaultValue: '', description: 'Build number', name: 'BUILD_NUMBER')
+        string(defaultValue: '', description: 'Map license', name: 'MAPPED_LICENSE')
+        string(defaultValue: '', description: 'Vendor', name: 'VENDOR')
+    }
+    
+    stages {
+        stage('Prepare and Transfer Files') {
+            steps {
+                script {
+                    sh """
+                        echo "${params.BUILD_NUMBER}:${params.MAPPED_LICENSE}:${params.VENDOR}" > build_license.txt &&
+                        scp build_license.txt fllvflamesai.itg.ti.com:/path/to/remote/directory/
+                    """
+                }
+            }
+        }
+        
+        stage('Remote Commands') {
+            steps {
+                script {
+                    sh """
+                        ssh -tt fllvflamesai.itg.ti.com '/bin/bash' << 'EOF'
+                        content=$(cat /path/to/remote/directory/build_license.txt)
+                        IFS=':' read -r build_num mapped_license vendor <<< "$content"
+                        echo $SHELL
+                        echo "Map license: $mapped_license"
+                        echo "Build: $build_num"
+                        echo "Vendor: $vendor"
+                        EOF
+                    """
+                }
+            }
+        }
+    }
 }
