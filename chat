@@ -1,41 +1,25 @@
-pipeline {
-    agent {
-        label 'Production'
-    }
-    
-    parameters {
-        string(defaultValue: '', description: 'Build number', name: 'BUILD_NUMBER')
-        string(defaultValue: '', description: 'Map license', name: 'MAPPED_LICENSE')
-        string(defaultValue: '', description: 'Vendor', name: 'VENDOR')
-    }
-    
-    stages {
-        stage('Prepare and Transfer Files') {
-            steps {
-                script {
-                    sh """
-                        echo "${params.BUILD_NUMBER}:${params.MAPPED_LICENSE}:${params.VENDOR}" > build_license.txt &&
-                        scp build_license.txt fllvflamesai.itg.ti.com:/path/to/remote/directory/
-                    """
-                }
-            }
-        }
-        
-        stage('Remote Commands') {
-            steps {
-                script {
-                    sh """
-                        ssh -tt fllvflamesai.itg.ti.com '/bin/bash' << 'EOF'
-                        content=$(cat /path/to/remote/directory/build_license.txt)
-                        IFS=':' read -r build_num mapped_license vendor <<< "$content"
-                        echo $SHELL
-                        echo "Map license: $mapped_license"
-                        echo "Build: $build_num"
-                        echo "Vendor: $vendor"
-                        EOF
-                    """
-                }
-            }
-        }
-    }
-}
+#!/bin/bash
+
+vendor="$1"
+mappedlicense="$2"
+backupFile="$3"
+
+while true; do
+    if [ $(( $(date +%s) - $(stat -c %Y "/home/flames/data/$mappedlicense") )) -lt 120 ]; then
+        lmreread=$(/home/flames/vendors/cds/pgms.linux/lmreread -c "/home/flames/data/$mappedlicense")
+        reread_status=$(echo "$lmreread" | grep -o "lmreread successful")
+        lmstat=$(/home/flames/vendors/cds/pgms.linux/lmstat -c "/home/flames/data/$mappedlicense")
+        vendor_status=$(echo "$lmstat" | grep -o "$vendor: [^ ]*" | awk '{print $NF}')
+
+        if [[ $reread_status == "lmreread successful" && $lmstat == "UP" ]]; then
+            echo "lmreread was successful"
+        else
+            echo "lmreread failed or not successful"
+            rsync -avz "/history/$backupFile" /.
+        fi
+    else
+        echo 'File copy failed or timestamp is not recent'
+        exit 1
+    fi
+    sleep 60
+done
