@@ -1,11 +1,21 @@
-vendor_status=$(ssh user@remote_server 'bash -s' < dummy.sh <vendorName>)
-if [ "$vendor_status" = "UP" ]; then
-    echo "Vendor status is UP. Pipeline is successful."
-    exit 0  # Success
-elif [ "$vendor_status" = "DOWN" ]; then
-    echo "Vendor status is DOWN. Failing pipeline."
-    exit 1  # Failure
-else
-    echo "Vendor status is unknown. Marking pipeline as unstable."
-    exit 2  # Unstable
-fi
+# app.py
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+# Sample file data
+file_data = "Sample file data"
+
+@app.route('/file', methods=['GET', 'POST'])
+def handle_file():
+    if request.method == 'GET':
+        return jsonify({'data': file_data})
+
+    elif request.method == 'POST':
+        data = request.get_json()
+        file_data = data.get('data')
+        # Here you can save the file_data to your desired location
+        return jsonify({'message': 'File saved successfully'}), 200
+
+if __name__ == '__main__':
+    app.run(debug=True)
