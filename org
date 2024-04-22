@@ -1,19 +1,55 @@
-pipeline {
-    agent any
-    environment {
-        vendor = "hbo"
-        mappedlicense = 'hbo.dbdflc'
-        backupFile = "${mappedlicense}.${reqId}"
+// TextEditor.js
+import React, { useState, useEffect } from "react"
+import { TextField, Button } from "@material-ui/core"
+
+const TextEditor = () => {
+  const [fileData, setFileData] = useState("Hey my name is Pawan")
+
+  useEffect(() => {
+    // Fetch file data from backend when component mounts
+    // fetchFileData()
+  }, [])
+
+  const fetchFileData = async () => {
+    try {
+      const response = await fetch("YOUR_BACKEND_ENDPOINT")
+      const data = await response.text()
+      setFileData(data)
+    } catch (error) {
+      console.error("Error fetching file data:", error)
     }
-    stages {
-        stage('Execute SSH Commands') {
-            steps {
-                script {
-                    sh '''
-                    ssh -t user@hostname '/bin/bash -c "source /path/to/remote/script.sh \"$vendor\" \"$mappedlicense\" \"$backupFile\""'
-                    '''
-                }
-            }
-        }
+  }
+
+  const handleSave = async () => {
+    try {
+      await fetch("YOUR_BACKEND_ENDPOINT", {
+        method: "POST",
+        body: JSON.stringify({ data: fileData }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+      console.log("File saved successfully")
+    } catch (error) {
+      console.error("Error saving file:", error)
     }
+  }
+
+  return (
+    <div>
+      <TextField
+        multiline
+        rows={10}
+        fullWidth
+        variant='outlined'
+        value={fileData}
+        onChange={(e) => setFileData(e.target.value)}
+      />
+      <Button variant='contained' color='primary' onClick={handleSave}>
+        Save
+      </Button>
+    </div>
+  )
 }
+
+export default TextEditor
