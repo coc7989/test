@@ -1,7 +1,11 @@
 vendor_status=$(ssh user@remote_server 'bash -s' < dummy.sh <vendorName>)
-if [ "$vendor_status" = "DOWN" ]; then
+if [ "$vendor_status" = "UP" ]; then
+    echo "Vendor status is UP. Pipeline is successful."
+    exit 0  # Success
+elif [ "$vendor_status" = "DOWN" ]; then
     echo "Vendor status is DOWN. Failing pipeline."
-    exit 1
+    exit 1  # Failure
 else
-    echo "Vendor status is UP. Pipeline continues."
+    echo "Vendor status is unknown. Marking pipeline as unstable."
+    exit 2  # Unstable
 fi
