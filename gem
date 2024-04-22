@@ -3,19 +3,30 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Sample file data
-file_data = "Sample file data"
+# File path
+file_path = '/home/file/data/cds.fllvflamesai.lic'
 
 @app.route('/file', methods=['GET', 'POST'])
 def handle_file():
+    global file_path
+    
     if request.method == 'GET':
-        return jsonify({'data': file_data})
+        try:
+            with open(file_path, 'r') as file:
+                file_data = file.read()
+            return jsonify({'data': file_data}), 200
+        except FileNotFoundError:
+            return jsonify({'error': 'File not found'}), 404
 
     elif request.method == 'POST':
         data = request.get_json()
         file_data = data.get('data')
-        # Here you can save the file_data to your desired location
-        return jsonify({'message': 'File saved successfully'}), 200
+        try:
+            with open(file_path, 'w') as file:
+                file.write(file_data)
+            return jsonify({'message': 'File saved successfully'}), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
