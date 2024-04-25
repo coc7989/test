@@ -1,0 +1,34 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+
+const App = () => {
+  const [authorized, setAuthorized] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await axios.get('/check-auth');
+        if (response.data.authorized) {
+          setAuthorized(true);
+        } else {
+          setAuthorized(false);
+          navigate('/not-authorized'); // Redirect to the not authorized page
+        }
+      } catch (error) {
+        console.error('Error checking authorization:', error);
+      }
+    };
+
+    fetchData();
+  }, [navigate]);
+
+  return (
+    <div>
+      {/* Content of your app */}
+    </div>
+  );
+};
+
+export default App;
