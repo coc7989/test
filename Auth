@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 const App = () => {
-  const [authorized, setAuthorized] = useState(false);
+  const [authorized, setAuthorized] = useState(null); // Initially set to null
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
     // Fetch authorization status from backend
@@ -18,15 +17,20 @@ const App = () => {
     fetchAuthorization();
   }, []);
 
+  // Navigate based on authorization status once fetched
   useEffect(() => {
-    // Navigate based on authorization status
-    if (authorized && location.pathname !== '/authorized-page') {
-      navigate('/authorized-page');
-    } else if (!authorized) {
+    if (authorized === null) return; // Wait until authorization status is fetched
+    if (!authorized) {
       navigate('/unauthorised');
     }
-  }, [authorized, navigate, location]);
+  }, [authorized, navigate]);
 
+  // Optionally, show a loading indicator while fetching
+  if (authorized === null) {
+    return <div>Loading...</div>;
+  }
+
+  // Once authorization status is fetched, return your app content
   return (
     <div>
       {/* Your app content */}
