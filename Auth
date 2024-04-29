@@ -1,23 +1,37 @@
-import cx_Oracle
-from flask import Flask, request, jsonify
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 
-app = Flask(__name__)
+const App = () => {
+  const [authorized, setAuthorized] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
-# Connect to your Oracle database
-dsn = cx_Oracle.makedsn("hostname", "port", service_name="service_name")
-connection = cx_Oracle.connect(user="username", password="password", dsn=dsn)
-cursor = connection.cursor()
+  useEffect(() => {
+    // Fetch authorization status from backend
+    const fetchAuthorization = async () => {
+      // Example fetch logic
+      const response = await fetch('/api/checkAuthorization');
+      const data = await response.json();
+      setAuthorized(data.authorized);
+    };
 
-@app.route('/search_user', methods=['GET'])
-def search_user():
-    user_id = request.args.get('user_id')
-    cursor.execute("SELECT * FROM users WHERE id = :id", id=user_id)
-    user = cursor.fetchone()
-    if user:
-        found = True
-    else:
-        found = False
-    return jsonify({'found': found})
+    fetchAuthorization();
+  }, []);
 
-if __name__ == '__main__':
-    app.run(debug=True)
+  useEffect(() => {
+    // Navigate based on authorization status
+    if (authorized && location.pathname !== '/authorized-page') {
+      navigate('/authorized-page');
+    } else if (!authorized) {
+      navigate('/unauthorised');
+    }
+  }, [authorized, navigate, location]);
+
+  return (
+    <div>
+      {/* Your app content */}
+    </div>
+  );
+};
+
+export default App;
