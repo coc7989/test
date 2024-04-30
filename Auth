@@ -1,41 +1,11 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+from flask import Flask, jsonify
+from config import vendors
 
-const App = () => {
-  const [authorized, setAuthorized] = useState(null); // Initially set to null
-  const navigate = useNavigate();
+app = Flask(__name__)
 
-  useEffect(() => {
-    // Fetch authorization status from backend
-    const fetchAuthorization = async () => {
-      // Example fetch logic
-      const response = await fetch('/api/checkAuthorization');
-      const data = await response.json();
-      setAuthorized(data.authorized);
-    };
+@app.route('/fetch_vendors', methods=['GET'])
+def fetch_vendors():
+    return jsonify({'vendors': vendors})
 
-    fetchAuthorization();
-  }, []);
-
-  // Navigate based on authorization status once fetched
-  useEffect(() => {
-    if (authorized === null) return; // Wait until authorization status is fetched
-    if (!authorized) {
-      navigate('/unauthorised');
-    }
-  }, [authorized, navigate]);
-
-  // Optionally, show a loading indicator while fetching
-  if (authorized === null) {
-    return <div>Loading...</div>;
-  }
-
-  // Once authorization status is fetched, return your app content
-  return (
-    <div>
-      {/* Your app content */}
-    </div>
-  );
-};
-
-export default App;
+if __name__ == '__main__':
+    app.run(debug=True)
