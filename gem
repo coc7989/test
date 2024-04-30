@@ -1,32 +1,80 @@
 # app.py
+
 from flask import Flask, request, jsonify
+import cx_Oracle
 
 app = Flask(__name__)
 
-# File path
-file_path = '/home/file/data/cds.fllvflamesai.lic'
+# Replace 'user', 'password', 'hostname', 'port', and 'database' with your Oracle connection details
+connection = cx_Oracle.connect('user/password@hostname:port/database')
 
-@app.route('/file', methods=['GET', 'POST'])
-def handle_file():
-    global file_path
+# Create a new role
+@app.route('/api/roles', methods=['POST'])
+def create_role():
+    data = request.get_json()
+    role = data['role']
+    query = "INSERT INTO roles (role) VALUES (:role)"
     
-    if request.method == 'GET':
-        try:
-            with open(file_path, 'r') as file:
-                file_data = file.read()
-            return jsonify({'data': file_data}), 200
-        except FileNotFoundError:
-            return jsonify({'error': 'File not found'}), 404
+    cursor = connection.cursor()
+    try:
+        cursor.execute(query, {'role': role})
+        connection.commit()
+        return jsonify({'message': 'Role created successfully'}), 201
+    except Exception as e:
+        connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
 
-    elif request.method == 'POST':
-        data = request.get_json()
-        file_data = data.get('data')
-        try:
-            with open(file_path, 'w') as file:
-                file.write(file_data)
-            return jsonify({'message': 'File saved successfully'}), 200
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+# Get all roles
+@app.route('/api/roles', methods=['GET'])
+def get_roles():
+    query = "SELECT id, role FROM roles"
+    
+    cursor = connection.cursor()
+    try:
+        cursor.execute(query)
+        roles = cursor.fetchall()
+        roles_data = [{'id': role[0], 'role': role[1]} for role in roles]
+        return jsonify(roles_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+# Update a role
+@app.route('/api/roles/<int:id>', methods=['PUT'])
+def update_role(id):
+    data = request.get_json()
+    role = data['role']
+    query = "UPDATE roles SET role = :role WHERE id = :id"
+    
+    cursor = connection.cursor()
+    try:
+        cursor.execute(query, {'role': role, 'id': id})
+        connection.commit()
+        return jsonify({'message': 'Role updated successfully'}), 200
+    except Exception as e:
+        connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+
+# Delete a role
+@app.route('/api/roles/<int:id>', methods=['DELETE'])
+def delete_role(id):
+    query = "DELETE FROM roles WHERE id = :id"
+    
+    cursor = connection.cursor()
+    try:
+        cursor.execute(query, {'id': id})
+        connection.commit()
+        return jsonify({'message': 'Role deleted successfully'}), 200
+    except Exception as e:
+        connection.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
 
 if __name__ == '__main__':
     app.run(debug=True)
