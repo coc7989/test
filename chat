@@ -1,25 +1,73 @@
-#!/bin/bash
+// RoleDataGrid.js
 
-vendor="$1"
-mappedlicense="$2"
-backupFile="$3"
+import React, { useState, useEffect } from 'react';
+import { DataGrid } from '@mui/x-data-grid';
+import axios from 'axios';
 
-while true; do
-    if [ $(( $(date +%s) - $(stat -c %Y "/home/flames/data/$mappedlicense") )) -lt 120 ]; then
-        lmreread=$(/home/flames/vendors/cds/pgms.linux/lmreread -c "/home/flames/data/$mappedlicense")
-        reread_status=$(echo "$lmreread" | grep -o "lmreread successful")
-        lmstat=$(/home/flames/vendors/cds/pgms.linux/lmstat -c "/home/flames/data/$mappedlicense")
-        vendor_status=$(echo "$lmstat" | grep -o "$vendor: [^ ]*" | awk '{print $NF}')
+function RoleDataGrid() {
+  const [roles, setRoles] = useState([]);
 
-        if [[ $reread_status == "lmreread successful" && $lmstat == "UP" ]]; then
-            echo "lmreread was successful"
-        else
-            echo "lmreread failed or not successful"
-            rsync -avz "/history/$backupFile" /.
-        fi
-    else
-        echo 'File copy failed or timestamp is not recent'
-        exit 1
-    fi
-    sleep 60
-done
+  useEffect(() => {
+    // Fetch roles data from Flask backend when component mounts
+    fetchRoles();
+  }, []);
+
+  const fetchRoles = async () => {
+    try {
+      const response = await axios.get('/api/roles');
+      setRoles(response.data);
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+    }
+  };
+
+  const handleUpdate = async (id, updatedRole) => {
+    try {
+      await axios.put(`/api/roles/${id}`, updatedRole);
+      fetchRoles(); // Refresh roles after update
+    } catch (error) {
+      console.error('Error updating role:', error);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await axios.delete(`/api/roles/${id}`);
+      fetchRoles(); // Refresh roles after delete
+    } catch (error) {
+      console.error('Error deleting role:', error);
+    }
+  };
+
+  const handleAdd = async (newRole) => {
+    try {
+      await axios.post('/api/roles', newRole);
+      fetchRoles(); // Refresh roles after add
+    } catch (error) {
+      console.error('Error adding role:', error);
+    }
+  };
+
+  const columns = [
+    { field: 'id', headerName: 'ID', width: 100 },
+    { field: 'role', headerName: 'Role', width: 200 },
+    // Add more columns as needed
+  ];
+
+  return (
+    <div style={{ height: 400, width: '100%' }}>
+      <DataGrid
+        rows={roles}
+        columns={columns}
+        pageSize={5}
+        checkboxSelection
+        disableSelectionOnClick
+        onRowUpdate={(updatedRole) => handleUpdate(updatedRole.id, updatedRole.data)}
+        onRowDelete={(selectedRole) => handleDelete(selectedRole.data.id)}
+        onAdd={(newRole) => handleAdd(newRole.data)}
+      />
+    </div>
+  );
+}
+
+export default RoleDataGrid;
