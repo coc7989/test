@@ -1,55 +1,32 @@
-// TextEditor.js
-import React, { useState, useEffect } from "react"
-import { TextField, Button } from "@material-ui/core"
+# app.py
+from flask import Flask, request, jsonify
 
-const TextEditor = () => {
-  const [fileData, setFileData] = useState("Hey my name is Pawan")
+app = Flask(__name__)
 
-  useEffect(() => {
-    // Fetch file data from backend when component mounts
-    // fetchFileData()
-  }, [])
+# File path
+file_path = '/home/file/data/cds.fllvflamesai.lic'
 
-  const fetchFileData = async () => {
-    try {
-      const response = await fetch("YOUR_BACKEND_ENDPOINT")
-      const data = await response.text()
-      setFileData(data)
-    } catch (error) {
-      console.error("Error fetching file data:", error)
-    }
-  }
+@app.route('/file', methods=['GET', 'POST'])
+def handle_file():
+    global file_path
+    
+    if request.method == 'GET':
+        try:
+            with open(file_path, 'r') as file:
+                file_data = file.read()
+            return jsonify({'data': file_data}), 200
+        except FileNotFoundError:
+            return jsonify({'error': 'File not found'}), 404
 
-  const handleSave = async () => {
-    try {
-      await fetch("YOUR_BACKEND_ENDPOINT", {
-        method: "POST",
-        body: JSON.stringify({ data: fileData }),
-        headers: {
-          "Content-Type": "application/json",
-        },
-      })
-      console.log("File saved successfully")
-    } catch (error) {
-      console.error("Error saving file:", error)
-    }
-  }
+    elif request.method == 'POST':
+        data = request.get_json()
+        file_data = data.get('data')
+        try:
+            with open(file_path, 'w') as file:
+                file.write(file_data)
+            return jsonify({'message': 'File saved successfully'}), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
-  return (
-    <div>
-      <TextField
-        multiline
-        rows={10}
-        fullWidth
-        variant='outlined'
-        value={fileData}
-        onChange={(e) => setFileData(e.target.value)}
-      />
-      <Button variant='contained' color='primary' onClick={handleSave}>
-        Save
-      </Button>
-    </div>
-  )
-}
-
-export default TextEditor
+if __name__ == '__main__':
+    app.run(debug=True)
