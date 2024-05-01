@@ -1,33 +1,32 @@
-import React from 'react';
-import { TextField, Button, Grid, Select, MenuItem } from '@mui/material';
+from flask import Flask, request, jsonify
+import os
+import re
 
-const Add = ({newRow, handleInputChange, handleAddRow}) => {
-  return (
-    <Grid container spacing={2} alignItems="center">
-      <Grid item container columnSpacing={2} xs={12} sm={12} md={12}>
-        <Grid item xs={4}>
-          <TextField name="ID" label="ID" value={newRow.ID} onChange={handleInputChange} fullWidth />
-        </Grid>
-        <Grid item xs={4}>
-          <Select
-            name="ROLE"
-            label="ROLE"
-            value={newRow.ROLE}
-            onChange={handleInputChange}
-            fullWidth
-          >
-            <MenuItem value="user">User</MenuItem>
-            <MenuItem value="admin">Admin</MenuItem>
-          </Select>
-        </Grid>
-      </Grid>
-      <Grid item xs={12} style={{ textAlign: 'center' }}>
-        <Button variant="contained" color="primary" onClick={handleAddRow}>
-          Submit
-        </Button>
-      </Grid>
-    </Grid>
-  );
-};
+app = Flask(__name__)
 
-export default Add;
+@app.route('/search_feature', methods=['POST'])
+def search_feature():
+    feature_name = request.json.get('feature_name')
+    feature_array = []
+
+    # Iterate through files in the directory
+    data_path = "/home/flames/data"
+    for filename in os.listdir(data_path):
+        filepath = os.path.join(data_path, filename)
+        if os.path.isfile(filepath):
+            with open(filepath, 'r') as file:
+                for line in file:
+                    # Search for lines containing the feature name
+                    if feature_name in line:
+                        # Extract count number and server name
+                        match = re.search(r'{"server_name": "([^"]+)", "feature_name":"([^"]+)", "total_count":(\d+)}', line)
+                        if match:
+                            server_name = match.group(1)
+                            count = int(match.group(3))
+                            # Add to featureArray
+                            feature_array.append({"server_name": server_name, "feature_name": feature_name, "total_count": count})
+
+    return jsonify(feature_array)
+
+if __name__ == '__main__':
+    app.run(debug=True)
