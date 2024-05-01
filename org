@@ -1,32 +1,33 @@
-# app.py
-from flask import Flask, request, jsonify
+import React from 'react';
+import { TextField, Button, Grid, Select, MenuItem } from '@mui/material';
 
-app = Flask(__name__)
+const Add = ({newRow, handleInputChange, handleAddRow}) => {
+  return (
+    <Grid container spacing={2} alignItems="center">
+      <Grid item container columnSpacing={2} xs={12} sm={12} md={12}>
+        <Grid item xs={4}>
+          <TextField name="ID" label="ID" value={newRow.ID} onChange={handleInputChange} fullWidth />
+        </Grid>
+        <Grid item xs={4}>
+          <Select
+            name="ROLE"
+            label="ROLE"
+            value={newRow.ROLE}
+            onChange={handleInputChange}
+            fullWidth
+          >
+            <MenuItem value="user">User</MenuItem>
+            <MenuItem value="admin">Admin</MenuItem>
+          </Select>
+        </Grid>
+      </Grid>
+      <Grid item xs={12} style={{ textAlign: 'center' }}>
+        <Button variant="contained" color="primary" onClick={handleAddRow}>
+          Submit
+        </Button>
+      </Grid>
+    </Grid>
+  );
+};
 
-# File path
-file_path = '/home/file/data/cds.fllvflamesai.lic'
-
-@app.route('/file', methods=['GET', 'POST'])
-def handle_file():
-    global file_path
-    
-    if request.method == 'GET':
-        try:
-            with open(file_path, 'r') as file:
-                file_data = file.read()
-            return jsonify({'data': file_data}), 200
-        except FileNotFoundError:
-            return jsonify({'error': 'File not found'}), 404
-
-    elif request.method == 'POST':
-        data = request.get_json()
-        file_data = data.get('data')
-        try:
-            with open(file_path, 'w') as file:
-                file.write(file_data)
-            return jsonify({'message': 'File saved successfully'}), 200
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(debug=True)
+export default Add;
