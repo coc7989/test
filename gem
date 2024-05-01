@@ -1,80 +1,43 @@
-# app.py
+import React, { useState } from 'react';
+import TextField from '@mui/material/TextField';
+import Button from '@mui/material/Button';
+import axios from 'axios';
 
-from flask import Flask, request, jsonify
-import cx_Oracle
+function App() {
+  const [featureName, setFeatureName] = useState('');
+  const [featureArray, setFeatureArray] = useState([]);
 
-app = Flask(__name__)
+  const handleFeatureSearch = () => {
+    axios.post('/search_feature', { feature_name: featureName })
+      .then(response => {
+        setFeatureArray(response.data);
+      })
+      .catch(error => {
+        console.error('Error searching feature:', error);
+      });
+  };
 
-# Replace 'user', 'password', 'hostname', 'port', and 'database' with your Oracle connection details
-connection = cx_Oracle.connect('user/password@hostname:port/database')
+  return (
+    <div>
+      <TextField
+        label="Enter Feature Name"
+        variant="outlined"
+        value={featureName}
+        onChange={e => setFeatureName(e.target.value)}
+      />
+      <Button variant="contained" onClick={handleFeatureSearch}>Search</Button>
 
-# Create a new role
-@app.route('/api/roles', methods=['POST'])
-def create_role():
-    data = request.get_json()
-    role = data['role']
-    query = "INSERT INTO roles (role) VALUES (:role)"
-    
-    cursor = connection.cursor()
-    try:
-        cursor.execute(query, {'role': role})
-        connection.commit()
-        return jsonify({'message': 'Role created successfully'}), 201
-    except Exception as e:
-        connection.rollback()
-        return jsonify({'error': str(e)}), 500
-    finally:
-        cursor.close()
+      <div>
+        {featureArray.map((feature, index) => (
+          <div key={index}>
+            <p>Server Name: {feature.server_name}</p>
+            <p>Feature Name: {feature.feature_name}</p>
+            <p>Total Count: {feature.total_count}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-# Get all roles
-@app.route('/api/roles', methods=['GET'])
-def get_roles():
-    query = "SELECT id, role FROM roles"
-    
-    cursor = connection.cursor()
-    try:
-        cursor.execute(query)
-        roles = cursor.fetchall()
-        roles_data = [{'id': role[0], 'role': role[1]} for role in roles]
-        return jsonify(roles_data)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    finally:
-        cursor.close()
-
-# Update a role
-@app.route('/api/roles/<int:id>', methods=['PUT'])
-def update_role(id):
-    data = request.get_json()
-    role = data['role']
-    query = "UPDATE roles SET role = :role WHERE id = :id"
-    
-    cursor = connection.cursor()
-    try:
-        cursor.execute(query, {'role': role, 'id': id})
-        connection.commit()
-        return jsonify({'message': 'Role updated successfully'}), 200
-    except Exception as e:
-        connection.rollback()
-        return jsonify({'error': str(e)}), 500
-    finally:
-        cursor.close()
-
-# Delete a role
-@app.route('/api/roles/<int:id>', methods=['DELETE'])
-def delete_role(id):
-    query = "DELETE FROM roles WHERE id = :id"
-    
-    cursor = connection.cursor()
-    try:
-        cursor.execute(query, {'id': id})
-        connection.commit()
-        return jsonify({'message': 'Role deleted successfully'}), 200
-    except Exception as e:
-        connection.rollback()
-        return jsonify({'error': str(e)}), 500
-    finally:
-        cursor.close()
-
-if __name__ == '__main__':
-    app.run(debug=True)
+export default App;
