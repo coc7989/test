@@ -1,0 +1,64 @@
+import React, { useState, useEffect, useRef } from "react"
+import Quill from "quill"
+import hljs from "highlight.js"
+import "quill/dist/quill.snow.css"
+import "highlight.js/styles/github.css"
+
+const TextEditor = () => {
+  const [text, setText] = useState(
+    `This is a sample sentence with misspelled words: helo, worrld, and speeling.`
+  )
+  const onChange = (value) => {
+    setText(value)
+  }
+
+  const editorRef = useRef(null)
+  const [editor, setEditor] = useState(null)
+
+  useEffect(() => {
+    if (!editorRef.current) return
+
+    const quill = new Quill(editorRef.current, {
+      modules: {
+        toolbar: "#toolbar",
+        syntax: { hljs },
+      },
+      theme: "snow",
+    })
+
+    quill.on("text-change", () => {
+      onChange(editorRef.current.firstChild.innerHTML)
+    })
+
+    setEditor(quill)
+
+    return () => {
+      quill.off("text-change")
+      // quill.destroy()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (editor) {
+      editor.root.innerHTML = text
+    }
+  }, [text, editor])
+
+  return (
+    <div>
+      <div id='toolbar'>
+        <select className='ql-font'></select>
+        <select className='ql-size'></select>
+        <button className='ql-bold'></button>
+        <button className='ql-italic'></button>
+        <button className='ql-underline'></button>
+        <button className='ql-list' value='ordered'></button>
+        <button className='ql-list' value='bullet'></button>
+        <button className='ql-code-block'></button>
+      </div>
+      <div ref={editorRef} style={{ height: "500px" }} />
+    </div>
+  )
+}
+
+export default TextEditor
