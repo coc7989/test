@@ -33,7 +33,7 @@ const TextEditor = () => {
     setEditor(quill)
 
     return () => {
-      quill.off("text-change")
+      // quill.off("text-change")
       // quill.destroy()
     }
   }, [])
@@ -42,7 +42,7 @@ const TextEditor = () => {
     if (editor) {
       editor.root.innerHTML = text
     }
-  }, [text, editor])
+  }, [editor])
 
   return (
     <div>
