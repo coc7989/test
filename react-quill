@@ -1,0 +1,17 @@
+import React, { useState } from "react"
+import ReactQuill from "react-quill"
+import "react-quill/dist/quill.snow.css"
+
+const TextEditor = () => {
+  const [text, setText] = useState(
+    `This is a sample sentence with misspelled words: helo, worrld, and speeling.`
+  )
+
+  const onChange = (value) => {
+    setText(value)
+  }
+
+  return <ReactQuill theme='snow' value={text} onChange={onChange} />
+}
+
+export default TextEditor
