@@ -7,9 +7,8 @@ def search_feature(feature_name, data_path):
     pattern_feature = r'(?: INCREMENT FEATURE)\s+(\S+)\s+(\S+)\s+(\d+\d+\.\d+)\s+((?:\d{2}-[a-zA-Z]{3}-\d{4})|permanent)\s+(?:\\?\s*(\d+)|\d+)'
     server_pattern = r'(?<=SERVER\s)\b[\w.-]+\b(?=\s)'
 
-    # Find files containing the feature name
-    grep_command = f"grep -l -r '{feature_name}' {data_path}"
-    filenames = os.popen(grep_command).read().splitlines()
+    # Find files containing the feature name and ending with ".lic"
+    filenames = [os.path.join(data_path, filename) for filename in os.listdir(data_path) if filename.endswith(".lic") and feature_name in open(os.path.join(data_path, filename)).read()]
 
     for filename in filenames:
         total_count = 0
