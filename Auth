@@ -1,11 +1,35 @@
-from flask import Flask, jsonify
-from config import vendors
+import React, { useEffect } from 'react';
 
-app = Flask(__name__)
+function App() {
+  useEffect(() => {
+    let timeout;
 
-@app.route('/fetch_vendors', methods=['GET'])
-def fetch_vendors():
-    return jsonify({'vendors': vendors})
+    const resetTimeout = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        window.location.reload();
+      }, 12 * 60 * 1000); // 12 minutes
+    };
 
-if __name__ == '__main__':
-    app.run(debug=True)
+    const events = ['mousemove', 'keydown', 'scroll', 'touchstart'];
+    events.forEach(event => {
+      document.addEventListener(event, resetTimeout);
+    });
+
+    resetTimeout();
+
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, resetTimeout);
+      });
+    };
+  }, []);
+
+  return (
+    <div>
+      {/* Your app content */}
+    </div>
+  );
+}
+
+export default App;
