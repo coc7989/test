@@ -1,35 +1,42 @@
-import React, { useEffect } from 'react';
+import os
+import re
 
-function App() {
-  useEffect(() => {
-    let timeout;
+def search_feature(feature_name, data_path):
+    feature_array = []
+    pattern_stop = '########################## LICENSE KEYS END HERE ##########*****'
+    pattern_feature = r'(?: INCREMENT FEATURE)\s+(\S+)\s+(\S+)\s+(\d+\d+\.\d+)\s+((?:\d{2}-[a-zA-Z]{3}-\d{4})|permanent)\s+(?:\\?\s*(\d+)|\d+)'
+    server_pattern = r'(?<=SERVER\s)\b[\w.-]+\b(?=\s)'
 
-    const resetTimeout = () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        window.location.reload();
-      }, 12 * 60 * 1000); // 12 minutes
-    };
+    # Find files containing the feature name
+    grep_command = f"grep -l -r '{feature_name}' {data_path}"
+    filenames = os.popen(grep_command).read().splitlines()
 
-    const events = ['mousemove', 'keydown', 'scroll', 'touchstart'];
-    events.forEach(event => {
-      document.addEventListener(event, resetTimeout);
-    });
+    for filename in filenames:
+        total_count = 0
+        server_name = None
 
-    resetTimeout();
+        with open(filename, 'r', encoding='utf-8') as file:
+            text = file.read()
+            server_match = re.search(server_pattern, text)
+            if server_match:
+                server_name = server_match.group()
 
-    return () => {
-      events.forEach(event => {
-        document.removeEventListener(event, resetTimeout);
-      });
-    };
-  }, []);
+            for line in text.split('\n'):
+                if re.search(pattern_stop, line):
+                    break
+                if feature_name in line:
+                    match_feature = re.match(pattern_feature, line)
+                    if match_feature:
+                        feature_name, vendor_name, version, expiry_date, count = match_feature.groups()
+                        total_count += int(count) if count else 0
 
-  return (
-    <div>
-      {/* Your app content */}
-    </div>
-  );
-}
+        if total_count > 0:
+            feature_array.append({"id": 1, "server_name": server_name, "feature_name": feature_name, "total_count": total_count})
 
-export default App;
+    return feature_array
+
+# Example usage:
+feature_name = "your_feature_name"
+data_path = "/path/to/directory"
+result = search_feature(feature_name, data_path)
+print(result)
