@@ -1,41 +1,35 @@
 import os
-import re
 
-def search_feature(feature_name, data_path):
-    feature_array = []
-    pattern_stop = '########################## LICENSE KEYS END HERE ##########*****'
-    pattern_feature = r'(?: INCREMENT FEATURE)\s+(\S+)\s+(\S+)\s+(\d+\d+\.\d+)\s+((?:\d{2}-[a-zA-Z]{3}-\d{4})|permanent)\s+(?:\\?\s*(\d+)|\d+)'
-    server_pattern = r'(?<=SERVER\s)\b[\w.-]+\b(?=\s)'
+def calculate_md5sum(file_path):
+    # Execute md5sum command and capture output
+    md5sum_output = os.popen(f"md5sum {file_path}").read().strip()
+    # Extract MD5 checksum from the output
+    md5sum = md5sum_output.split()[0]
+    return md5sum
 
-    # Find files containing the feature name and ending with ".lic"
-    filenames = [os.path.join(data_path, filename) for filename in os.listdir(data_path) if filename.endswith(".lic") and feature_name in open(os.path.join(data_path, filename)).read()]
+def check_file_modification(directory):
+    # Dictionary to store the previous MD5 checksums
+    previous_checksums = {}
 
-    for filename in filenames:
-        total_count = 0
-        server_name = None
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith(".lic"):
+                file_path = os.path.join(root, file)
+                current_checksum = calculate_md5sum(file_path)
+                previous_checksum = previous_checksums.get(file_path)
 
-        with open(filename, 'r', encoding='utf-8') as file:
-            text = file.read()
-            server_match = re.search(server_pattern, text)
-            if server_match:
-                server_name = server_match.group()
+                if previous_checksum is None:
+                    # First time encountering this file, store its checksum
+                    previous_checksums[file_path] = current_checksum
+                elif current_checksum != previous_checksum:
+                    # File content has been modified
+                    print(f"File '{file_path}' has been modified.")
+                    # Perform your operation here
+                    # Example operation: Rename the file
+                    os.rename(file_path, file_path + ".bak")
+                    # Update the stored checksum
+                    previous_checksums[file_path] = current_checksum
 
-            for line in text.split('\n'):
-                if re.search(pattern_stop, line):
-                    break
-                if feature_name in line:
-                    match_feature = re.match(pattern_feature, line)
-                    if match_feature:
-                        feature_name, vendor_name, version, expiry_date, count = match_feature.groups()
-                        total_count += int(count) if count else 0
-
-        if total_count > 0:
-            feature_array.append({"id": 1, "server_name": server_name, "feature_name": feature_name, "total_count": total_count})
-
-    return feature_array
-
-# Example usage:
-feature_name = "your_feature_name"
-data_path = "/path/to/directory"
-result = search_feature(feature_name, data_path)
-print(result)
+if __name__ == "__main__":
+    directory = "/home/flames/data"
+    check_file_modification(directory)
