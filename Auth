@@ -1,55 +1,72 @@
-import os
-import cx_Oracle
+from flask import Flask, request, jsonify
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
-# Database connection settings
-dsn = cx_Oracle.makedsn("hostname", "port", service_name="service_name")
-connection = cx_Oracle.connect(user="username", password="password", dsn=dsn)
+app = Flask(__name__)
 
-def calculate_md5sum(file_path):
-    # Execute md5sum command and capture output
-    md5sum_output = os.popen(f"md5sum {file_path}").read().strip()
-    # Extract MD5 checksum from the output
-    md5sum = md5sum_output.split()[0]
-    return md5sum
+def format_row_data_as_table(row_data):
+    table_html = "<table border='1'><tr>"
+    headers = row_data[0].keys()
+    for header in headers:
+        table_html += f"<th>{header}</th>"
+    table_html += "</tr>"
+    for row in row_data:
+        table_html += "<tr>"
+        for value in row.values():
+            table_html += f"<td>{value}</td>"
+        table_html += "</tr>"
+    table_html += "</table>"
+    return table_html
 
-def fetch_previous_checksums():
-    cursor = connection.cursor()
-    previous_checksums = {}
-    cursor.execute("SELECT file_path, checksum FROM previous_checksums")
-    for file_path, checksum in cursor:
-        previous_checksums[file_path] = checksum
-    cursor.close()
-    return previous_checksums
+@app.route('/send-mail', methods=['POST'])
+def send_mail():
+    data = request.json
+    to = data['to']
+    subject = data['subject']
+    body = data['body']
+    row_data = data['rowData']
 
-def store_checksum(file_path, checksum):
-    cursor = connection.cursor()
-    cursor.execute("INSERT INTO previous_checksums (file_path, checksum) VALUES (:file_path, :checksum)", (file_path, checksum))
-    connection.commit()
-    cursor.close()
+    # Format rowData as HTML table
+    table_html = format_row_data_as_table(row_data)
 
-def check_file_modification(directory):
-    previous_checksums = fetch_previous_checksums()
+    # Attach the formatted table to the body
+    body += f'\n\n{table_html}'
 
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if file.endswith(".lic"):
-                file_path = os.path.join(root, file)
-                current_checksum = calculate_md5sum(file_path)
-                previous_checksum = previous_checksums.get(file_path)
+    # Construct email message
+    msg = MIMEMultipart()
+    msg.attach(MIMEText(body, 'html'))
+    msg['From'] = 'your_email@example.com'
+    msg['To'] = to
+    msg['Subject'] = subject
 
-                if previous_checksum is None:
-                    # First time encountering this file, store its checksum
-                    store_checksum(file_path, current_checksum)
-                elif current_checksum != previous_checksum:
-                    # File content has been modified
-                    print(f"File '{file_path}' has been modified.")
-                    # Perform your operation here
-                    # Example operation: Rename the file
-                    os.rename(file_path, file_path + ".bak")
-                    # Update the stored checksum
-                    store_checksum(file_path, current_checksum)
+    # Replace 'smtp_server', 'port', 'your_email', and 'your_password' with your SMTP server details
+    try:
+        with smtplib.SMTP('smtp_server', port) as server:
+            server.starttls()
+            server.login('your_email', 'your_password')
+            server.sendmail('your_email', to, msg.as_string())
 
-if __name__ == "__main__":
-    directory = "/home/flames/data"
-    check_file_modification(directory)
-    connection.close()
+        return jsonify({'message': 'Mail sent successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+
+rowData: [
+          {
+            color: "purple",
+            type: "minivan",
+            registration: new Date('2012-02-03'),
+            capacity: 7
+          },
+          {
+            color: "red",
+            type: "truck",
+            registration: new Date('2002-07-01'),
+            capacity: 9
+          }
+        ]
+      });
