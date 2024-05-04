@@ -1,4 +1,9 @@
 import os
+import cx_Oracle
+
+# Database connection settings
+dsn = cx_Oracle.makedsn("hostname", "port", service_name="service_name")
+connection = cx_Oracle.connect(user="username", password="password", dsn=dsn)
 
 def calculate_md5sum(file_path):
     # Execute md5sum command and capture output
@@ -7,9 +12,23 @@ def calculate_md5sum(file_path):
     md5sum = md5sum_output.split()[0]
     return md5sum
 
-def check_file_modification(directory):
-    # Dictionary to store the previous MD5 checksums
+def fetch_previous_checksums():
+    cursor = connection.cursor()
     previous_checksums = {}
+    cursor.execute("SELECT file_path, checksum FROM previous_checksums")
+    for file_path, checksum in cursor:
+        previous_checksums[file_path] = checksum
+    cursor.close()
+    return previous_checksums
+
+def store_checksum(file_path, checksum):
+    cursor = connection.cursor()
+    cursor.execute("INSERT INTO previous_checksums (file_path, checksum) VALUES (:file_path, :checksum)", (file_path, checksum))
+    connection.commit()
+    cursor.close()
+
+def check_file_modification(directory):
+    previous_checksums = fetch_previous_checksums()
 
     for root, dirs, files in os.walk(directory):
         for file in files:
@@ -20,7 +39,7 @@ def check_file_modification(directory):
 
                 if previous_checksum is None:
                     # First time encountering this file, store its checksum
-                    previous_checksums[file_path] = current_checksum
+                    store_checksum(file_path, current_checksum)
                 elif current_checksum != previous_checksum:
                     # File content has been modified
                     print(f"File '{file_path}' has been modified.")
@@ -28,8 +47,9 @@ def check_file_modification(directory):
                     # Example operation: Rename the file
                     os.rename(file_path, file_path + ".bak")
                     # Update the stored checksum
-                    previous_checksums[file_path] = current_checksum
+                    store_checksum(file_path, current_checksum)
 
 if __name__ == "__main__":
     directory = "/home/flames/data"
     check_file_modification(directory)
+    connection.close()
