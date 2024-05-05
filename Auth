@@ -3,9 +3,11 @@ import 'diff2html/dist/diff2html.css';
 import { Diff2Html } from 'diff2html';
 
 const DiffViewer = ({ originalText, modifiedText }) => {
-    const diffJson = Diff2Html.getJsonFromDiff(originalText);
+    const diffJson = Diff2Html.parse(originalText, {
+        inputFormat: 'diff',
+        outputFormat: 'json'
+    });
     const diffHtml = Diff2Html.html(diffJson, {
-        inputFormat: 'json',
         showFiles: false,
         matching: 'lines',
     });
