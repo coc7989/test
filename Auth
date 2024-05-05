@@ -1,40 +1,17 @@
 import React from 'react';
-import { DiffEditor } from 'react-ace';
-import 'ace-builds/src-noconflict/mode-text';
-import 'ace-builds/src-noconflict/theme-github';
+import 'diff2html/dist/diff2html.css';
+import { Diff2Html } from 'diff2html';
 
-const OriginalContent = `Original content here...`;
-const ModifiedContent = `Modified content here...`;
+const DiffViewer = ({ originalText, modifiedText }) => {
+    const diffHtml = Diff2Html.getPrettyHtml(originalText, modifiedText, {
+        inputFormat: 'diff',
+        showFiles: false,
+        matching: 'lines',
+    });
 
-const MyDiffEditor = () => {
-  return (
-    <DiffEditor
-      value={[OriginalContent, ModifiedContent]}
-      height="500px"
-      width="100%"
-      mode="text"
-      theme="github"
-      readOnly={true}
-      highlightActiveLine={true}
-      showPrintMargin={false}
-      editorProps={{
-        $blockScrolling: Infinity,
-      }}
-      setOptions={{
-        showGutter: false,
-      }}
-      styles={{
-        '.ace_added_content': {
-          backgroundColor: '#d4edda', // Green background for added content
-          color: '#155724', // Dark green text color
-        },
-        '.ace_removed_content': {
-          backgroundColor: '#f8d7da', // Red background for removed content
-          color: '#721c24', // Dark red text color
-        },
-      }}
-    />
-  );
+    return (
+        <div dangerouslySetInnerHTML={{ __html: diffHtml }} />
+    );
 };
 
-export default MyDiffEditor;
+export default DiffViewer;
