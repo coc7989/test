@@ -1,20 +1,22 @@
-import React from 'react';
-import 'diff2html/dist/diff2html.css';
-import { Diff2Html } from 'diff2html';
+import cx_Oracle
 
-const DiffViewer = ({ originalText, modifiedText }) => {
-    const diffJson = Diff2Html.parse(originalText, {
-        inputFormat: 'diff',
-        outputFormat: 'json'
-    });
-    const diffHtml = Diff2Html.html(diffJson, {
-        showFiles: false,
-        matching: 'lines',
-    });
+# Establish connection to your Oracle database
+connection = cx_Oracle.connect("username", "password", "hostname:port/service_name")
 
-    return (
-        <div dangerouslySetInnerHTML={{ __html: diffHtml }} />
-    );
-};
+# Create a cursor
+cursor = connection.cursor()
 
-export default DiffViewer;
+# Define your variables holding the values
+vendor_name = "your_vendor_name"
+server_name = "your_server_name"
+
+# Execute the delete operation with parameterized query
+sql = "DELETE FROM your_table_name WHERE vendor_name = :vendor_name AND server_name = :server_name"
+cursor.execute(sql, (vendor_name, server_name))
+
+# Commit the transaction
+connection.commit()
+
+# Close cursor and connection
+cursor.close()
+connection.close()
