@@ -1,8 +1,9 @@
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 import smtplib
-import pandas as pd
 from flask import request, jsonify
+from openpyxl import Workbook
 
 @app.route('/send_expiry_email', methods=['POST'])
 def send_expiry_email():
@@ -26,12 +27,21 @@ def send_expiry_email():
     # Attach the message body
     msg.attach(MIMEText(body, 'plain'))
 
-    # Convert expiry data to DataFrame
-    df = pd.DataFrame(expiry_data)
+    # Create Excel file
+    wb = Workbook()
+    ws = wb.active
 
-    # Save DataFrame to Excel file
+    # Add headers
+    headers = ['ID', 'Last Name', 'First Name']
+    ws.append(headers)
+
+    # Add data rows
+    for row in expiry_data:
+        ws.append([row['id'], row['lastName'], row['firstName']])
+
+    # Save Excel file
     excel_file = 'expiry_data.xlsx'
-    df.to_excel(excel_file, index=False)
+    wb.save(excel_file)
 
     # Attach Excel file
     with open(excel_file, 'rb') as f:
