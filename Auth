@@ -1,68 +1,34 @@
-import os
-import cx_Oracle
-import hashlib
-import uuid
+// MainComponent.js
+import React from 'react';
+import DataGridComponent from './DataGridComponent';
+import SubmitButton from './SubmitButton';
+import axios from 'axios';
 
-# Database connection settings
-dsn = cx_Oracle.makedsn("hostname", "port", service_name="service_name")
-connection = cx_Oracle.connect(user="username", password="password", dsn=dsn)
+const MainComponent = ({ rows, columns }) => {
+  const handleExportAndSend = () => {
+    // Trigger export of MUI DataGrid
+    const gridApi = window.grid.api;
+    gridApi.exportDataAsCsv();
 
-def calculate_md5sum(file_path):
-    # Execute md5sum command and capture output
-    md5sum_output = os.popen(f"md5sum {file_path}").read().strip()
-    # Extract MD5 checksum from the output
-    md5sum = md5sum_output.split()[0]
-    return md5sum
+    // Get the CSV content from MUI DataGrid
+    const csvData = gridApi.getDataAsCsv();
 
-def fetch_previous_checksums():
-    cursor = connection.cursor()
-    previous_checksums = {}
-    cursor.execute("SELECT file_path, checksum FROM previous_checksums")
-    for file_path, checksum in cursor:
-        previous_checksums[file_path] = checksum
-    cursor.close()
-    return previous_checksums
+    // Send CSV data to backend Flask
+    axios.post('/send_email', { csvData })
+      .then(response => {
+        console.log(response.data);
+      })
+      .catch(error => {
+        console.error('Error sending CSV to backend:', error);
+      });
+  };
 
-def store_checksum(file_path, checksum):
-    cursor = connection.cursor()
-    cursor.execute("INSERT INTO previous_checksums (file_path, checksum) VALUES (:file_path, :checksum)", (file_path, checksum))
-    connection.commit()
-    cursor.close()
+  return (
+    <div>
+      <DataGridComponent rows={rows} columns={columns} />
+      <SubmitButton onClick={handleExportAndSend} />
+    </div>
+  );
+};
 
-def manage_feature(file_path):
-    # Generate something unique
-    unique_value = str(uuid.uuid4())
-    # Update checksum with the unique value
-    checksum = hashlib.md5(unique_value.encode()).hexdigest()
-    cursor = connection.cursor()
-    cursor.execute("UPDATE previous_checksums SET checksum = :checksum WHERE file_path = :file_path", (checksum, file_path))
-    connection.commit()
-    cursor.close()
-    print(f"Updated checksum for '{file_path}' with unique value: {unique_value}")
-
-def check_file_modification(directory):
-    previous_checksums = fetch_previous_checksums()
-
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            if file.endswith(".lic"):
-                file_path = os.path.join(root, file)
-                current_checksum = calculate_md5sum(file_path)
-                previous_checksum = previous_checksums.get(file_path)
-
-                if previous_checksum is None:
-                    # First time encountering this file, store its checksum
-                    store_checksum(file_path, current_checksum)
-                elif current_checksum != previous_checksum:
-                    # File content has been modified
-                    print(f"File '{file_path}' has been modified.")
-                    # Perform your operation here
-                    # Example operation: Rename the file
-                    os.rename(file_path, file_path + ".bak")
-                    # Manage feature and update checksum
-                    manage_feature(file_path)
-
-if __name__ == "__main__":
-    directory = "/home/flames/data"
-    check_file_modification(directory)
-    connection.close()
+export default MainComponent;
