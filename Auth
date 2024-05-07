@@ -1,34 +1,50 @@
-// MainComponent.js
-import React from 'react';
-import DataGridComponent from './DataGridComponent';
-import SubmitButton from './SubmitButton';
-import axios from 'axios';
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import smtplib
+import pandas as pd
+from flask import request, jsonify
 
-const MainComponent = ({ rows, columns }) => {
-  const handleExportAndSend = () => {
-    // Trigger export of MUI DataGrid
-    const gridApi = window.grid.api;
-    gridApi.exportDataAsCsv();
+@app.route('/send_expiry_email', methods=['POST'])
+def send_expiry_email():
+    data = request.json
+    to_email = data.get('to')
+    subject = data.get('subject')
+    body = data.get('body')
+    expiry_data = data.get('expiryData')
 
-    // Get the CSV content from MUI DataGrid
-    const csvData = gridApi.getDataAsCsv();
+    # Email configurations
+    sender_email = 'p-negi@ti.com'
+    smtp_server = 'smtp.mail.ti.com'
+    smtp_port = 25  # SMTP port (usually 25 for unencrypted connections)
 
-    // Send CSV data to backend Flask
-    axios.post('/send_email', { csvData })
-      .then(response => {
-        console.log(response.data);
-      })
-      .catch(error => {
-        console.error('Error sending CSV to backend:', error);
-      });
-  };
+    # Create message container the correct MIME type is multipart/alternative.
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = to_email
+    msg['Subject'] = subject
 
-  return (
-    <div>
-      <DataGridComponent rows={rows} columns={columns} />
-      <SubmitButton onClick={handleExportAndSend} />
-    </div>
-  );
-};
+    # Attach the message body
+    msg.attach(MIMEText(body, 'plain'))
 
-export default MainComponent;
+    # Convert expiry data to DataFrame
+    df = pd.DataFrame(expiry_data)
+
+    # Save DataFrame to Excel file
+    excel_file = 'expiry_data.xlsx'
+    df.to_excel(excel_file, index=False)
+
+    # Attach Excel file
+    with open(excel_file, 'rb') as f:
+        attachment = f.read()
+        msg.attach(MIMEApplication(attachment, _subtype="xlsx"))
+
+    try:
+        # Create SMTP session
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        # Send the email
+        server.sendmail(sender_email, to_email, msg.as_string())
+        # Terminate the SMTP session
+        server.quit()
+        return jsonify({'message': 'Email sent successfully!'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
