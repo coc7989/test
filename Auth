@@ -1,60 +1,7 @@
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
-import smtplib
-from flask import request, jsonify
-from openpyxl import Workbook
+import subprocess
 
-@app.route('/send_expiry_email', methods=['POST'])
-def send_expiry_email():
-    data = request.json
-    to_email = data.get('to')
-    subject = data.get('subject')
-    body = data.get('body')
-    expiry_data = data.get('expiryData')
+vendor_name = "your_vendor_name"
+feature_name = "your_feature_name"
 
-    # Email configurations
-    sender_email = 'p-negi@ti.com'
-    smtp_server = 'smtp.mail.ti.com'
-    smtp_port = 25  # SMTP port (usually 25 for unencrypted connections)
-
-    # Create message container the correct MIME type is multipart/alternative.
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = to_email
-    msg['Subject'] = subject
-
-    # Attach the message body
-    msg.attach(MIMEText(body, 'plain'))
-
-    # Create Excel file
-    wb = Workbook()
-    ws = wb.active
-
-    # Add headers
-    headers = ['ID', 'Last Name', 'First Name']
-    ws.append(headers)
-
-    # Add data rows
-    for row in expiry_data:
-        ws.append([row['id'], row['lastName'], row['firstName']])
-
-    # Save Excel file
-    excel_file = 'expiry_data.xlsx'
-    wb.save(excel_file)
-
-    # Attach Excel file
-    with open(excel_file, 'rb') as f:
-        attachment = f.read()
-        msg.attach(MIMEApplication(attachment, _subtype="xlsx"))
-
-    try:
-        # Create SMTP session
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        # Send the email
-        server.sendmail(sender_email, to_email, msg.as_string())
-        # Terminate the SMTP session
-        server.quit()
-        return jsonify({'message': 'Email sent successfully!'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+command = "/home/data -c {} {}".format(vendor_name, feature_name)
+subprocess.run(command, shell=True)
