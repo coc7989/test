@@ -1,37 +1,15 @@
-import React, { useState } from "react"
-import AceEditor from "react-ace"
+# 1. Install Oracle Instant Client
+# Replace <version> with your desired version, e.g., 19.3
+yum install oracle-release-el7
+yum-config-manager --enable ol7_oracle_instantclient
+yum install oracle-instantclient<version>-basic
+yum install oracle-instantclient<version>-devel
 
-import "ace-builds/src-noconflict/mode-javascript"
-import "ace-builds/src-noconflict/theme-github" // Choose your preferred theme
-import "ace-builds/src-noconflict/ext-language_tools" // Enable autocompletion
-import "ace-builds/src-noconflict/ext-spellcheck" // Enable spell chec
-const TextEditor = () => {
-  const [text, setText] = useState(
-    `This is a sample sentence with misspelled words: helo, worrld, and speeling.`
-  )
-  const handleTextChange = (value) => {
-    setText(value)
-  }
+# 2. Set Environment Variables
+export LD_LIBRARY_PATH=/usr/lib/oracle/<version>/client64/lib:$LD_LIBRARY_PATH
 
-  return (
-    <AceEditor
-      mode='javascript'
-      theme='github'
-      value={text}
-      onChange={handleTextChange}
-      name='editor'
-      editorProps={{ $blockScrolling: true }}
-      width='100%'
-      height='500px' // Adjust the height as needed
-      showPrintMargin={false}
-      enableBasicAutocompletion={true}
-      enableLiveAutocompletion={true}
-      enableSnippets={true}
-      setOptions={{
-        spellcheck: true, // Enable spell checking
-      }}
-    />
-  )
-}
+# 3. Install Python Development Tools
+yum install python-devel python-pip
 
-export default TextEditor
+# 4. Install cx_Oracle
+pip install cx_Oracle
