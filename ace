@@ -1,10 +1,20 @@
-import os
-
-# Set Oracle home
-os.environ['ORACLE_HOME'] = '/path/to/your/oracle/home'
-
-# Set LD_LIBRARY_PATH
-os.environ['LD_LIBRARY_PATH'] = '/path/to/your/oracle/home/lib'
-
-# Now you can import cx_Oracle
+# Backend: app.py
+from flask import Flask, request, jsonify
 import cx_Oracle
+
+app = Flask(__name__)
+
+# Replace the connection details with your Oracle DB credentials
+dsn_tns = cx_Oracle.makedsn('hostname', 'port', service_name='service_name')
+conn = cx_Oracle.connect(user='username', password='password', dsn=dsn_tns)
+cursor = conn.cursor()
+
+@app.route('/api/options')
+def get_options():
+    query = request.args.get('query')
+    cursor.execute("SELECT feature_name FROM EXPIRY WHERE feature_name LIKE '%' || :query || '%'", (query,))
+    options = [{'label': row[0]} for row in cursor.fetchall()]
+    return jsonify(options)
+
+if __name__ == '__main__':
+    app.run(debug=True)
