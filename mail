@@ -1,41 +1,33 @@
-from flask import Flask, request, jsonify
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import openpyxl
 
-app = Flask(__name__)
+data = [
+    {"id": 1, "lastName": "Snow", "firstName": "Jon"},
+    {"id": 2, "lastName": "Lannister", "firstName": "Cersei"},
+    {"id": 3, "lastName": "Lannister", "firstName": "Jaime"},
+    {"id": 4, "lastName": "Stark", "firstName": "Arya"},
+    {"id": 5, "lastName": "Targaryen", "firstName": "Daenerys"},
+]
 
-@app.route('/send_email', methods=['POST'])
-def send_email():
-    data = request.json
-    to_email = data.get('to')
-    subject = data.get('subject')
-    body = data.get('body')
+# Create a new Excel workbook
+wb = openpyxl.Workbook()
 
-    # Email configurations
-    sender_email = 'your_email@example.com'  # Your email address
-    smtp_server = 'your_smtp_server.example.com'  # Your SMTP server address
-    smtp_port = 25  # SMTP port (usually 25 for unencrypted connections)
+# Select the active worksheet
+ws = wb.active
 
-    # Create message container - the correct MIME type is multipart/alternative.
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = to_email
-    msg['Subject'] = subject
+# Define headers
+headers = ["id", "lastName", "firstName"]
 
-    # Attach the message body
-    msg.attach(MIMEText(body, 'plain'))
+# Write headers to the first row
+for col, header in enumerate(headers, start=1):
+    ws.cell(row=1, column=col, value=header)
 
-    try:
-        # Create SMTP session
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        # Send the email
-        server.sendmail(sender_email, to_email, msg.as_string())
-        # Terminate the SMTP session
-        server.quit()
-        return jsonify({'message': 'Email sent successfully!'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# Write data to the worksheet
+for row, character in enumerate(data, start=2):
+    for col, key in enumerate(headers, start=1):
+        ws.cell(row=row, column=col, value=character[key])
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# Save the workbook
+file_name = "characters.xlsx"
+wb.save(file_name)
+
+print("Excel file created successfully:", file_name)
