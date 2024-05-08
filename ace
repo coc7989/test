@@ -1,15 +1,10 @@
-# 1. Install Oracle Instant Client
-# Replace <version> with your desired version, e.g., 19.3
-yum install oracle-release-el7
-yum-config-manager --enable ol7_oracle_instantclient
-yum install oracle-instantclient<version>-basic
-yum install oracle-instantclient<version>-devel
+import os
 
-# 2. Set Environment Variables
-export LD_LIBRARY_PATH=/usr/lib/oracle/<version>/client64/lib:$LD_LIBRARY_PATH
+# Set Oracle home
+os.environ['ORACLE_HOME'] = '/path/to/your/oracle/home'
 
-# 3. Install Python Development Tools
-yum install python-devel python-pip
+# Set LD_LIBRARY_PATH
+os.environ['LD_LIBRARY_PATH'] = '/path/to/your/oracle/home/lib'
 
-# 4. Install cx_Oracle
-pip install cx_Oracle
+# Now you can import cx_Oracle
+import cx_Oracle
