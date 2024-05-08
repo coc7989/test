@@ -3,6 +3,8 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
+import os
+import uuid
 
 data = [
     {"id": 1, "lastName": "Snow", "firstName": "Jon"},
@@ -30,8 +32,10 @@ for row, character in enumerate(data, start=2):
     for col, key in enumerate(headers, start=1):
         ws.cell(row=row, column=col, value=character[key])
 
-# Save the workbook
-file_name = "characters.xlsx"
+# Generate UUID-based file name for the Excel file
+file_name = str(uuid.uuid4()) + ".xlsx"
+
+# Save the workbook with the UUID-based file name
 wb.save(file_name)
 
 # Email configuration
@@ -72,3 +76,7 @@ with smtplib.SMTP("smtp.gmail.com", 587) as server:
     server.starttls()  # Secure the connection
     server.login(sender_email, "your_password")  # Login to your email account
     server.sendmail(sender_email, receiver_email, text)  # Send email
+
+# Delete the Excel file after sending
+os.remove(file_name)
+print(f"Excel file {file_name} deleted successfully.")
