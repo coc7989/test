@@ -3,5 +3,7 @@ import subprocess
 vendor_name = "your_vendor_name"
 feature_name = "your_feature_name"
 
-command = "/home/data -c {} {}".format(vendor_name, feature_name)
-subprocess.run(command, shell=True)
+command = ["/home/data", "-c", vendor_name, feature_name]
+result = subprocess.check_output(command).decode("utf-8")
+
+print(result)
