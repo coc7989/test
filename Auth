@@ -2,10 +2,12 @@
 import React, { useState } from 'react';
 import Autocomplete from '@material-ui/lab/Autocomplete';
 import TextField from '@material-ui/core/TextField';
+import Button from '@material-ui/core/Button';
 import axios from 'axios';
 
 function AutocompleteComponent() {
   const [options, setOptions] = useState([]);
+  const [selectedFeature, setSelectedFeature] = useState(null);
 
   const handleInputChange = async (event, value) => {
     try {
@@ -16,13 +18,30 @@ function AutocompleteComponent() {
     }
   };
 
+  const handleSubmit = async () => {
+    if (selectedFeature) {
+      try {
+        await axios.post('/api/process-feature', { featureName: selectedFeature.label });
+        // Optionally, you can perform actions after successful submission
+      } catch (error) {
+        console.error('Error processing feature:', error);
+      }
+    }
+  };
+
   return (
-    <Autocomplete
-      options={options}
-      getOptionLabel={(option) => option.label}
-      onInputChange={handleInputChange}
-      renderInput={(params) => <TextField {...params} label="Feature Name" />}
-    />
+    <div>
+      <Autocomplete
+        options={options}
+        getOptionLabel={(option) => option.label}
+        onInputChange={handleInputChange}
+        onChange={(event, value) => setSelectedFeature(value)}
+        renderInput={(params) => <TextField {...params} label="Feature Name" />}
+      />
+      <Button variant="contained" color="primary" onClick={handleSubmit}>
+        Submit
+      </Button>
+    </div>
   );
 }
 
