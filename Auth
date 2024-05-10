@@ -1,48 +1,55 @@
-// Frontend: AutocompleteComponent.js
 import React, { useState } from 'react';
-import Autocomplete from '@material-ui/lab/Autocomplete';
-import TextField from '@material-ui/core/TextField';
-import Button from '@material-ui/core/Button';
-import axios from 'axios';
+import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
-function AutocompleteComponent() {
-  const [options, setOptions] = useState([]);
-  const [selectedFeature, setSelectedFeature] = useState(null);
+const initialRowData = [
+  { id: 1, file1: 23, file2: 23, difference: 0 },
+  { id: 2, file1: 2, file2: 45, difference: 43 },
+  { id: 3, file1: 45, file2: 45, difference: 0 },
+  { id: 4, file1: 66, file2: 10, difference: -56 },
+  { id: 5, file1: 43, file2: 45, difference: 2 },
+];
 
-  const handleInputChange = async (event, value) => {
-    try {
-      const response = await axios.get(`/api/options?query=${value}`);
-      setOptions(response.data);
-    } catch (error) {
-      console.error('Error fetching options:', error);
+function App() {
+  const [showOnlyDifference, setShowOnlyDifference] = useState(false);
+  const [rowData, setRowData] = useState(initialRowData);
+  
+  const handleToggleSwitch = () => {
+    setShowOnlyDifference(!showOnlyDifference);
+    if (!showOnlyDifference) {
+      const diffRows = initialRowData.filter(row => row.difference !== 0);
+      setRowData(diffRows);
+    } else {
+      setRowData(initialRowData);
     }
   };
-
-  const handleSubmit = async () => {
-    if (selectedFeature) {
-      try {
-        await axios.post('/api/process-feature', { featureName: selectedFeature.label });
-        // Optionally, you can perform actions after successful submission
-      } catch (error) {
-        console.error('Error processing feature:', error);
-      }
-    }
-  };
+  
+  const columns = [
+    { field: 'id', headerName: 'ID', width: 90 },
+    { field: 'file1', headerName: 'File 1', width: 120 },
+    { field: 'file2', headerName: 'File 2', width: 120 },
+    { field: 'difference', headerName: 'Difference', width: 150 },
+  ];
 
   return (
-    <div>
-      <Autocomplete
-        options={options}
-        getOptionLabel={(option) => option.label}
-        onInputChange={handleInputChange}
-        onChange={(event, value) => setSelectedFeature(value)}
-        renderInput={(params) => <TextField {...params} label="Feature Name" />}
+    <div style={{ height: 400, width: '100%' }}>
+      <div style={{ marginBottom: '10px' }}>
+        <label htmlFor="toggle">Show Only Difference</label>
+        <input
+          id="toggle"
+          type="checkbox"
+          checked={showOnlyDifference}
+          onChange={handleToggleSwitch}
+        />
+      </div>
+      <DataGrid
+        rows={rowData}
+        columns={columns}
+        components={{
+          Toolbar: GridToolbar,
+        }}
       />
-      <Button variant="contained" color="primary" onClick={handleSubmit}>
-        Submit
-      </Button>
     </div>
   );
 }
 
-export default AutocompleteComponent;
+export default App;
