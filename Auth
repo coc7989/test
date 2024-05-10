@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
+import Switch from '@mui/material/Switch';
+import FormControlLabel from '@mui/material/FormControlLabel';
 
 const initialRowData = [
   { id: 1, file1: 23, file2: 23, difference: 0 },
@@ -32,15 +34,10 @@ function App() {
 
   return (
     <div style={{ height: 400, width: '100%' }}>
-      <div style={{ marginBottom: '10px' }}>
-        <label htmlFor="toggle">Show Only Difference</label>
-        <input
-          id="toggle"
-          type="checkbox"
-          checked={showOnlyDifference}
-          onChange={handleToggleSwitch}
-        />
-      </div>
+      <FormControlLabel
+        control={<Switch checked={showOnlyDifference} onChange={handleToggleSwitch} />}
+        label="Show Only Difference"
+      />
       <DataGrid
         rows={rowData}
         columns={columns}
