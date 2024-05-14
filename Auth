@@ -1,52 +1,37 @@
 import React, { useState } from 'react';
-import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import Switch from '@mui/material/Switch';
-import FormControlLabel from '@mui/material/FormControlLabel';
+import { DataGrid } from '@mui/x-data-grid';
 
-const initialRowData = [
-  { id: 1, file1: 23, file2: 23, difference: 0 },
-  { id: 2, file1: 2, file2: 45, difference: 43 },
-  { id: 3, file1: 45, file2: 45, difference: 0 },
-  { id: 4, file1: 66, file2: 10, difference: -56 },
-  { id: 5, file1: 43, file2: 45, difference: 2 },
-];
-
-function App() {
-  const [showOnlyDifference, setShowOnlyDifference] = useState(false);
-  const [rowData, setRowData] = useState(initialRowData);
+const YourComponent = ({ compareData }) => {
+  const [showAllData, setShowAllData] = useState(false);
   
-  const handleToggleSwitch = () => {
-    setShowOnlyDifference(!showOnlyDifference);
-    if (!showOnlyDifference) {
-      const diffRows = initialRowData.filter(row => row.difference !== 0);
-      setRowData(diffRows);
-    } else {
-      setRowData(initialRowData);
-    }
-  };
+  const filteredData = compareData.filter(row => showAllData || row.difference !== 0);
   
   const columns = [
-    { field: 'id', headerName: 'ID', width: 90 },
-    { field: 'file1', headerName: 'File 1', width: 120 },
-    { field: 'file2', headerName: 'File 2', width: 120 },
+    { field: 'file1', headerName: 'File 1', width: 150 },
+    { field: 'file2', headerName: 'File 2', width: 150 },
     { field: 'difference', headerName: 'Difference', width: 150 },
   ];
 
   return (
-    <div style={{ height: 400, width: '100%' }}>
-      <FormControlLabel
-        control={<Switch checked={showOnlyDifference} onChange={handleToggleSwitch} />}
-        label="Show Only Difference"
+    <div>
+      <Switch
+        checked={showAllData}
+        onChange={() => setShowAllData(!showAllData)}
+        inputProps={{ 'aria-label': 'Toggle' }}
       />
-      <DataGrid
-        rows={rowData}
-        columns={columns}
-        components={{
-          Toolbar: GridToolbar,
-        }}
-      />
+      <span>Show All Data</span>
+      <div style={{ height: 400, width: '100%' }}>
+        <DataGrid
+          rows={filteredData}
+          columns={columns}
+          pageSize={5}
+          rowsPerPageOptions={[5]}
+          disableSelectionOnClick
+        />
+      </div>
     </div>
   );
-}
+};
 
-export default App;
+export default YourComponent;
