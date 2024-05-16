@@ -1,8 +1,132 @@
-SELECT vendor, server, expiry_date
-FROM expiry_table
-WHERE (vendor, expiry_date) IN (
-    SELECT vendor, MAX(expiry_date) AS max_expiry_date
-    FROM expiry_table
-    GROUP BY vendor
-)
-ORDER BY expiry_date;
+Certainly! Writing a developer's guide is crucial for ensuring that other developers can understand your code and contribute effectively. Here's a suggested format along with some examples:
+
+1. **Introduction:**
+   - Provide an overview of the application.
+   - Explain its purpose, key features, and technologies used (React, Flask).
+
+   Example:
+   ```
+   Introduction:
+   Welcome to our React and Flask application developer's guide. This guide aims to provide comprehensive documentation for developers to understand the code structure, flow, and best practices for contributing to the project.
+   ```
+
+2. **Setup Instructions:**
+   - Outline the steps required to set up the development environment.
+   - Include prerequisites, dependencies, and configuration steps.
+
+   Example:
+   ```
+   Setup Instructions:
+   Before diving into the code, ensure you have the following prerequisites installed: Node.js, Python, and Flask. Follow these steps to set up the development environment:
+   1. Clone the repository from [GitHub URL].
+   2. Navigate to the project directory and install dependencies using npm install for the frontend and pip install -r requirements.txt for the backend.
+   3. Configure environment variables as per the .env.example file.
+   4. Start the development servers: npm start for the frontend and python app.py for the backend.
+   ```
+
+3. **Code Structure:**
+   - Describe the high-level structure of the codebase.
+   - Explain the organization of frontend and backend code, including directories and key files.
+
+   Example:
+   ```
+   Code Structure:
+   Our application follows a client-server architecture, with the frontend implemented in React and the backend in Flask.
+   ├── frontend
+   │   ├── public
+   │   ├── src
+   │   │   ├── components
+   │   │   ├── pages
+   │   │   ├── App.js
+   │   │   └── index.js
+   │   ├── package.json
+   │   └── ...
+   ├── backend
+   │   ├── app.py
+   │   ├── models.py
+   │   ├── routes.py
+   │   └── ...
+   ├── .env.example
+   ├── README.md
+   └── ...
+   ```
+
+4. **Development Workflow:**
+   - Explain the typical development workflow, including version control practices, branching strategy, and code review process.
+
+   Example:
+   ```
+   Development Workflow:
+   We follow the GitFlow branching model for our version control workflow. Developers should create feature branches off the develop branch for new features or bug fixes. Once the feature is complete, submit a pull request targeting the develop branch. All code changes must pass code review before merging.
+   ```
+
+5. **API Documentation:**
+   - Provide documentation for backend APIs, including endpoints, request/response formats, and authentication mechanisms.
+
+   Example:
+   ```
+   API Documentation:
+   Our Flask backend exposes RESTful APIs for interacting with the application. Refer to the following documentation for details on each endpoint:
+   - GET /api/users: Retrieve a list of users.
+   - POST /api/users: Create a new user.
+   - PUT /api/users/:id: Update an existing user.
+   - DELETE /api/users/:id: Delete a user by ID.
+   ```
+
+6. **Frontend Components:**
+   - Describe reusable components used in the frontend, their purpose, and usage examples.
+
+   Example:
+   ```
+   Frontend Components:
+   Our React frontend utilizes various reusable components to build the user interface. Here are some key components and their functionalities:
+   - Header: Displays the navigation bar with links to different sections of the application.
+   - UserCard: Represents a user profile card with avatar, name, and bio information.
+   - FormInput: Provides a reusable input field component with validation support.
+   ```
+
+7. **Best Practices:**
+   - Offer guidelines and best practices for writing clean, maintainable code and adhering to coding standards.
+
+   Example:
+   ```
+   Best Practices:
+   To maintain code consistency and readability, follow these best practices:
+   - Use meaningful variable and function names.
+   - Follow the DRY (Don't Repeat Yourself) principle to avoid code duplication.
+   - Write descriptive comments to explain complex logic or implementation details.
+   ```
+
+8. **Testing:**
+   - Explain the testing strategy for both frontend and backend code.
+   - Include instructions for running tests and guidelines for writing effective tests.
+
+   Example:
+   ```
+   Testing:
+   We employ unit tests for both frontend and backend components to ensure code reliability and maintainability. Use npm test to run frontend tests and python -m pytest for backend tests. When writing tests, focus on covering critical functionalities and edge cases.
+   ```
+
+9. **Troubleshooting:**
+   - Provide solutions to common issues or errors encountered during development or deployment.
+
+   Example:
+   ```
+   Troubleshooting:
+   If you encounter any issues during development, refer to the following troubleshooting tips:
+   - Ensure all dependencies are installed correctly by running npm install and pip install -r requirements.txt.
+   - Check for typos or syntax errors in configuration files such as .env.
+   - Review the console logs for any error messages and investigate accordingly.
+   ```
+
+10. **Conclusion:**
+    - Summarize the key points covered in the developer's guide.
+    - Encourage developers to reach out for further assistance or clarifications.
+
+    Example:
+    ```
+    Conclusion:
+    This developer's guide serves as a comprehensive resource for understanding our React and Flask application. By following the guidelines and best practices outlined here, developers can efficiently contribute to the project and build upon its success. For any questions or assistance, don't hesitate to reach out to the project maintainers.
+    ```
+
+Remember to adapt the format and examples to fit the specific requirements and conventions of your project.
