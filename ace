@@ -8,13 +8,17 @@ function MailComponent({ interval, vendor, server, type }) {
   const [body, setBody] = useState('');
 
   useEffect(() => {
-    if (type === 'noncritical') {
-      setSubject(`[${interval}] ${vendor} - ${server} Subject`);
-      setBody(`[${interval}] ${vendor} - ${server} Body`);
-    } else {
-      setSubject('');
-      setBody('');
+    let newSubject = 'Features expiring';
+    if (interval) {
+      newSubject += ` in ${interval}`;
     }
+    if (vendor && server) {
+      newSubject += ` for ${vendor} and ${server}`;
+    } else if (vendor) {
+      newSubject += ` for ${vendor}`;
+    }
+    setSubject(newSubject);
+    setBody('Please renew the features attached');
   }, [interval, vendor, server, type]);
 
   const handleSubjectChange = (event) => {
