@@ -1,11 +1,21 @@
 // MailComponent.js
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TextField, Button } from '@mui/material';
 
-function MailComponent({ interval, vendor, server }) {
-  const [subject, setSubject] = useState(`[${interval}] ${vendor} - ${server} Subject`);
-  const [body, setBody] = useState(`[${interval}] ${vendor} - ${server} Body`);
+function MailComponent({ interval, vendor, server, type }) {
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+
+  useEffect(() => {
+    if (type === 'noncritical') {
+      setSubject(`[${interval}] ${vendor} - ${server} Subject`);
+      setBody(`[${interval}] ${vendor} - ${server} Body`);
+    } else {
+      setSubject('');
+      setBody('');
+    }
+  }, [interval, vendor, server, type]);
 
   const handleSubjectChange = (event) => {
     setSubject(event.target.value);
