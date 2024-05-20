@@ -14,24 +14,26 @@ def total_data = [:]
 lines.each { line ->
     // Check if the line contains license information
     if (line.contains("licenses issued")) {
-        def serverNameMatch = line =~ /\/apps\/flames\/data\/(.*)\.lic/
-        def licenseMatch = line =~ /Total of (\d+) licenses issued; Total of (\d+) licenses in use/
+        def serverNameMatch = line =~ /\/apps\/flames\/data\/([^\/]+)\.lic/
+        def licenseMatch = line =~ /Total of\s+(\d+)\s+licenses issued;\s+Total of\s+(\d+)\s+licenses in use/
+        def featureMatch = line =~ /Users of\s+(\d+):/
 
-        if (serverNameMatch && licenseMatch) {
+        if (serverNameMatch && licenseMatch && featureMatch) {
             def serverName = serverNameMatch[0][1]
             def licenseIssued = licenseMatch[0][1].toInteger()
             def licenseUsed = licenseMatch[0][2].toInteger()
+            def featureName = featureMatch[0][1]
 
             data << [
                 server_name: serverName,
-                feature_name: feature_name,
+                feature_name: featureName,
                 license_issued: licenseIssued,
                 license_used: licenseUsed
             ]
         }
     } else if (line.contains("Total Licenses")) {
         // Extract total data from the summary line
-        def totalMatch = line =~ /Feature: (\d+) Total Licenses: (\d+) Total Used: (\d+) Total Available: (\d+)/
+        def totalMatch = line =~ /Feature:\s+(\d+)\s+Total Licenses:\s+(\d+)\s+Total Used:\s+(\d+)\s+Total Available:\s+(\d+)/
 
         if (totalMatch) {
             total_data = [
