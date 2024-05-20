@@ -1,82 +1,17 @@
-import openpyxl
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
-import os
-import uuid
-
-data = [
-    {"id": 1, "lastName": "Snow", "firstName": "Jon"},
-    {"id": 2, "lastName": "Lannister", "firstName": "Cersei"},
-    {"id": 3, "lastName": "Lannister", "firstName": "Jaime"},
-    {"id": 4, "lastName": "Stark", "firstName": "Arya"},
-    {"id": 5, "lastName": "Targaryen", "firstName": "Daenerys"},
-]
-
-# Create a new Excel workbook
-wb = openpyxl.Workbook()
-
-# Select the active worksheet
-ws = wb.active
-
-# Define headers
-headers = ["id", "lastName", "firstName"]
-
-# Write headers to the first row
-for col, header in enumerate(headers, start=1):
-    ws.cell(row=1, column=col, value=header)
-
-# Write data to the worksheet
-for row, character in enumerate(data, start=2):
-    for col, key in enumerate(headers, start=1):
-        ws.cell(row=row, column=col, value=character[key])
-
-# Generate UUID-based file name for the Excel file
-file_name = str(uuid.uuid4()) + ".xlsx"
-
-# Save the workbook with the UUID-based file name
-wb.save(file_name)
-
-# Email configuration
-sender_email = "your_email@gmail.com"
-receiver_email = "receiver_email@gmail.com"
-subject = "Characters Data"
-body = "Please find the attached Excel file containing characters data."
-
-# Create a multipart message and set headers
-message = MIMEMultipart()
-message["From"] = sender_email
-message["To"] = receiver_email
-message["Subject"] = subject
-
-# Add body to email
-message.attach(MIMEText(body, "plain"))
-
-# Open the file to be sent
-with open(file_name, "rb") as attachment:
-    part = MIMEBase("application", "octet-stream")
-    part.set_payload(attachment.read())
-
-# Encode file in ASCII characters to send by email    
-encoders.encode_base64(part)
-
-# Add header as key/value pair to attachment part
-part.add_header(
-    "Content-Disposition",
-    f"attachment; filename= {file_name}",
-)
-
-# Add attachment to message and convert message to string
-message.attach(part)
-text = message.as_string()
-
-# Connect to SMTP server
-with smtplib.SMTP("smtp.gmail.com", 587) as server:
-    server.starttls()  # Secure the connection
-    server.login(sender_email, "your_password")  # Login to your email account
-    server.sendmail(sender_email, receiver_email, text)  # Send email
-
-# Delete the Excel file after sending
-os.remove(file_name)
-print(f"Excel file {file_name} deleted successfully.")
+<Box mb={4}>
+        <Typography variant="h6" gutterBottom>
+          Total Data
+        </Typography>
+        <Typography variant="body1">
+          <strong>Feature Name:</strong> {totalData.feature_name}
+        </Typography>
+        <Typography variant="body1">
+          <strong>Total Licenses:</strong> {totalData.total_license}
+        </Typography>
+        <Typography variant="body1">
+          <strong>Total Used:</strong> {totalData.total_used}
+        </Typography>
+        <Typography variant="body1">
+          <strong>Total Available:</strong> {totalData.total_available}
+        </Typography>
+      </Box>
