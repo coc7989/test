@@ -31,17 +31,16 @@ pipeline {
 
                         // Extract and assign values
                         def que_name = parts[1].toUpperCase() == "GUI" ? "GUI" : "ws"
-                        
-                        // Handle os_name extraction and prioritization
-                        def os_name_matcher = (parts[2] =~ /(?:ws70|ws80)/)
-                        def os_name = ""
-                        if (os_name_matcher.find()) {
-                            os_name = os_name_matcher.group(0)
-                        }
 
-                        // Adjust for both ws80 and ws70
-                        if (os_name_matcher.count("ws70") > 0) {
-                            os_name = "ws70"
+                        // Handle os_name extraction and prioritization
+                        def os_name = ""
+                        def os_name_matcher = (parts[2] =~ /ws70|ws80/)
+                        os_name_matcher.each { match ->
+                            if (match == "ws70") {
+                                os_name = "ws70"
+                            } else if (match == "ws80" && os_name != "ws70") {
+                                os_name = "ws80"
+                            }
                         }
 
                         def num_of_core = parts[3].toInteger()
