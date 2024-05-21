@@ -1,4 +1,3 @@
-// Assuming vendor_name is a variable provided to the pipeline
 def vendor_name = "cds"
 
 lines.each { line ->
@@ -29,7 +28,12 @@ lines.each { line ->
 
         if (totalMatch) {
             total_data << [
+                vendor_name: vendor_name,
                 total_feature_name: totalMatch[0][1],
                 total_license: totalMatch[0][2].toInteger(),
                 total_used: totalMatch[0][3].toInteger(),
-                total_available: totalMatch[0**⬤**
+                total_available: totalMatch[0][4].toInteger()
+            ]
+        }
+    }
+}
