@@ -1,64 +1,65 @@
-import React, { useState, useEffect, useRef } from "react"
-import Quill from "quill"
-import hljs from "highlight.js"
-import "quill/dist/quill.snow.css"
-import "highlight.js/styles/github.css"
+pipeline {
+    agent any
+    stages {
+        stage('Process Job Info') {
+            steps {
+                script {
+                    // Define job IDs
+                    def job_ids = "689431,948400,1200"
 
-const TextEditor = () => {
-  const [text, setText] = useState(
-    `This is a sample sentence with misspelled words: helo, worrld, and speeling.`
-  )
-  const onChange = (value) => {
-    setText(value)
-  }
+                    // Convert job IDs to a regular expression pattern
+                    def job_ids_pattern = job_ids.split(',').join('|')
 
-  const editorRef = useRef(null)
-  const [editor, setEditor] = useState(null)
+                    // Execute shell command to get the output
+                    def output = sh(
+                        script: """
+                            /data/lsf/mbjobs2 | grep PEND | cut -d "," -f 2,15,16,17,23 | grep -E '${job_ids_pattern}'
+                        """,
+                        returnStdout: true
+                    ).trim()
 
-  useEffect(() => {
-    if (!editorRef.current) return
+                    // Print the output for debugging
+                    println("Output: ${output}")
 
-    const quill = new Quill(editorRef.current, {
-      modules: {
-        toolbar: "#toolbar",
-        syntax: { hljs },
-      },
-      theme: "snow",
-    })
+                    // Initialize the final result list
+                    def final_result = []
 
-    quill.on("text-change", () => {
-      onChange(editorRef.current.firstChild.innerHTML)
-    })
+                    // Process each line of the output
+                    output.eachLine { line ->
+                        // Split the line into parts
+                        def parts = line.split(',')
 
-    setEditor(quill)
+                        // Extract and assign values
+                        def que_name = parts[1].toUpperCase() == "GUI" ? "GUI" : "ws"
+                        
+                        // Handle os_name extraction and prioritization
+                        def os_name_matcher = (parts[2] =~ /(?:ws70|ws80)/)
+                        def os_name = ""
+                        if (os_name_matcher.find()) {
+                            os_name = os_name_matcher.group(0)
+                        }
 
-    return () => {
-      // quill.off("text-change")
-      // quill.destroy()
+                        // Adjust for both ws80 and ws70
+                        if (os_name_matcher.count("ws70") > 0) {
+                            os_name = "ws70"
+                        }
+
+                        def num_of_core = parts[3].toInteger()
+                        def other_info = parts[4].toInteger()
+
+                        // Add the extracted values to the final result
+                        final_result << [
+                            "que_name"   : que_name,
+                            "os_name"    : os_name,
+                            "num_of_core": num_of_core,
+                            "other_info" : other_info
+                        ]
+                    }
+
+                    // Print the final result for debugging
+                    println("Final Result: ${final_result}")
+                }
+            }
+        }
     }
-  }, [])
-
-  useEffect(() => {
-    if (editor) {
-      editor.root.innerHTML = text
-    }
-  }, [editor])
-
-  return (
-    <div>
-      <div id='toolbar'>
-        <select className='ql-font'></select>
-        <select className='ql-size'></select>
-        <button className='ql-bold'></button>
-        <button className='ql-italic'></button>
-        <button className='ql-underline'></button>
-        <button className='ql-list' value='ordered'></button>
-        <button className='ql-list' value='bullet'></button>
-        <button className='ql-code-block'></button>
-      </div>
-      <div ref={editorRef} style={{ height: "500px" }} />
-    </div>
-  )
 }
-
-export default TextEditor
