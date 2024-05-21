@@ -1,39 +1,46 @@
-def vendor_name = "cds"
+pipeline {
+    agent any
+    stages {
+        stage('Process Job Info') {
+            steps {
+                script {
+                    // Define job_id
+                    def job_id = 689431
 
-lines.each { line ->
-    // Check if the line contains license information
-    if (line.contains("licenses issued")) {
-        // Use the vendor_name variable in the regex
-        def serverNameMatch = line =~ /\/apps\/flames\/data\/${vendor_name}\.([^\/]+)\.lic/
-        def licenseMatch = line =~ /Total of\s+(\d+)\s+licenses issued;\s+Total of\s+(\d+)\s+licenses in use/
-        def featureMatch = line =~ /Users of\s+(\d+):/
+                    // Execute shell command to get the output
+                    def output = sh(
+                        script: """
+                            /data/lsf/mbjobs2 | grep PEND | cut -d "," -f 2,15,16,17,23 | grep $job_id
+                        """,
+                        returnStdout: true
+                    ).trim()
 
-        if (serverNameMatch && licenseMatch && featureMatch) {
-            // Extract the server name without the vendor prefix
-            def serverName = serverNameMatch[0][1]
-            def licenseIssued = licenseMatch[0][1].toInteger()
-            def licenseUsed = licenseMatch[0][2].toInteger()
-            def featureName = featureMatch[0][1]
+                    // Print the output for debugging
+                    println("Output: ${output}")
 
-            data << [
-                server_name: serverName,
-                feature_name: featureName,
-                license_issued: licenseIssued,
-                license_used: licenseUsed
-            ]
-        }
-    } else if (line.contains("Total Licenses")) {
-        // Extract total data from the summary line
-        def totalMatch = line =~ /Feature:\s+(\d+)\s+Total Licenses:\s+(\d+)\s+Total Used:\s+(\d+)\s+Total Available:\s+(\d+)/
+                    // Split the output into parts
+                    def parts = output.split(',')
 
-        if (totalMatch) {
-            total_data << [
-                vendor_name: vendor_name,
-                total_feature_name: totalMatch[0][1],
-                total_license: totalMatch[0][2].toInteger(),
-                total_used: totalMatch[0][3].toInteger(),
-                total_available: totalMatch[0][4].toInteger()
-            ]
+                    // Extract and assign values
+                    def que_name = parts[1].toUpperCase() == "GUI" ? "GUI" : "ws"
+                    def os_name = (parts[2] =~ /\[([^\]]+)\]/)[0][1]
+                    def num_of_core = parts[3]
+                    def other_info = parts[4]
+
+                    // Construct the final result as a list of maps
+                    def final_result = [
+                        [
+                            "que_name"  : que_name,
+                            "os_name"   : os_name,
+                            "num_of_core": num_of_core.toInteger(),
+                            "other_info": other_info.toInteger()
+                        ]
+                    ]
+
+                    // Print the final result for debugging
+                    println("Final Result: ${final_result}")
+                }
+            }
         }
     }
 }
