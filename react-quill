@@ -1,17 +1,35 @@
-import React, { useState } from "react"
-import ReactQuill from "react-quill"
-import "react-quill/dist/quill.snow.css"
+// Assuming vendor_name is a variable provided to the pipeline
+def vendor_name = "cds"
 
-const TextEditor = () => {
-  const [text, setText] = useState(
-    `This is a sample sentence with misspelled words: helo, worrld, and speeling.`
-  )
+lines.each { line ->
+    // Check if the line contains license information
+    if (line.contains("licenses issued")) {
+        // Use the vendor_name variable in the regex
+        def serverNameMatch = line =~ /\/apps\/flames\/data\/${vendor_name}\.([^\/]+)\.lic/
+        def licenseMatch = line =~ /Total of\s+(\d+)\s+licenses issued;\s+Total of\s+(\d+)\s+licenses in use/
+        def featureMatch = line =~ /Users of\s+(\d+):/
 
-  const onChange = (value) => {
-    setText(value)
-  }
+        if (serverNameMatch && licenseMatch && featureMatch) {
+            // Extract the server name without the vendor prefix
+            def serverName = serverNameMatch[0][1]
+            def licenseIssued = licenseMatch[0][1].toInteger()
+            def licenseUsed = licenseMatch[0][2].toInteger()
+            def featureName = featureMatch[0][1]
 
-  return <ReactQuill theme='snow' value={text} onChange={onChange} />
-}
+            data << [
+                server_name: serverName,
+                feature_name: featureName,
+                license_issued: licenseIssued,
+                license_used: licenseUsed
+            ]
+        }
+    } else if (line.contains("Total Licenses")) {
+        // Extract total data from the summary line
+        def totalMatch = line =~ /Feature:\s+(\d+)\s+Total Licenses:\s+(\d+)\s+Total Used:\s+(\d+)\s+Total Available:\s+(\d+)/
 
-export default TextEditor
+        if (totalMatch) {
+            total_data << [
+                total_feature_name: totalMatch[0][1],
+                total_license: totalMatch[0][2].toInteger(),
+                total_used: totalMatch[0][3].toInteger(),
+                total_available: totalMatch[0**⬤**
