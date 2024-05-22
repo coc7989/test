@@ -1,121 +1,16 @@
-pipeline {
-    agent any
-    stages {
-        stage('Process Job Info') {
-            steps {
-                script {
-                    // Define sample output
-                    def output = """
-                    689431,GUI,select[ws80&&!vm] rusage[mem=16000],4,77591
-                    948400,ws,select[ws90] rusage[mem=32000],8,88200
-                    1200,GUI,select[ws70] rusage[mem=8000],2,55678
-                    689431,GUI,select[ws80||ws70] rusage[mem=16000],4,77591
-                    """.trim()
+#!/bin/bash
 
-                    // Print the output for debugging
-                    println("Output: ${output}")
+# Example script (your_script.sh)
 
-                    // Initialize the final result map
-                    def final_results = [:]
-                    def command_outputs = [:]
+# Define some arguments
+arg1=$1
+arg2=$2
 
-                    // Process each line of the output
-                    output.eachLine { line ->
-                        // Split the line into parts
-                        def parts = line.split(',')
-
-                        // Extract and assign values
-                        def job_id = parts[0].toInteger()
-                        def que_name = parts[1].toUpperCase() == "GUI" ? "GUI" : "ws"
-
-                        // Handle os_name extraction and prioritization
-                        def os_name = ""
-                        def os_name_matcher = (parts[2] =~ /ws70|ws80/)
-                        os_name_matcher.each { match ->
-                            if (match == "ws70") {
-                                os_name = "ws70"
-                            } else if (match == "ws80" && os_name != "ws70") {
-                                os_name = "ws80"
-                            }
-                        }
-
-                        def num_of_core = parts[3].toInteger()
-                        def other_info = parts[4].toInteger()
-
-                        // Create the result object
-                        def result = [
-                            "que_name"   : que_name,
-                            "os_name"    : os_name,
-                            "num_of_core": num_of_core,
-                            "other_info" : other_info
-                        ]
-
-                        // Add the result object to the final_results map with the job_id as the key
-                        final_results[job_id] = result
-                    }
-
-                    // Group job IDs by que_name and os_name
-                    def grouped_job_ids = [:]
-                    final_results.each { job_id, result ->
-                        def key = "${result.que_name}-${result.os_name}"
-                        if (!grouped_job_ids.containsKey(key)) {
-                            grouped_job_ids[key] = []
-                        }
-                        grouped_job_ids[key] << job_id
-                    }
-
-                    // Define the commands to run based on que_name and os_name
-                    def commands = [
-                        "GUI-ws70": "bhosts -wR 'ws70 && gui' | grep 'ok\\|closed_Adm'",
-                        "ws-ws70": "bhosts -wR 'ws70 && ws' | grep 'ok\\|closed_Adm'",
-                        "ws-ws80": "bhosts -wR 'ws80 && ws' | grep 'ok\\|closed_Adm'",
-                        "GUI-ws80": "bhosts -wR 'ws80 && gui' | grep 'ok\\|closed_Adm'"
-                    ]
-
-                    // Run the relevant command for each unique group and process the output
-                    grouped_job_ids.each { key, job_ids ->
-                        def command = commands[key]
-                        if (command) {
-                            def command_output = sh(
-                                script: command,
-                                returnStdout: true
-                            ).trim()
-
-                            // Initialize the available_capacity list
-                            def available_capacity = []
-
-                            // Process the command output
-                            command_output.eachLine { line ->
-                                def parts = line.split(/\s+/) // Split by any whitespace
-                                def server_name = parts[0]
-                                def total_cores = parts[3].toInteger()
-                                def used_cores = parts[4].toInteger()
-                                def free_cores = total_cores - used_cores
-
-                                // Add the extracted values to the available_capacity list
-                                available_capacity << [
-                                    "server_name" : server_name,
-                                    "total_cores" : total_cores,
-                                    "used_cores"  : used_cores,
-                                    "free_cores"  : free_cores
-                                ]
-                            }
-
-                            // Store the available_capacity list in the command_outputs map
-                            command_outputs[key] = available_capacity
-                        }
-                    }
-
-                    // Associate command outputs with job IDs
-                    final_results.each { job_id, result ->
-                        def key = "${result.que_name}-${result.os_name}"
-                        result["available_capacity"] = command_outputs[key]
-                    }
-
-                    // Print the final result for debugging
-                    println("Final Results: ${final_results}")
-                }
-            }
-        }
-    }
-}
+# Example condition: If arg1 equals arg2
+if [ "$arg1" = "$arg2" ]; then
+    # Return 0 for success
+    exit 0
+else
+    # Return 1 for failure
+    exit 1
+fi
