@@ -1,16 +1,21 @@
-#!/bin/bash
-
-# Example script (your_script.sh)
-
-# Define some arguments
-arg1=$1
-arg2=$2
-
-# Example condition: If arg1 equals arg2
-if [ "$arg1" = "$arg2" ]; then
-    # Return 0 for success
-    exit 0
-else
-    # Return 1 for failure
-    exit 1
-fi
+pipeline {
+    agent any
+    
+    stages {
+        stage('Execute Script') {
+            steps {
+                script {
+                    // Execute your script and capture the exit code
+                    def exitCode = sh(script: 'your_script.sh arg1 arg2 > /dev/null 2>&1; echo $?', returnStatus: true)
+                    
+                    // Interpret the exit code as "Success" or "Failure"
+                    if (exitCode == 0) {
+                        echo "Script executed successfully: Success"
+                    } else {
+                        echo "Script execution failed: Failure"
+                    }
+                }
+            }
+        }
+    }
+}
