@@ -1,21 +1,29 @@
-pipeline {
-    agent any
-    
-    stages {
-        stage('Execute Script') {
-            steps {
-                script {
-                    // Execute your script and capture the exit code
-                    def exitCode = sh(script: 'your_script.sh arg1 arg2 > /dev/null 2>&1; echo $?', returnStatus: true)
-                    
-                    // Interpret the exit code as "Success" or "Failure"
-                    if (exitCode == 0) {
-                        echo "Script executed successfully: Success"
-                    } else {
-                        echo "Script execution failed: Failure"
-                    }
-                }
-            }
-        }
-    }
-}
+#!/bin/bash
+
+vendor1="$1"
+vendor2="$2"
+
+# Temporary file to store the output
+tempfile=$(mktemp)
+
+# Redirect all echo statements to both the console and the temporary file
+echo "${vendor1}" | tee -a "$tempfile"
+echo "${vendor2}" | tee -a "$tempfile"
+
+# Initialize a result variable
+result=""
+
+if [ "$vendor1" = "$vendor2" ]; then
+    result="success"
+else
+    result="failure"
+fi
+
+# Append the result to the temporary file
+echo "${result}" | tee -a "$tempfile"
+
+# Print the result for Jenkins to capture
+cat "$tempfile"
+
+# Clean up the temporary file
+rm "$tempfile"
