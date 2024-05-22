@@ -72,7 +72,7 @@ pipeline {
                         "GUI-ws80": "bhosts -wR 'ws80 && gui' | grep 'ok\\|closed_Adm'"
                     ]
 
-                    // Run the relevant command for each unique group and store the output
+                    // Run the relevant command for each unique group and process the output
                     grouped_job_ids.each { key, job_ids ->
                         def command = commands[key]
                         if (command) {
@@ -80,14 +80,36 @@ pipeline {
                                 script: command,
                                 returnStdout: true
                             ).trim()
-                            command_outputs[key] = command_output
+
+                            // Initialize the available_capacity list
+                            def available_capacity = []
+
+                            // Process the command output
+                            command_output.eachLine { line ->
+                                def parts = line.split(/\s+/) // Split by any whitespace
+                                def server_name = parts[0]
+                                def total_cores = parts[3].toInteger()
+                                def used_cores = parts[4].toInteger()
+                                def free_cores = total_cores - used_cores
+
+                                // Add the extracted values to the available_capacity list
+                                available_capacity << [
+                                    "server_name" : server_name,
+                                    "total_cores" : total_cores,
+                                    "used_cores"  : used_cores,
+                                    "free_cores"  : free_cores
+                                ]
+                            }
+
+                            // Store the available_capacity list in the command_outputs map
+                            command_outputs[key] = available_capacity
                         }
                     }
 
                     // Associate command outputs with job IDs
                     final_results.each { job_id, result ->
                         def key = "${result.que_name}-${result.os_name}"
-                        result["command_output"] = command_outputs[key]
+                        result["available_capacity"] = command_outputs[key]
                     }
 
                     // Print the final result for debugging
