@@ -90,6 +90,31 @@ pipeline {
                         "GUI-ws80": "bhosts -wR 'ws80 && gui' | grep 'ok\\|closed_Adm'"
                     ]
 
+                    // Define the lsload command to check available memory on hosts
+                    def lsload_command = "lsload -R 'ws70 && ws' | grep 'ok'"
+
+                    // Run the lsload command and process the output
+                    def lsload_output = sh(
+                        script: lsload_command,
+                        returnStdout: true
+                    ).trim()
+
+                    // Initialize the available_memory list
+                    def available_memory = []
+
+                    // Process the lsload command output
+                    lsload_output.eachLine { line ->
+                        def parts = line.split(/\s+/) // Split by any whitespace
+                        def server_name = parts[0]
+                        def free_memory = parts[-1]
+
+                        // Add the extracted values to the available_memory list
+                        available_memory << [
+                            "server_name" : server_name,
+                            "free_memory" : free_memory
+                        ]
+                    }
+
                     // Run the relevant command for each unique group and process the output
                     def command_outputs = [:]
                     grouped_job_ids.each { key, job_ids ->
