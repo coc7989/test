@@ -1,14 +1,176 @@
-#!/bin/bash
+pipeline {
+    agent any
+    stages {
+        stage('Process Job Info') {
+            steps {
+                script {
+                    // Define sample output
+                    def output = """
+                    689431,GUI,select[ws80&&!vm] rusage[mem=16000],4,77591
+                    313613,gui,select[ws70 && mem>8000] rusage[mem=4000],1,593409
+                    948400,ws,select[ws90] rusage[mem=32000],8,88200
+                    1200,GUI,select[ws70] rusage[mem=8000],2,55678
+                    689431,GUI,select[ws70||ws80] rusage[mem=16000],4,77591
+                    """.trim()
 
-# Run the command and store the output in the verification variable
-verification=$(sssverify "$mappedlicense")
+                    // Print the output for debugging
+                    println("Output: ${output}")
 
-# Check if the output contains the string "License file Integrity check FAILED!"
-verification_status=$(echo "$verification" | grep "License file Integrity check FAILED!")
+                    // Initialize the final result map
+                    def final_results = [:]
 
-# Conditional check
-if [ "$verification_status" != "License file Integrity check FAILED!" ]; then
-  echo "success"
-else
-  echo "License file Integrity check FAILED!"
-fi
+                    // Process each line of the output
+                    output.eachLine { line ->
+                        // Split the line into parts
+                        def parts = line.split(',')
+
+                        // Extract and assign values
+                        def job_id = parts[0].toInteger()
+                        def que_name = parts[1].toUpperCase() == "GUI" ? "GUI" : "ws"
+
+                        // Handle os_name extraction and prioritization
+                        def os_name = ""
+                        def os_name_matcher = (parts[2] =~ /ws70|ws80/)
+                        os_name_matcher.each { match ->
+                            if (match == "ws80") {
+                                os_name = "ws80"
+                            } else if (match == "ws70" && os_name != "ws80") {
+                                os_name = "ws70"
+                            }
+                        }
+
+                        def num_of_core = parts[3].toInteger()
+                        def other_info = parts[4].toInteger()
+
+                        // Extract select_memory and rusage_memory
+                        def select_memory = 0
+                        def rusage_memory = 0
+                        def select_mem_matcher = (parts[2] =~ /mem>(\d+)/)
+                        if (select_mem_matcher) {
+                            select_memory = select_mem_matcher[0][1].toInteger()
+                        }
+                        def rusage_mem_matcher = (parts[2] =~ /rusage\[mem=(\d+)\]/)
+                        if (rusage_mem_matcher) {
+                            rusage_memory = rusage_mem_matcher[0][1].toInteger()
+                        }
+
+                        // Calculate required_memory
+                        def required_memory = Math.max(select_memory, rusage_memory) * num_of_core
+
+                        // Create the result object
+                        def result = [
+                            "que_name"       : que_name,
+                            "os_name"        : os_name,
+                            "num_of_core"    : num_of_core,
+                            "other_info"     : other_info,
+                            "select_memory"  : select_memory,
+                            "rusage_memory"  : rusage_memory,
+                            "required_memory": required_memory
+                        ]
+
+                        // Add the result object to the final_results map with the job_id as the key
+                        final_results[job_id] = result
+                    }
+
+                    // Group job IDs by que_name and os_name
+                    def grouped_job_ids = [:]
+                    final_results.each { job_id, result ->
+                        def key = "${result.que_name}-${result.os_name}"
+                        if (!grouped_job_ids.containsKey(key)) {
+                            grouped_job_ids[key] = []
+                        }
+                        grouped_job_ids[key] << job_id
+                    }
+
+                    // Define the commands to run based on que_name and os_name
+                    def commands = [
+                        "GUI-ws70": "bhosts -wR 'ws70 && gui' | grep 'ok\\|closed_Adm'",
+                        "ws-ws70": "bhosts -wR 'ws70 && ws' | grep 'ok\\|closed_Adm'",
+                        "ws-ws80": "bhosts -wR 'ws80 && ws' | grep 'ok\\|closed_Adm'",
+                        "GUI-ws80": "bhosts -wR 'ws80 && gui' | grep 'ok\\|closed_Adm'"
+                    ]
+
+                    // Run the relevant command for each unique group and process the output
+                    def command_outputs = [:]
+                    grouped_job_ids.each { key, job_ids ->
+                        def command = commands[key]
+                        if (command) {
+                            def command_output = sh(
+                                script: command,
+                                returnStdout: true
+                            ).trim()
+
+                            // Initialize the available_capacity list
+                            def available_capacity = []
+
+                            // Process the command output
+                            command_output.eachLine { line ->
+                                def parts = line.split(/\s+/) // Split by any whitespace
+                                def server_name = parts[0]
+                                def total_cores = parts[3].toInteger()
+                                def used_cores = parts[4].toInteger()
+                                def free_cores = total_cores - used_cores
+
+                                // Add the extracted values to the available_capacity list
+                                available_capacity << [
+                                    "server_name" : server_name,
+                                    "total_cores" : total_cores,
+                                    "used_cores"  : used_cores,
+                                    "free_cores"  : free_cores
+                                ]
+                            }
+
+                            // Store the available_capacity list in the command_outputs map
+                            command_outputs[key] = available_capacity
+                        }
+                    }
+
+                    // Associate command outputs with job IDs and determine execution server
+                    final_results.each { job_id, result ->
+                        def key = "${result.que_name}-${result.os_name}"
+                        def available_capacity = command_outputs[key]
+                        def num_of_core = result.num_of_core
+                        def optimal_server = null
+                        def smallest_executable_cores = Integer.MAX_VALUE
+
+                        // Find the optimal server
+                        available_capacity.each { capacity ->
+                            def executable_cores = capacity.free_cores - 2
+                            if (executable_cores >= num_of_core && executable_cores < smallest_executable_cores) {
+                                optimal_server = capacity.server_name
+                                smallest_executable_cores = executable_cores
+                            }
+                        }
+
+                        // If no exact match, find the smallest executable_cores greater than required cores
+                        if (!optimal_server) {
+                            available_capacity.each { capacity ->
+                                def executable_cores = capacity.free_cores - 2
+                                if (executable_cores > num_of_core && executable_cores < smallest_executable_cores) {
+                                    optimal_server = capacity.server_name
+                                    smallest_executable_cores = executable_cores
+                                }
+                            }
+                        }
+
+                        // Add the optimal server to the result
+                        result["execute_on"] = optimal_server
+                    }
+
+                    // Print final results for debugging
+                    println("Final Results: ${final_results}")
+
+                    // Execute each job on the designated server
+                    final_results.each { job_id, result ->
+                        def execute_on = result["execute_on"]
+                        if (execute_on) {
+                            sh "brun -m ${execute_on} ${job_id}"
+                        } else {
+                            println "No optimal server found for job ${job_id}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
