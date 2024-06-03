@@ -189,6 +189,12 @@ pipeline {
 
                         // Add the optimal server to the result
                         result["execute_on"] = optimal_server
+
+                        // Reduce free_cores and free_memory on the selected server
+                        if (optimal_server) {
+                            available_capacity.find { it.server_name == optimal_server }.free_cores -= num_of_core
+                            available_memory.find { it.server_name == optimal_server }.free_memory -= required_memory
+                        }
                     }
 
                     // Print final results for debugging
