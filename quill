@@ -90,6 +90,31 @@ pipeline {
                         "GUI-ws80": "bhosts -wR 'ws80 && gui' | grep 'ok\\|closed_Adm'"
                     ]
 
+                    // Define the lsload command to check available memory on hosts
+                    def lsload_command = "lsload -R 'ws70 && ws' | grep 'ok'"
+
+                    // Run the lsload command and process the output
+                    def lsload_output = sh(
+                        script: lsload_command,
+                        returnStdout: true
+                    ).trim()
+
+                    // Initialize the available_memory list
+                    def available_memory = []
+
+                    // Process the lsload command output
+                    lsload_output.eachLine { line ->
+                        def parts = line.split(/\s+/) // Split by any whitespace
+                        def server_name = parts[0]
+                        def free_memory = parts[-1].replaceAll(/[^\d]/, '').toInteger() // Extract digits only
+
+                        // Add the extracted values to the available_memory list
+                        available_memory << [
+                            "server_name" : server_name,
+                            "free_memory" : free_memory
+                        ]
+                    }
+
                     // Run the relevant command for each unique group and process the output
                     def command_outputs = [:]
                     grouped_job_ids.each { key, job_ids ->
@@ -130,14 +155,19 @@ pipeline {
                         def key = "${result.que_name}-${result.os_name}"
                         def available_capacity = command_outputs[key]
                         def num_of_core = result.num_of_core
+                        def required_memory = result.required_memory
                         def optimal_server = null
                         def smallest_executable_cores = Integer.MAX_VALUE
 
                         // Find the optimal server
                         available_capacity.each { capacity ->
                             def executable_cores = capacity.free_cores - 2
-                            if (executable_cores >= num_of_core && executable_cores < smallest_executable_cores) {
-                                optimal_server = capacity.server_name
+                            def server_name = capacity.server_name
+                            def memory_info = available_memory.find { it.server_name == server_name }
+                            def free_memory = memory_info?.free_memory ?: 0
+
+                            if (executable_cores >= num_of_core && required_memory <= free_memory && executable_cores < smallest_executable_cores) {
+                                optimal_server = server_name
                                 smallest_executable_cores = executable_cores
                             }
                         }
@@ -146,8 +176,12 @@ pipeline {
                         if (!optimal_server) {
                             available_capacity.each { capacity ->
                                 def executable_cores = capacity.free_cores - 2
-                                if (executable_cores > num_of_core && executable_cores < smallest_executable_cores) {
-                                    optimal_server = capacity.server_name
+                                def server_name = capacity.server_name
+                                def memory_info = available_memory.find { it.server_name == server_name }
+                                def free_memory = memory_info?.free_memory ?: 0
+
+                                if (executable_cores > num_of_core && required_memory <= free_memory && executable_cores < smallest_executable_cores) {
+                                    optimal_server = server_name
                                     smallest_executable_cores = executable_cores
                                 }
                             }
