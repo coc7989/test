@@ -1,25 +1,89 @@
-<VirtualHost *:80>
+from flask import Blueprint, jsonify
+from flask_cors import cross_origin
 
-    # SERVER NAME ALIAS
-    ServerName flameshub.dal.design.ti.com
+master_list_bp = Blueprint('master_list_bp', __name__)
 
-    # Proxy Pass for /api
-    # For Backend Container
-    ProxyPass /api http://localhost:5000/api timeout=600
-    ProxyPassReverse /api http://localhost:5000/api
+@master_list_bp.route('/get_master_list_data', methods=["GET"])
+@cross_origin()
+def get_master_list_data():
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute('SELECT * FROM MASTERLIST ORDER BY REGION, SERVER, VENDOR')
+    data = cursor.fetchall()
+    grouped_data = {}
+    
+    for row in data:
+        region = row[1]
+        if region not in grouped_data:
+            grouped_data[region] = []
+        grouped_data[region].append({
+            'id': row[0],
+            'server': row[2],
+            'vendor': row[3],
+            'redundancy': row[4],
+            'criticality': row[5],
+            'comments': row[6]
+        })
+        
+    data_list = []
+    
+    for region, rows in grouped_data.items():
+        rowspan_region = len(rows)
+        server_counts = {}
+        vendor_counts = {}
 
-    # Proxy Pass for /swaggerui
-    # For Loading SwaggerUI
-    ProxyPass /swaggerui http://localhost:5000/swaggerui timeout=600
-    ProxyPassReverse /swaggerui http://localhost:5000/swaggerui
-
-    # Proxy Pass for root
-    ProxyPass / http://localhost:8080/ timeout=600
-    ProxyPassReverse / http://localhost:8080/
-
-    LogFormat "v %h %l %u %t \"%r\" %>s %b %{Authorization}i " my_special_format
-    ErrorLog /etc/httpd/logs/error_log
-    LogLevel warn
-    CustomLog /etc/httpd/logs/access_log combined
-
-</VirtualHost>
+        for row in rows:
+            server = row['server']
+            vendor = row['vendor']
+            if server not in server_counts:
+                server_counts[server] = 0
+            if vendor not in vendor_counts:
+                vendor_counts[vendor] = 0
+            server_counts[server] += 1
+            vendor_counts[vendor] += 1
+            
+        for idx, row in enumerate(rows):
+            server = row['server']
+            vendor = row['vendor']
+            rowspan_server = server_counts[server]
+            rowspan_vendor = vendor_counts[vendor]
+            server_counts[server] = 0
+            vendor_counts[vendor] = 0
+            
+            if idx == 0:
+                data_list.append({
+                    'id': row['id'],
+                    'region': region,
+                    'server': server,
+                    'vendor': vendor,
+                    'redundancy': row['redundancy'],
+                    'criticality': row['criticality'],
+                    'comments': row['comments'],
+                    'rowSpan': {'region': rowspan_region, 'server': rowspan_server, 'vendor': rowspan_vendor}
+                })
+            else:
+                if rowspan_server > 0 or rowspan_vendor > 0:
+                    data_list.append({
+                        'id': row['id'],
+                        'region': region,
+                        'server': server,
+                        'vendor': vendor,
+                        'redundancy': row['redundancy'],
+                        'criticality': row['criticality'],
+                        'comments': row['comments'],
+                        'rowSpan': {'server': rowspan_server, 'vendor': rowspan_vendor}
+                    })
+                else:
+                    data_list.append({
+                        'id': row['id'],
+                        'region': region,
+                        'server': server,
+                        'vendor': vendor,
+                        'redundancy': row['redundancy'],
+                        'criticality': row['criticality'],
+                        'comments': row['comments'],
+                        'rowSpan': {}
+                    })
+    cursor.close()
+    release_connection(connection)
+    return jsonify({'data_list': data_list}), 200
