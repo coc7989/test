@@ -1,13 +1,25 @@
-def job_ids = "/661033,663858/"
+<VirtualHost *:80>
 
-def job_ids_pattern = job_ids.split(',').join(',')
+    # SERVER NAME ALIAS
+    ServerName flameshub.dal.design.ti.com
 
-sh(script: "/data/lsf/work/local/bin/mbjobs2 | tee output_file.txt", returnStdout: true)
+    # Proxy Pass for /api
+    # For Backend Container
+    ProxyPass /api http://localhost:5000/api timeout=600
+    ProxyPassReverse /api http://localhost:5000/api
 
-sh(script: "grep PEND output_file.txt > filtered_output.txt")
+    # Proxy Pass for /swaggerui
+    # For Loading SwaggerUI
+    ProxyPass /swaggerui http://localhost:5000/swaggerui timeout=600
+    ProxyPassReverse /swaggerui http://localhost:5000/swaggerui
 
-sh(script: "cut -d',' -f 2,15,16,17,23 filtered_output.txt > cut_output.txt")
+    # Proxy Pass for root
+    ProxyPass / http://localhost:8080/ timeout=600
+    ProxyPassReverse / http://localhost:8080/
 
-sh(script: "grep -E '${job_ids_pattern}' cut_output.txt > final_output.txt")
+    LogFormat "v %h %l %u %t \"%r\" %>s %b %{Authorization}i " my_special_format
+    ErrorLog /etc/httpd/logs/error_log
+    LogLevel warn
+    CustomLog /etc/httpd/logs/access_log combined
 
-def output = readFile('final_output.txt').trim()
+</VirtualHost>
