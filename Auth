@@ -1,92 +1,52 @@
-import os
-import json
-import time
-import requests
-import uuid
-from flask import Flask, request, Blueprint, jsonify, session
-from flask_cors import cross_origin, CORS
-from dotenv import load_dotenv
-from threading import Lock
+import React, { useState, useEffect } from 'react';
+import { DataTable } from 'primereact/datatable';
+import { Column } from 'primereact/column';
 
-load_dotenv()
+const MyDataGrid = () => {
+  const [rowData, setRowData] = useState([]);
 
-app = Flask(__name__)
-CORS(app)
-app.secret_key = os.getenv("SECRET_KEY")  # Ensure you have a secret key for sessions
+  useEffect(() => {
+    fetch('/api/data')
+      .then(response => response.json())
+      .then(data => setRowData(data));
+  }, []);
 
-# Initialize the Blueprint
-trigger_compare_pipeline_bp = Blueprint('trigger_compare_pipeline_bp', __name__)
+  const generateRowSpanData = (data) => {
+    // Function to generate rowspan data
+    // Modify your data structure to include rowspan info
+    // Example: { value: 'A', rowspan: 2 }, { value: 'B', rowspan: null }
+    // This will make 'A' span 2 rows
+    // You need to implement this based on your actual data structure
+    return modifiedData;
+  };
 
-# Global variable to store session data
-sessions_data = {}
-sessions_data_lock = Lock()
+  const modifiedRowData = generateRowSpanData(rowData);
 
-@trigger_compare_pipeline_bp.route('/process_compare_output', methods=["POST"])
-@cross_origin()
-def process_compare_output():
-    try:
-        print("Session before process:", session)
-        data = request.get_json()
+  const renderCell = (rowData, column) => {
+    if (rowData[column.field] === null) {
+      return null; // For cells that should span multiple rows, return null
+    } else {
+      return rowData[column.field]; // For regular cells, return the value
+    }
+  };
 
-        buildNum = data.get("buildNum")
-        compareData = data.get("compareData")
-        featureData = data.get("featureData")
+  const rowSpanBodyTemplate = (rowData, column) => {
+    const value = renderCell(rowData, column);
+    if (value === null) {
+      return null; // Return null for cells that should span multiple rows
+    } else {
+      return <td rowSpan={rowData.rowspan}>{value}</td>; // Set rowSpan attribute for regular cells
+    }
+  };
 
-        # Ensure buildNum is provided
-        if buildNum is None:
-            return jsonify({'error': 'buildNum is required'}), 400
+  return (
+    <DataTable value={modifiedRowData}>
+      <Column body={rowSpanBodyTemplate} />
+      <Column field="columnName1" header="Column Header 1" />
+      <Column field="columnName2" header="Column Header 2" />
+      {/* Add more columns as needed */}
+    </DataTable>
+  );
+};
 
-        with sessions_data_lock:
-            sessions_data[buildNum] = {
-                "compareData": compareData,
-                "featureData": featureData
-            }
-
-        print("Session after process:", session)
-        return jsonify({'compareData': compareData, "featureData": featureData}), 200
-    except Exception as e:
-        print("Error:", e)
-        return jsonify({'error': 'Processing compare output failed'}), 500
-
-@trigger_compare_pipeline_bp.route('/trigger_compare_pipeline', methods=["POST"])
-@cross_origin()
-def trigger_compare_pipeline():
-    try:
-        req_id = str(uuid.uuid4())
-        mappedlicense = request.json.get('mappedlicense')
-
-        with sessions_data_lock:
-            sessions_data[req_id] = {}
-
-        session['req_id'] = req_id
-        session['mappedlicense'] = mappedlicense
-
-        print("req_id inside compare:", req_id)
-        print("mappedlicense inside compare:", mappedlicense)
-        print("Session before triggering:", session)
-
-        JENKINS_USERNAME = os.getenv("JENKINS_USERNAME")
-        JENKINS_PASSWORD = os.getenv("JENKINS_PASSWORD")
-
-        response = requests.post(
-            "https://jenkins.com/job/flames/buildWithParameters",
-            auth=(JENKINS_USERNAME, JENKINS_PASSWORD),
-            params={"BUILD_NUMBER": req_id, "mappedlicense": mappedlicense}
-        )
-
-        print("Session after triggering:", session)
-
-        compareData = sessions_data[req_id].get('compareData', '')
-        featureData = sessions_data[req_id].get('featureData', '')
-
-        print("Feature data:", featureData)
-        return jsonify({'compareData': compareData, "featureData": featureData}), 200
-    except Exception as e:
-        print(e)
-        return jsonify({'errorCompare': 'File Comparison Failed'}), 500
-
-# Register the Blueprint
-app.register_blueprint(trigger_compare_pipeline_bp)
-
-if __name__ == '__main__':
-    app.run(debug=True)
+export default MyDataGrid;
