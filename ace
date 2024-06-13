@@ -1,61 +1,247 @@
-def output = sh(
-    script: """
-        /opt/lmstat -C $vendor_name -f $feature_name
-    """,
-    returnStdout: true
-).trim()
+pipeline {
+    agent any
+    stages {
+        stage('Process Job Info') {
+            steps {
+                script {
+                    // Define sample output
+                    def output = """
+                    689431,GUI,select[ws80&&!vm] rusage[mem=16000],4,77591
+                    313613,gui,select[ws70 && mem>8000] rusage[mem=4000],1,593409
+                    948400,ws,select[ws90] rusage[mem=32000],8,88200
+                    1200,GUI,select[ws70] rusage[mem=8000],2,55678
+                    689431,GUI,select[ws70||ws80] rusage[mem=16000],4,77591
+                    """.trim()
 
-// Split the output into lines
-def lines = output.split("\n")
+                    // Print the output for debugging
+                    println("Output: ${output}")
 
-def data = []
-def total_data = [:]
+                    // Initialize the final result map
+                    def final_results = [:]
 
-lines.each { line ->
-    // Check if the line contains license information
-    if (line.contains("licenses issued")) {
-        def serverNameMatch = line =~ /\/apps\/flames\/data\/([^\/]+)\.lic/
-        def licenseMatch = line =~ /Total of\s+(\d+)\s+licenses issued;\s+Total of\s+(\d+)\s+licenses in use/
-        def featureMatch = line =~ /Users of\s+(\d+):/
+                    // Process each line of the output
+                    output.eachLine { line ->
+                        // Split the line into parts
+                        def parts = line.split(',')
 
-        if (serverNameMatch && licenseMatch && featureMatch) {
-            def serverName = serverNameMatch[0][1]
-            def licenseIssued = licenseMatch[0][1].toInteger()
-            def licenseUsed = licenseMatch[0][2].toInteger()
-            def featureName = featureMatch[0][1]
+                        // Extract and assign values
+                        def job_id = parts[0].toInteger()
+                        def que_name = parts[1].toUpperCase() == "GUI" ? "GUI" : "ws"
 
-            data << [
-                server_name: serverName,
-                feature_name: featureName,
-                license_issued: licenseIssued,
-                license_used: licenseUsed
-            ]
-        }
-    } else if (line.contains("Total Licenses")) {
-        // Extract total data from the summary line
-        def totalMatch = line =~ /Feature:\s+(\d+)\s+Total Licenses:\s+(\d+)\s+Total Used:\s+(\d+)\s+Total Available:\s+(\d+)/
+                        // Handle os_name extraction and prioritization
+                        def os_name = ""
+                        def os_name_matcher = (parts[2] =~ /ws70|ws80/)
+                        os_name_matcher.each { match ->
+                            if (match == "ws80") {
+                                os_name = "ws80"
+                            } else if (match == "ws70" && os_name != "ws80") {
+                                os_name = "ws70"
+                            }
+                        }
 
-        if (totalMatch) {
-            total_data = [
-                feature_name: totalMatch[0][1],
-                total_license: totalMatch[0][2].toInteger(),
-                total_used: totalMatch[0][3].toInteger(),
-                total_available: totalMatch[0][4].toInteger()
-            ]
+                        def num_of_core = parts[3].toInteger()
+                        def other_info = parts[4].toInteger()
+
+                        // Extract select_memory and rusage_memory
+                        def select_memory = 0
+                        def rusage_memory = 0
+                        def select_mem_matcher = (parts[2] =~ /mem>(\d+)/)
+                        if (select_mem_matcher) {
+                            select_memory = select_mem_matcher[0][1].toInteger()
+                        }
+                        def rusage_mem_matcher = (parts[2] =~ /rusage\[mem=(\d+)\]/)
+                        if (rusage_mem_matcher) {
+                            rusage_memory = rusage_mem_matcher[0][1].toInteger()
+                        }
+
+                        // Calculate required_memory
+                        def required_memory = Math.max(select_memory, rusage_memory) * num_of_core
+
+                        // Create the result object
+                        def result = [
+                            "que_name"       : que_name,
+                            "os_name"        : os_name,
+                            "num_of_core"    : num_of_core,
+                            "other_info"     : other_info,
+                            "select_memory"  : select_memory,
+                            "rusage_memory"  : rusage_memory,
+                            "required_memory": required_memory
+                        ]
+
+                        // Add the result object to the final_results map with the job_id as the key
+                        final_results[job_id] = result
+                    }
+
+                    // Group job IDs by que_name and os_name
+                    def grouped_job_ids = [:]
+                    final_results.each { job_id, result ->
+                        def key = "${result.que_name}-${result.os_name}"
+                        if (!grouped_job_ids.containsKey(key)) {
+                            grouped_job_ids[key] = []
+                        }
+                        grouped_job_ids[key] << job_id
+                    }
+
+                    // Define the commands to run based on que_name and os_name
+                    def commands = [
+                        "GUI-ws70": "bhosts -wR 'ws70 && gui' | grep 'ok\\|closed_Adm'",
+                        "ws-ws70": "bhosts -wR 'ws70 && ws' | grep 'ok\\|closed_Adm'",
+                        "ws-ws80": "bhosts -wR 'ws80 && ws' | grep 'ok\\|closed_Adm'",
+                        "GUI-ws80": "bhosts -wR 'ws80 && gui' | grep 'ok\\|closed_Adm'"
+                    ]
+
+                    // Define the lsload command to check available memory on hosts
+                    def lsload_command = "lsload -R 'ws70 && ws' | grep 'ok'"
+
+                    // Run the lsload command and process the output
+                    def lsload_output = sh(
+                        script: lsload_command,
+                        returnStdout: true
+                    ).trim()
+
+                    // Initialize the available_memory list
+                    def available_memory = []
+
+                    // Process the lsload command output
+                    lsload_output.eachLine { line ->
+                        def parts = line.split(/\s+/) // Split by any whitespace
+                        def server_full_name = parts[0]
+                        def server_name = server_full_name.replace(".google.com", "")
+                        def free_memory = parts[-1].replaceAll(/[^\d]/, '').toInteger() // Extract digits only
+
+                        // Add the extracted values to the available_memory list
+                        available_memory << [
+                            "server_name" : server_name,
+                            "free_memory" : free_memory
+                        ]
+                    }
+
+                    // Run the relevant command for each unique group and process the output
+                    def command_outputs = [:]
+                    grouped_job_ids.each { key, job_ids ->
+                        def command = commands[key]
+                        if (command) {
+                            def command_output = sh(
+                                script: command,
+                                returnStdout: true
+                            ).trim()
+
+                            // Initialize the available_capacity list
+                            def available_capacity = []
+
+                            // Process the command output
+                            command_output.eachLine { line ->
+                                def parts = line.split(/\s+/) // Split by any whitespace
+                                def server_full_name = parts[0]
+                                def server_name = server_full_name.replace(".google.com", "")
+                                def total_cores = parts[3].toInteger()
+                                def used_cores = parts[4].toInteger()
+                                def free_cores = total_cores - used_cores
+
+                                // Add the extracted values to the available_capacity list
+                                available_capacity << [
+                                    "server_name" : server_name,
+                                    "total_cores" : total_cores,
+                                    "used_cores"  : used_cores,
+                                    "free_cores"  : free_cores
+                                ]
+                            }
+
+                            // Store the available_capacity list in the command_outputs map
+                            command_outputs[key] = available_capacity
+                        }
+                    }
+
+                    // Add command_output to each job's result based on key
+                    final_results.each { job_id, result ->
+                        def key = "${result.que_name}-${result.os_name}"
+                        result["command_output"] = command_outputs[key]
+                    }
+
+                    // Merge available memory and capacity for each job based on server_name
+                    final_results.each { job_id, result ->
+                        def key = "${result.que_name}-${result.os_name}"
+                        def available_capacity = command_outputs[key]
+                        
+                        if (available_capacity) {
+                            def merged_available_mapping = available_memory.findAll { mem ->
+                                available_capacity.any { cap ->
+                                    cap.server_name == mem.server_name
+                                }
+                            }.collect { mem ->
+                                def cap = available_capacity.find { it.server_name == mem.server_name }
+                                [
+                                    "server_name" : mem.server_name,
+                                    "free_memory" : mem.free_memory,
+                                    "free_cores"  : cap.free_cores
+                                ]
+                            }
+
+                            result["available_mapping"] = merged_available_mapping
+                        } else {
+                            result["available_mapping"] = []
+                        }
+                    }
+
+                    // Associate command outputs with job IDs and determine execution server
+                    final_results.each { job_id, result ->
+                        def available_mapping = result["available_mapping"]
+                        def num_of_core = result.num_of_core
+                        def required_memory = result.required_memory
+                        def optimal_server = null
+                        def smallest_executable_cores = Integer.MAX_VALUE
+
+                        // Find the optimal server
+                        available_mapping.each { mapping ->
+                            def executable_cores = mapping.free_cores - 2
+                            def server_name = mapping.server_name
+                            def free_memory = mapping.free_memory
+
+                            if (executable_cores >= num_of_core && required_memory <= free_memory && executable_cores < smallest_executable_cores) {
+                                optimal_server = server_name
+                                smallest_executable_cores = executable_cores
+                            }
+                        }
+
+                        // If no exact match, find the smallest executable_cores greater than required cores
+                        if (!optimal_server) {
+                            available_mapping.each { mapping ->
+                                def executable_cores = mapping.free_cores - 2
+                                def server_name = mapping.server_name
+                                def free_memory = mapping.free_memory
+
+                                if (executable_cores > num_of_core && required_memory <= free_memory && executable_cores < smallest_executable_cores) {
+                                    optimal_server = server_name
+                                    smallest_executable_cores = executable_cores
+                                }
+                            }
+                        }
+
+                        // Add the optimal server to the result
+                        result["execute_on"] = optimal_server
+
+                        // Reduce free_cores and free_memory on the selected server
+                        if (optimal_server) {
+                            def mapping = available_mapping.find { it.server_name == optimal_server }
+                            mapping.free_cores -= num_of_core
+                            mapping.free_memory -= required_memory
+                        }
+                    }
+
+                    // Print final results for debugging
+                    println("Final Results: ${final_results}")
+
+                    // Execute each job on the designated server
+                    final_results.each { job_id, result ->
+                        def execute_on = result["execute_on"]
+                        if (execute_on) {
+                            sh "brun -m ${execute_on} ${job_id}"
+                        } else {
+                            println "No optimal server found for job ${job_id}"
+                        }
+                    }
+                }
+            }
         }
     }
 }
-
-// Print the parsed data for debugging purposes
-println "Data: ${data}"
-println "Total Data: ${total_data}"
-
-// Send data to Flask route
-def response = httpRequest(
-    httpMode: 'POST',
-    url: 'http://your_flask_server/process_jenkins_data',
-    contentType: 'APPLICATION_JSON',
-    requestBody: groovy.json.JsonOutput.toJson([data: data, total_data: total_data])
-)
-
-println "Response: ${response.status}: ${response.content}"
