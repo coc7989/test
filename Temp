@@ -1,0 +1,23 @@
+import re
+
+def get_mac_ids(file_path):
+    # Define the regex pattern to match the MAC ID
+    pattern = re.compile(r'\bserver \w+ ([0-9A-Fa-f]{2}([-:]?)[0-9A-Fa-f]{2}(\2[0-9A-Fa-f]{2}){4}) \d+\b')
+    
+    # Initialize a list to store the MAC IDs
+    mac_ids = []
+
+    # Open and read the file
+    with open(file_path, 'r') as file:
+        for line in file:
+            match = pattern.search(line)
+            if match:
+                mac_ids.append(match.group(1))
+
+    return mac_ids
+
+# Example usage
+file_path = 'path/to/your/file.txt'
+mac_ids = get_mac_ids(file_path)
+for mac_id in mac_ids:
+    print(mac_id)
