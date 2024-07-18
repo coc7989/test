@@ -2,7 +2,7 @@ import re
 
 def get_mac_ids(file_path):
     # Define the regex pattern to match the MAC ID
-    pattern = re.compile(r'\bserver \w+ ([0-9A-Fa-f]{2}([-:]?)[0-9A-Fa-f]{2}(\2[0-9A-Fa-f]{2}){4}) \d+\b')
+    pattern = re.compile(r'\bServer \S+ (\b[0-9A-Fa-f]{12}\b) \d+\b')
     
     # Initialize a list to store the MAC IDs
     mac_ids = []
