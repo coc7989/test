@@ -1,23 +1,39 @@
-import re
+const columns = [
+  // { field: 'id', headerName: 'ID', width: 90},
+  { field: 'AID', headerName: 'User Id', width: 90, headerClassName: 'header-column' },
+  {
+    field: 'File',
+    headerName: 'File',
+    width: 50,
+    renderCell: (params) => <FileButton rowId={params.row.id} server={params.row.Server} />,
+    disableExport: true,
+    headerClassName: 'header-column',
+  },
+  { field: 'Vendor', headerName: 'Vendor', minWidth: 80, flex: 1, headerClassName: 'header-column' },
+  { field: 'Server', headerName: 'Server', minWidth: 230, flex: 1, headerClassName: 'header-column' },
+  { field: 'Operation', headerName: 'Operation', minWidth: 100, flex: 1, headerClassName: 'header-column' },
+  { field: 'Comments', headerName: 'Comments', minWidth: 250, flex: 1, headerClassName: 'header-column' },
+  { field: 'DateTimeStarted', headerName: 'Submitted Time', minWidth: 250, flex: 1, headerClassName: 'header-column' },
+  { field: 'DateTimeCompleted', headerName: 'Completed Time', minWidth: 250, flex: 1, headerClassName: 'header-column' },
+  { field: 'result', headerName: 'Result', minWidth: 100, flex: 1, headerClassName: 'header-column' }
+];
 
-def get_mac_ids(file_path):
-    # Define the regex pattern to match the MAC ID
-    pattern = re.compile(r'\bServer \S+ (\b[0-9A-Fa-f]{12}\b) \d+\b')
-    
-    # Initialize a list to store the MAC IDs
-    mac_ids = []
 
-    # Open and read the file
-    with open(file_path, 'r') as file:
-        for line in file:
-            match = pattern.search(line)
-            if match:
-                mac_ids.append(match.group(1))
 
-    return mac_ids
 
-# Example usage
-file_path = 'path/to/your/file.txt'
-mac_ids = get_mac_ids(file_path)
-for mac_id in mac_ids:
-    print(mac_id)
+
+const FileButton = ({ rowId, server }) => {
+  // You can now use both rowId and server in this component
+  console.log(`Row ID: ${rowId}, Server: ${server}`);
+
+  return (
+    <button onClick={() => handleFileButtonClick(rowId, server)}>
+      File
+    </button>
+  );
+};
+
+const handleFileButtonClick = (rowId, server) => {
+  // Handle the button click, using both rowId and server
+  console.log(`Handling file button click for Row ID: ${rowId}, Server: ${server}`);
+};
