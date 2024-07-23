@@ -1,24 +1,18 @@
-import React from 'react';
-import axios from 'axios';
+from flask import Flask, request, jsonify
 
-const FileButton = ({ rowId, server }) => {
-  const handleFileButtonClick = async () => {
-    try {
-      const response = await axios.post('/api/your-endpoint', {
-        rowId: rowId,
-        server: server,
-      });
-      console.log('Response:', response.data);
-    } catch (error) {
-      console.error('Error making API call:', error);
-    }
-  };
+app = Flask(__name__)
 
-  return (
-    <button onClick={handleFileButtonClick}>
-      File
-    </button>
-  );
-};
+@app.route('/api/your-endpoint', methods=['POST'])
+def handle_file_button_click():
+    data = request.get_json()
+    row_id = data.get('rowId')
+    server = data.get('server')
+    
+    # Process the data here
+    print(f'Received rowId: {row_id}, server: {server}')
+    
+    # Return a response
+    return jsonify({'message': 'Data received successfully'}), 200
 
-export default FileButton;
+if __name__ == '__main__':
+    app.run(debug=True)
