@@ -1,50 +1,24 @@
-import React, { useState } from 'react';
-import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import CheckIcon from '@mui/icons-material/Check';
-import ErrorIcon from '@mui/icons-material/Error';
+import React from 'react';
 import axios from 'axios';
 
-const RestoreButton = () => {
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  const handleClick = async () => {
-    setLoading(true);
-    setSuccess(false);
-    setFailed(false);
-    
+const FileButton = ({ rowId, server }) => {
+  const handleFileButtonClick = async () => {
     try {
-      const response = await axios.post('http://localhost:5000/restore'); // Adjust the URL to your Flask endpoint
-      if (response.status === 200) {
-        setSuccess(true);
-      } else {
-        setFailed(true);
-      }
+      const response = await axios.post('/api/your-endpoint', {
+        rowId: rowId,
+        server: server,
+      });
+      console.log('Response:', response.data);
     } catch (error) {
-      console.error('Error making the API call', error);
-      setFailed(true);
-    } finally {
-      setLoading(false);
+      console.error('Error making API call:', error);
     }
   };
 
   return (
-    <Button
-      variant="contained"
-      color={success ? "success" : failed ? "error" : "primary"}
-      onClick={handleClick}
-      disabled={loading}
-      startIcon={
-        loading ? <CircularProgress size={20} /> :
-        success ? <CheckIcon /> :
-        failed ? <ErrorIcon /> : null
-      }
-    >
-      {loading ? 'Restoring' : success ? 'Success' : failed ? 'Failed' : 'Restore'}
-    </Button>
+    <button onClick={handleFileButtonClick}>
+      File
+    </button>
   );
 };
 
-export default RestoreButton;
+export default FileButton;
