@@ -1,39 +1,40 @@
-const columns = [
-  // { field: 'id', headerName: 'ID', width: 90},
-  { field: 'AID', headerName: 'User Id', width: 90, headerClassName: 'header-column' },
-  {
-    field: 'File',
-    headerName: 'File',
-    width: 50,
-    renderCell: (params) => <FileButton rowId={params.row.id} server={params.row.Server} />,
-    disableExport: true,
-    headerClassName: 'header-column',
-  },
-  { field: 'Vendor', headerName: 'Vendor', minWidth: 80, flex: 1, headerClassName: 'header-column' },
-  { field: 'Server', headerName: 'Server', minWidth: 230, flex: 1, headerClassName: 'header-column' },
-  { field: 'Operation', headerName: 'Operation', minWidth: 100, flex: 1, headerClassName: 'header-column' },
-  { field: 'Comments', headerName: 'Comments', minWidth: 250, flex: 1, headerClassName: 'header-column' },
-  { field: 'DateTimeStarted', headerName: 'Submitted Time', minWidth: 250, flex: 1, headerClassName: 'header-column' },
-  { field: 'DateTimeCompleted', headerName: 'Completed Time', minWidth: 250, flex: 1, headerClassName: 'header-column' },
-  { field: 'result', headerName: 'Result', minWidth: 100, flex: 1, headerClassName: 'header-column' }
-];
+import React, { useState } from 'react';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import CheckIcon from '@mui/icons-material/Check';
+import axios from 'axios';
 
+const RestoreButton = () => {
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
-
-
-
-const FileButton = ({ rowId, server }) => {
-  // You can now use both rowId and server in this component
-  console.log(`Row ID: ${rowId}, Server: ${server}`);
+  const handleClick = async () => {
+    setLoading(true);
+    setSuccess(false);
+    
+    try {
+      const response = await axios.post('http://localhost:5000/restore'); // Adjust the URL to your Flask endpoint
+      if (response.status === 200) {
+        setSuccess(true);
+      }
+    } catch (error) {
+      console.error('Error making the API call', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <button onClick={() => handleFileButtonClick(rowId, server)}>
-      File
-    </button>
+    <Button
+      variant="contained"
+      color={success ? "success" : "primary"}
+      onClick={handleClick}
+      disabled={loading}
+      startIcon={loading ? <CircularProgress size={20} /> : success ? <CheckIcon /> : null}
+    >
+      {loading ? 'Restoring' : success ? 'Success' : 'Restore'}
+    </Button>
   );
 };
 
-const handleFileButtonClick = (rowId, server) => {
-  // Handle the button click, using both rowId and server
-  console.log(`Handling file button click for Row ID: ${rowId}, Server: ${server}`);
-};
+export default RestoreButton;
