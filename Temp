@@ -1,18 +1,61 @@
-from flask import Flask, request, jsonify
+import React, { useState, useEffect } from 'react';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import CheckIcon from '@mui/icons-material/Check';
+import ErrorIcon from '@mui/icons-material/Error';
+import axios from 'axios';
 
-app = Flask(__name__)
+const RestoreButton = () => {
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [alreadyRestored, setAlreadyRestored] = useState(false);
 
-@app.route('/api/your-endpoint', methods=['POST'])
-def handle_file_button_click():
-    data = request.get_json()
-    row_id = data.get('rowId')
-    server = data.get('server')
+  useEffect(() => {
+    const restoredState = localStorage.getItem('restored');
+    if (restoredState === 'true') {
+      setAlreadyRestored(true);
+      setSuccess(true);
+    }
+  }, []);
+
+  const handleClick = async () => {
+    setLoading(true);
+    setSuccess(false);
+    setFailed(false);
     
-    # Process the data here
-    print(f'Received rowId: {row_id}, server: {server}')
-    
-    # Return a response
-    return jsonify({'message': 'Data received successfully'}), 200
+    try {
+      const response = await axios.post('http://localhost:5000/restore'); // Adjust the URL to your Flask endpoint
+      if (response.status === 200) {
+        setSuccess(true);
+        setAlreadyRestored(true);
+        localStorage.setItem('restored', 'true');
+      } else {
+        setFailed(true);
+      }
+    } catch (error) {
+      console.error('Error making the API call', error);
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-if __name__ == '__main__':
-    app.run(debug=True)
+  return (
+    <Button
+      variant="contained"
+      color={alreadyRestored ? "default" : success ? "success" : failed ? "error" : "primary"}
+      onClick={handleClick}
+      disabled={loading || alreadyRestored}
+      startIcon={
+        loading ? <CircularProgress size={20} /> :
+        success || alreadyRestored ? <CheckIcon /> :
+        failed ? <ErrorIcon /> : null
+      }
+    >
+      {loading ? 'Restoring' : alreadyRestored ? 'Already Restored' : success ? 'Success' : failed ? 'Failed' : 'Restore'}
+    </Button>
+  );
+};
+
+export default RestoreButton;
