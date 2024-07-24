@@ -1,52 +1,89 @@
 import React, { useState } from 'react';
-import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import CheckIcon from '@mui/icons-material/Check';
-import ErrorIcon from '@mui/icons-material/Error';
+import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
-const RestoreButton = ({ result }) => {
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [failed, setFailed] = useState(false);
+const InputForm = () => {
+    const [files, setFiles] = useState([]);
+    const [fileAlert, setFileAlert] = useState('');
+    const [formEmpty, setFormEmpty] = useState({ filesEmpty: { error: false } });
 
-  const handleClick = async () => {
-    setLoading(true);
-    setSuccess(false);
-    setFailed(false);
-    
-    try {
-      const response = await axios.post('http://localhost:5000/restore'); // Adjust the URL to your Flask endpoint
-      if (response.status === 200) {
-        setSuccess(true);
-      } else {
-        setFailed(true);
-      }
-    } catch (error) {
-      console.error('Error making the API call', error);
-      setFailed(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const onDrop = (acceptedFiles) => {
+        const txtFiles = acceptedFiles.filter((file) => file.name.endsWith('.txt'));
 
-  const isRestored = result === 'restored';
+        if (txtFiles.length !== acceptedFiles.length) {
+            setFileAlert('Only .txt files are allowed');
+            return;
+        }
 
-  return (
-    <Button
-      variant="contained"
-      color={isRestored ? "default" : success ? "success" : failed ? "error" : "primary"}
-      onClick={!isRestored ? handleClick : null}
-      disabled={loading || isRestored}
-      startIcon={
-        loading ? <CircularProgress size={20} /> :
-        success ? <CheckIcon /> :
-        failed ? <ErrorIcon /> : null
-      }
-    >
-      {loading ? 'Restoring' : isRestored ? 'Already Restored' : success ? 'Success' : failed ? 'Failed' : 'Restore'}
-    </Button>
-  );
+        setFileAlert('');
+        setFiles((prevFiles) => [...prevFiles, ...txtFiles]);
+        setFormEmpty((prevFormEmpty) => ({
+            ...prevFormEmpty,
+            filesEmpty: { error: txtFiles.length === 0 },
+        }));
+
+        txtFiles.forEach(file => validateMacId(file));
+    };
+
+    const validateMacId = (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        axios.post('/api/validate-mac-id', formData)
+            .then(response => {
+                const { isValid, macId } = response.data;
+                if (!isValid) {
+                    setFileAlert(`MAC ID invalid for file: ${file.name} (MAC ID: ${macId})`);
+                }
+            })
+            .catch(error => {
+                console.error('Error validating MAC ID:', error);
+            });
+    };
+
+    const { getRootProps, getInputProps } = useDropzone({ onDrop });
+
+    const removeFile = (indexToRemove) => {
+        setFiles(files.filter((_, index) => index !== indexToRemove));
+    };
+
+    return (
+        <div>
+            <div {...getRootProps()}>
+                <input {...getInputProps()} />
+                <p>Upload Files: Single/Multiple</p>
+            </div>
+            {fileAlert && <p>{fileAlert}</p>}
+            <ul>
+                {files.map((file, index) => (
+                    <li key={index}>
+                        {file.name} <button onClick={() => removeFile(index)}>Remove</button>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
 };
 
-export default RestoreButton;
+export default InputForm;
+
+
+
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+# Mock MAC ID mapping list for validation
+mac_id_mapping_list = ['00:1B:44:11:3A:B7', '00:1B:44:11:3A:B8', '00:1B:44:11:3A:B9']
+
+@app.route('/api/validate-mac-id', methods=['POST'])
+def validate_mac_id():
+    file = request.files['file']
+    # Assuming the file contains the MAC ID in its content
+    mac_id = file.read().decode('utf-8').strip()
+
+    is_valid = mac_id in mac_id_mapping_list
+    return jsonify({'isValid': is_valid, 'macId': mac_id})
+
+if __name__ == '__main__':
+    app.run(debug=True)
