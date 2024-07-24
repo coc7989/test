@@ -1,32 +1,72 @@
-from flask import Flask, request, jsonify
-import cx_Oracle
+import React, { useState, useEffect } from 'react';
+import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
+import CheckIcon from '@mui/icons-material/Check';
+import ErrorIcon from '@mui/icons-material/Error';
+import axios from 'axios';
 
-app = Flask(__name__)
+const userId = 'unique_user_id';  // Replace with your actual user ID logic
 
-# Database connection setup
-dsn_tns = cx_Oracle.makedsn('host', 'port', service_name='service_name')
-conn = cx_Oracle.connect(user='username', password='password', dsn=dsn_tns)
+const RestoreButton = () => {
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [alreadyRestored, setAlreadyRestored] = useState(false);
 
-@app.route('/check_restore', methods=['GET'])
-def check_restore():
-    cursor = conn.cursor()
-    cursor.execute("SELECT restored FROM restore_state WHERE user_id = :user_id", [request.args.get('user_id')])
-    result = cursor.fetchone()
-    restored = result[0] if result else False
-    return jsonify({'restored': restored})
+  useEffect(() => {
+    const checkRestoreState = async () => {
+      try {
+        const response = await axios.get('http://localhost:5000/check_restore', {
+          params: { user_id: userId }
+        });
+        if (response.data.restored) {
+          setAlreadyRestored(true);
+          setSuccess(true);
+        }
+      } catch (error) {
+        console.error('Error checking restore state', error);
+      }
+    };
 
-@app.route('/restore', methods=['POST'])
-def restore():
-    cursor = conn.cursor()
-    # Perform restore operation
-    try:
-        # Example restore operation
-        cursor.execute("UPDATE restore_state SET restored = 1 WHERE user_id = :user_id", [request.json['user_id']])
-        conn.commit()
-        return jsonify({'message': 'Restore successful'}), 200
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'message': 'Restore failed', 'error': str(e)}), 500
+    checkRestoreState();
+  }, []);
 
-if __name__ == '__main__':
-    app.run(debug=True)
+  const handleClick = async () => {
+    setLoading(true);
+    setSuccess(false);
+    setFailed(false);
+    
+    try {
+      const response = await axios.post('http://localhost:5000/restore', { user_id: userId });
+      if (response.status === 200) {
+        setSuccess(true);
+        setAlreadyRestored(true);
+      } else {
+        setFailed(true);
+      }
+    } catch (error) {
+      console.error('Error making the API call', error);
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="contained"
+      color={alreadyRestored ? "default" : success ? "success" : failed ? "error" : "primary"}
+      onClick={handleClick}
+      disabled={loading || alreadyRestored}
+      startIcon={
+        loading ? <CircularProgress size={20} /> :
+        success || alreadyRestored ? <CheckIcon /> :
+        failed ? <ErrorIcon /> : null
+      }
+    >
+      {loading ? 'Restoring' : alreadyRestored ? 'Already Restored' : success ? 'Success' : failed ? 'Failed' : 'Restore'}
+    </Button>
+  );
+};
+
+export default RestoreButton;
