@@ -1,61 +1,32 @@
-import React, { useState, useEffect } from 'react';
-import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import CheckIcon from '@mui/icons-material/Check';
-import ErrorIcon from '@mui/icons-material/Error';
-import axios from 'axios';
+from flask import Flask, request, jsonify
+import cx_Oracle
 
-const RestoreButton = () => {
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [alreadyRestored, setAlreadyRestored] = useState(false);
+app = Flask(__name__)
 
-  useEffect(() => {
-    const restoredState = localStorage.getItem('restored');
-    if (restoredState === 'true') {
-      setAlreadyRestored(true);
-      setSuccess(true);
-    }
-  }, []);
+# Database connection setup
+dsn_tns = cx_Oracle.makedsn('host', 'port', service_name='service_name')
+conn = cx_Oracle.connect(user='username', password='password', dsn=dsn_tns)
 
-  const handleClick = async () => {
-    setLoading(true);
-    setSuccess(false);
-    setFailed(false);
-    
-    try {
-      const response = await axios.post('http://localhost:5000/restore'); // Adjust the URL to your Flask endpoint
-      if (response.status === 200) {
-        setSuccess(true);
-        setAlreadyRestored(true);
-        localStorage.setItem('restored', 'true');
-      } else {
-        setFailed(true);
-      }
-    } catch (error) {
-      console.error('Error making the API call', error);
-      setFailed(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+@app.route('/check_restore', methods=['GET'])
+def check_restore():
+    cursor = conn.cursor()
+    cursor.execute("SELECT restored FROM restore_state WHERE user_id = :user_id", [request.args.get('user_id')])
+    result = cursor.fetchone()
+    restored = result[0] if result else False
+    return jsonify({'restored': restored})
 
-  return (
-    <Button
-      variant="contained"
-      color={alreadyRestored ? "default" : success ? "success" : failed ? "error" : "primary"}
-      onClick={handleClick}
-      disabled={loading || alreadyRestored}
-      startIcon={
-        loading ? <CircularProgress size={20} /> :
-        success || alreadyRestored ? <CheckIcon /> :
-        failed ? <ErrorIcon /> : null
-      }
-    >
-      {loading ? 'Restoring' : alreadyRestored ? 'Already Restored' : success ? 'Success' : failed ? 'Failed' : 'Restore'}
-    </Button>
-  );
-};
+@app.route('/restore', methods=['POST'])
+def restore():
+    cursor = conn.cursor()
+    # Perform restore operation
+    try:
+        # Example restore operation
+        cursor.execute("UPDATE restore_state SET restored = 1 WHERE user_id = :user_id", [request.json['user_id']])
+        conn.commit()
+        return jsonify({'message': 'Restore successful'}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'message': 'Restore failed', 'error': str(e)}), 500
 
-export default RestoreButton;
+if __name__ == '__main__':
+    app.run(debug=True)
