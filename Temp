@@ -1,52 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import CheckIcon from '@mui/icons-material/Check';
 import ErrorIcon from '@mui/icons-material/Error';
 import axios from 'axios';
 
-const userId = 'unique_user_id';  // Replace with your actual user ID logic
-
 const RestoreButton = () => {
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [alreadyRestored, setAlreadyRestored] = useState(false);
-
-  useEffect(() => {
-    const checkRestoreState = async () => {
-      try {
-        const response = await axios.get('http://localhost:5000/check_restore', {
-          params: { user_id: userId }
-        });
-        if (response.data.restored) {
-          setAlreadyRestored(true);
-          setSuccess(true);
-        }
-      } catch (error) {
-        console.error('Error checking restore state', error);
-      }
-    };
-
-    checkRestoreState();
-  }, []);
+  const [result, setResult] = useState('');
 
   const handleClick = async () => {
     setLoading(true);
-    setSuccess(false);
-    setFailed(false);
+    setResult('');
     
     try {
-      const response = await axios.post('http://localhost:5000/restore', { user_id: userId });
-      if (response.status === 200) {
-        setSuccess(true);
-        setAlreadyRestored(true);
+      const response = await axios.post('http://localhost:5000/restore'); // Adjust the URL to your Flask endpoint
+      if (response.data.status === 'restored') { // Assuming the API returns a status field
+        setResult('restored');
+      } else if (response.status === 200) {
+        setResult('success');
       } else {
-        setFailed(true);
+        setResult('failure');
       }
     } catch (error) {
       console.error('Error making the API call', error);
-      setFailed(true);
+      setResult('failure');
     } finally {
       setLoading(false);
     }
@@ -55,16 +33,16 @@ const RestoreButton = () => {
   return (
     <Button
       variant="contained"
-      color={alreadyRestored ? "default" : success ? "success" : failed ? "error" : "primary"}
+      color={result === 'success' ? "success" : result === 'failure' ? "error" : "primary"}
       onClick={handleClick}
-      disabled={loading || alreadyRestored}
+      disabled={loading || result === 'restored'}
       startIcon={
         loading ? <CircularProgress size={20} /> :
-        success || alreadyRestored ? <CheckIcon /> :
-        failed ? <ErrorIcon /> : null
+        result === 'success' ? <CheckIcon /> :
+        result === 'failure' ? <ErrorIcon /> : null
       }
     >
-      {loading ? 'Restoring' : alreadyRestored ? 'Already Restored' : success ? 'Success' : failed ? 'Failed' : 'Restore'}
+      {loading ? 'Restoring' : result === 'restored' ? 'Already Restored' : result === 'success' ? 'Success' : result === 'failure' ? 'Failed' : 'Restore'}
     </Button>
   );
 };
