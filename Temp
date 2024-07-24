@@ -5,44 +5,46 @@ import CheckIcon from '@mui/icons-material/Check';
 import ErrorIcon from '@mui/icons-material/Error';
 import axios from 'axios';
 
-const RestoreButton = () => {
+const RestoreButton = ({ result }) => {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const handleClick = async () => {
     setLoading(true);
-    setResult('');
+    setSuccess(false);
+    setFailed(false);
     
     try {
       const response = await axios.post('http://localhost:5000/restore'); // Adjust the URL to your Flask endpoint
-      if (response.data.status === 'restored') { // Assuming the API returns a status field
-        setResult('restored');
-      } else if (response.status === 200) {
-        setResult('success');
+      if (response.status === 200) {
+        setSuccess(true);
       } else {
-        setResult('failure');
+        setFailed(true);
       }
     } catch (error) {
       console.error('Error making the API call', error);
-      setResult('failure');
+      setFailed(true);
     } finally {
       setLoading(false);
     }
   };
 
+  const isRestored = result === 'restored';
+
   return (
     <Button
       variant="contained"
-      color={result === 'success' ? "success" : result === 'failure' ? "error" : "primary"}
-      onClick={handleClick}
-      disabled={loading || result === 'restored'}
+      color={isRestored ? "default" : success ? "success" : failed ? "error" : "primary"}
+      onClick={!isRestored ? handleClick : null}
+      disabled={loading || isRestored}
       startIcon={
         loading ? <CircularProgress size={20} /> :
-        result === 'success' ? <CheckIcon /> :
-        result === 'failure' ? <ErrorIcon /> : null
+        success ? <CheckIcon /> :
+        failed ? <ErrorIcon /> : null
       }
     >
-      {loading ? 'Restoring' : result === 'restored' ? 'Already Restored' : result === 'success' ? 'Success' : result === 'failure' ? 'Failed' : 'Restore'}
+      {loading ? 'Restoring' : isRestored ? 'Already Restored' : success ? 'Success' : failed ? 'Failed' : 'Restore'}
     </Button>
   );
 };
