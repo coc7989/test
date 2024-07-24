@@ -5,9 +5,9 @@ import axios from 'axios';
 const InputForm = () => {
     const [files, setFiles] = useState([]);
     const [fileAlert, setFileAlert] = useState('');
-    const [formEmpty, setFormEmpty] = useState({ filesEmpty: { error: false } });
+    const [validationResults, setValidationResults] = useState({});
 
-    const onDrop = (acceptedFiles) => {
+    const onDrop = async (acceptedFiles) => {
         const txtFiles = acceptedFiles.filter((file) => file.name.endsWith('.txt'));
 
         if (txtFiles.length !== acceptedFiles.length) {
@@ -16,40 +16,45 @@ const InputForm = () => {
         }
 
         setFileAlert('');
-        setFiles((prevFiles) => [...prevFiles, ...txtFiles]);
-        setFormEmpty((prevFormEmpty) => ({
-            ...prevFormEmpty,
-            filesEmpty: { error: txtFiles.length === 0 },
-        }));
+        const newFiles = [...files, ...txtFiles];
+        setFiles(newFiles);
 
-        txtFiles.forEach(file => validateMacId(file));
+        // Validate each file
+        for (const file of txtFiles) {
+            await validateMacId(file);
+        }
     };
 
-    const validateMacId = (file) => {
+    const validateMacId = async (file) => {
         const formData = new FormData();
         formData.append('file', file);
 
-        axios.post('/api/validate-mac-id', formData)
-            .then(response => {
-                const { isValid, macId } = response.data;
-                if (!isValid) {
-                    setFileAlert(`MAC ID invalid for file: ${file.name} (MAC ID: ${macId})`);
-                }
-            })
-            .catch(error => {
-                console.error('Error validating MAC ID:', error);
-            });
+        try {
+            const response = await axios.post('/api/validate-mac-id', formData);
+            const { isValid, macId } = response.data;
+            setValidationResults(prevResults => ({
+                ...prevResults,
+                [file.name]: { isValid, macId }
+            }));
+        } catch (error) {
+            console.error('Error validating MAC ID:', error);
+        }
     };
 
     const { getRootProps, getInputProps } = useDropzone({ onDrop });
 
     const removeFile = (indexToRemove) => {
         setFiles(files.filter((_, index) => index !== indexToRemove));
+        setValidationResults(prevResults => {
+            const newResults = { ...prevResults };
+            delete newResults[files[indexToRemove].name];
+            return newResults;
+        });
     };
 
     return (
         <div>
-            <div {...getRootProps()}>
+            <div {...getRootProps({ className: 'dropzone' })}>
                 <input {...getInputProps()} />
                 <p>Upload Files: Single/Multiple</p>
             </div>
@@ -57,7 +62,10 @@ const InputForm = () => {
             <ul>
                 {files.map((file, index) => (
                     <li key={index}>
-                        {file.name} <button onClick={() => removeFile(index)}>Remove</button>
+                        {file.name} - {validationResults[file.name] ? (
+                            validationResults[file.name].isValid ? 'Valid MAC ID' : `Invalid MAC ID (${validationResults[file.name].macId})`
+                        ) : 'Validating...'}
+                        <button onClick={() => removeFile(index)}>Remove</button>
                     </li>
                 ))}
             </ul>
@@ -70,20 +78,37 @@ export default InputForm;
 
 
 from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = '/path/to/upload'  # Define your upload path
 
 # Mock MAC ID mapping list for validation
 mac_id_mapping_list = ['00:1B:44:11:3A:B7', '00:1B:44:11:3A:B8', '00:1B:44:11:3A:B9']
 
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'txt'
+
 @app.route('/api/validate-mac-id', methods=['POST'])
 def validate_mac_id():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    
     file = request.files['file']
-    # Assuming the file contains the MAC ID in its content
-    mac_id = file.read().decode('utf-8').strip()
-
-    is_valid = mac_id in mac_id_mapping_list
-    return jsonify({'isValid': is_valid, 'macId': mac_id})
+    
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        
+        mac_id = file.read().decode('utf-8').strip()
+        
+        is_valid = mac_id in mac_id_mapping_list
+        return jsonify({'isValid': is_valid, 'macId': mac_id})
+    else:
+        return jsonify({'error': 'File type not allowed'}), 400
 
 if __name__ == '__main__':
     app.run(debug=True)
