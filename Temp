@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 
@@ -6,6 +6,7 @@ const InputForm = () => {
     const [files, setFiles] = useState([]);
     const [fileAlert, setFileAlert] = useState('');
     const [validationResults, setValidationResults] = useState({});
+    const [isSubmitDisabled, setIsSubmitDisabled] = useState(false);
 
     const onDrop = async (acceptedFiles) => {
         const txtFiles = acceptedFiles.filter((file) => file.name.endsWith('.txt'));
@@ -44,16 +45,26 @@ const InputForm = () => {
     const { getRootProps, getInputProps } = useDropzone({ onDrop });
 
     const removeFile = (indexToRemove) => {
-        setFiles(files.filter((_, index) => index !== indexToRemove));
-        setValidationResults(prevResults => {
-            const newResults = { ...prevResults };
-            delete newResults[files[indexToRemove].name];
-            return newResults;
-        });
+        const updatedFiles = files.filter((_, index) => index !== indexToRemove);
+        setFiles(updatedFiles);
+
+        const updatedValidationResults = { ...validationResults };
+        delete updatedValidationResults[files[indexToRemove].name];
+        setValidationResults(updatedValidationResults);
+    };
+
+    useEffect(() => {
+        const hasInvalidMacId = Object.values(validationResults).some(result => !result.isValid);
+        setIsSubmitDisabled(hasInvalidMacId);
+    }, [validationResults]);
+
+    const handleSubmit = (event) => {
+        event.preventDefault();
+        // Handle form submission
     };
 
     return (
-        <div>
+        <form onSubmit={handleSubmit}>
             <div {...getRootProps({ className: 'dropzone' })}>
                 <input {...getInputProps()} />
                 <p>Upload Files: Single/Multiple</p>
@@ -65,50 +76,15 @@ const InputForm = () => {
                         {file.name} - {validationResults[file.name] ? (
                             validationResults[file.name].isValid ? 'Valid MAC ID' : `Invalid MAC ID (${validationResults[file.name].macId})`
                         ) : 'Validating...'}
-                        <button onClick={() => removeFile(index)}>Remove</button>
+                        <button type="button" onClick={() => removeFile(index)}>Remove</button>
                     </li>
                 ))}
             </ul>
-        </div>
+            <button type="submit" disabled={isSubmitDisabled} style={{ backgroundColor: isSubmitDisabled ? 'grey' : 'blue' }}>
+                Submit
+            </button>
+        </form>
     );
 };
 
 export default InputForm;
-
-
-
-from flask import Flask, request, jsonify
-from werkzeug.utils import secure_filename
-
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = '/path/to/upload'  # Define your upload path
-
-# Mock MAC ID mapping list for validation
-mac_id_mapping_list = ['00:1B:44:11:3A:B7', '00:1B:44:11:3A:B8', '00:1B:44:11:3A:B9']
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'txt'
-
-@app.route('/api/validate-mac-id', methods=['POST'])
-def validate_mac_id():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        
-        mac_id = file.read().decode('utf-8').strip()
-        
-        is_valid = mac_id in mac_id_mapping_list
-        return jsonify({'isValid': is_valid, 'macId': mac_id})
-    else:
-        return jsonify({'error': 'File type not allowed'}), 400
-
-if __name__ == '__main__':
-    app.run(debug=True)
