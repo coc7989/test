@@ -4,3 +4,19 @@ const response = await axios.post('/api/compare_pipeline/trigger_compare_pipelin
         'Content-Type': 'application/json'
     }
 });
+
+
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route('/api/compare_pipeline/trigger_compare_pipeline', methods=['POST'])
+def trigger_compare_pipeline():
+    data = request.get_json()
+    eid = data.get('eid')
+    print(f"Received eid: {eid}")
+    # Further processing...
+    return jsonify({'status': 'success', 'message': 'EID received', 'eid': eid})
+
+if __name__ == '__main__':
+    app.run(debug=True)
