@@ -1,22 +1,106 @@
-const eid = "p@gmail.com";
-const response = await axios.post('/api/compare_pipeline/trigger_compare_pipeline', { eid: eid }, {
-    headers: {
-        'Content-Type': 'application/json'
-    }
-});
-
-
+import re
+import os
+import cx_Oracle
 from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = '/path/to/upload'  # Define your upload path
 
-@app.route('/api/compare_pipeline/trigger_compare_pipeline', methods=['POST'])
-def trigger_compare_pipeline():
-    data = request.get_json()
-    eid = data.get('eid')
-    print(f"Received eid: {eid}")
-    # Further processing...
-    return jsonify({'status': 'success', 'message': 'EID received', 'eid': eid})
+# Database connection configuration
+dsn_tns = cx_Oracle.makedsn('hostname', 'port', service_name='service_name')
+conn = cx_Oracle.connect(user='username', password='password', dsn=dsn_tns)
+
+# Regex pattern to extract MAC ID
+mac_id_pattern = re.compile(r'\bSERVER (\S+) ([0-9A-Za-z]+)\s+\d+\b')
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'txt'
+
+def fetch_mac_id_from_db(server_name):
+    cursor = conn.cursor()
+    cursor.execute("SELECT mac_id FROM server_mac_mapping WHERE server_name = :server_name", server_name=server_name)
+    result = cursor.fetchone()
+    cursor.close()
+    return result[0].lower() if result else None
+
+@app.route('/api/validate-mac-id', methods=['POST'])
+def validate_mac_id():
+    if 'file' not in request.files or 'server_name' not in request.form:
+        return jsonify({'error': 'File part or server name missing'}), 400
+    
+    file = request.files['file']
+    server_name = request.form['server_name']
+    
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+        
+        with open(file_path, 'r') as f:
+            content = f.read()
+        
+        # Extract MAC ID using regex
+        match = mac_id_pattern.search(content)
+        if match:
+            extracted_server_name = match.group(1)
+            mac_id = match.group(2).lower()  # Convert extracted MAC ID to lowercase
+            
+            if extracted_server_name != server_name:
+                return jsonify({'error': 'Server name mismatch in the file'}), 400
+
+            # Fetch the MAC ID from the database for the given server name
+            db_mac_id = fetch_mac_id_from_db(server_name)
+            if not db_mac_id:
+                return jsonify({'error': f'Server name {server_name} not found in database'}), 400
+
+            is_valid = mac_id == db_mac_id
+            return jsonify({'isValid': is_valid, 'macId': mac_id})
+        else:
+            return jsonify({'error': 'MAC ID not found in the file'}), 400
+    else:
+        return jsonify({'error': 'File type not allowed'}), 400
 
 if __name__ == '__main__':
     app.run(debug=True)
+
+const validateMacId = async (file, serverName) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('server_name', serverName);
+
+    try {
+        const response = await axios.post('/api/validate-mac-id', formData);
+        const { isValid, macId } = response.data;
+        setValidationResults(prevResults => ({
+            ...prevResults,
+            [file.name]: { isValid, macId }
+        }));
+    } catch (error) {
+        console.error('Error validating MAC ID:', error);
+    }
+};
+
+
+const onDrop = async (acceptedFiles) => {
+    const txtFiles = acceptedFiles.filter((file) => file.name.endsWith('.txt'));
+
+    if (txtFiles.length !== acceptedFiles.length) {
+        setFileAlert('Only .txt files are allowed');
+        return;
+    }
+
+    setFileAlert('');
+    const newFiles = [...files, ...txtFiles];
+    setFiles(newFiles);
+
+    const serverName = prompt("Please enter the server name:");
+
+    // Validate each file
+    for (const file of txtFiles) {
+        await validateMacId(file, serverName);
+    }
+};
