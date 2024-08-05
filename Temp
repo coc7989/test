@@ -1,56 +1,8 @@
-// ServerMacIdMapping.js
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-
-const ServerMacIdMapping = () => {
-  const [serverMacMapping, setServerMacMapping] = useState({});
-
-  useEffect(() => {
-    axios.get('http://localhost:5000/server_macid_mapping')
-      .then(response => {
-        setServerMacMapping(response.data);
-      })
-      .catch(error => {
-        console.error('Error fetching the server-MAC ID mapping:', error);
-      });
-  }, []);
-
-  return (
-    <div>
-      <h1>Server-MAC ID Mapping</h1>
-      <ul>
-        {Object.entries(serverMacMapping).map(([server, macId]) => (
-          <li key={server}>{server}: {macId}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-export default ServerMacIdMapping;
-
-
-# app.py
-from flask import Flask, jsonify
-import cx_Oracle
-
-app = Flask(__name__)
-
-# Oracle Database connection details
-dsn = cx_Oracle.makedsn('your_host', 'your_port', service_name='your_service_name')
-connection = cx_Oracle.connect(user='your_username', password='your_password', dsn=dsn)
-
-@app.route('/server_macid_mapping', methods=['GET'])
-def get_server_macid_mapping():
-    cursor = connection.cursor()
-    cursor.execute("SELECT server_name, mac_id FROM server_mac_mapping")
-
-    mapping = {}
-    for server_name, mac_id in cursor:
-        mapping[server_name] = mac_id
-
-    cursor.close()
-    return jsonify(mapping)
-
-if __name__ == '__main__':
-    app.run(debug=True)
+UPDATE lsf
+SET SB = CASE
+    WHEN SLA LIKE 'APP%' THEN 'Analog Power Products'
+    WHEN SLA LIKE 'ASC%' THEN 'Analog Signal Chain'
+    WHEN SLA LIKE 'EP%' OR SLA LIKE 'EMBEDDED_PROCESSORS%' OR SLA LIKE 'RADAR%' OR SLA LIKE 'SITARA%' THEN 'Embedded Processors'
+    WHEN SLA LIKE 'OTHERS%' THEN 'Others'
+    ELSE NULL
+END;
