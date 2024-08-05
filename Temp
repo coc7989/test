@@ -1,8 +1,24 @@
-UPDATE lsf
-SET SB = CASE
-    WHEN SLA LIKE 'APP%' THEN 'Analog Power Products'
-    WHEN SLA LIKE 'ASC%' THEN 'Analog Signal Chain'
-    WHEN SLA LIKE 'EP%' OR SLA LIKE 'EMBEDDED_PROCESSORS%' OR SLA LIKE 'RADAR%' OR SLA LIKE 'SITARA%' THEN 'Embedded Processors'
-    WHEN SLA LIKE 'OTHERS%' THEN 'Others'
-    ELSE NULL
-END;
+import cx_Oracle
+import pandas as pd
+from datetime import datetime
+
+# Establish a connection to the Oracle database
+dsn_tns = cx_Oracle.makedsn('hostname', 'port', service_name='service_name')
+conn = cx_Oracle.connect(user='your_username', password='your_password', dsn=dsn_tns)
+
+# Define the SQL query to fetch data from 2022 onwards
+query = """
+SELECT * FROM lsf
+WHERE TO_DATE(date_column, 'YYYY-MM-DD') >= TO_DATE('2022-01-01', 'YYYY-MM-DD')
+"""
+
+# Execute the query and fetch the data into a pandas DataFrame
+df = pd.read_sql(query, conn)
+
+# Close the database connection
+conn.close()
+
+# Export the data to an Excel file
+df.to_excel('lsf_data_from_2022.xlsx', index=False)
+
+print("Data has been exported to 'lsf_data_from_2022.xlsx'")
