@@ -1,1 +1,1 @@
-=VLOOKUP(C2, Sheet2!A:B, 2, FALSE)
+=IFERROR(VLOOKUP(LEFT(C2, FIND("_", C2 & "_") - 1), Sheet2!A:B, 2, FALSE), "No Match")
