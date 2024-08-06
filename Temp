@@ -1,36 +1,46 @@
-import React from 'react';
-import { Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Button } from '@mui/material';
-import { useHistory } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import SessionTimeoutPopup from './SessionTimeoutPopup';  // Adjust the import path as needed
 
-const SessionTimeoutPopup = ({ open, onClose }) => {
-  const history = useHistory();
+const App = () => {
+  const [vendor, setVendor] = useState(null);
+  const [sessionTimeout, setSessionTimeout] = useState(false);
 
-  const handleLogin = () => {
-    history.push('/login');
-  };
+  useEffect(() => {
+    const fetchVendor = async () => {
+      try {
+        const response = await axios.get('/fetch-vendor', {
+          headers: {
+            'X-Custom-Header': 'your-header-value'
+          }
+        });
+        setVendor(response.data);
+      } catch (error) {
+        if (error.response && error.response.status === 401) {
+          // Show session timeout popup if a 401 error is received
+          setSessionTimeout(true);
+        } else {
+          console.error('Error fetching vendor:', error);
+        }
+      }
+    };
 
-  const handleLogout = () => {
-    history.push('/logout');
-  };
+    fetchVendor();
+  }, []);
 
   return (
-    <Dialog open={open} onClose={onClose}>
-      <DialogTitle>Session Timeout</DialogTitle>
-      <DialogContent>
-        <DialogContentText>
-          Due to inactivity, your session has timed out.
-        </DialogContentText>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleLogout} color="primary">
-          Logout
-        </Button>
-        <Button onClick={handleLogin} color="primary" autoFocus>
-          Login
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <div>
+      {vendor ? (
+        <div>
+          <h1>Vendor Name: {vendor.name}</h1>
+          <p>Vendor ID: {vendor.id}</p>
+        </div>
+      ) : (
+        <p>Loading...</p>
+      )}
+      <SessionTimeoutPopup open={sessionTimeout} onClose={() => setSessionTimeout(false)} />
+    </div>
   );
 };
 
-export default SessionTimeoutPopup;
+export default App;
