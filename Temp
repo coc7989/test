@@ -1,1 +1,1 @@
-=IFERROR(INDEX(Sheet2!B:B, MATCH(TRUE, ISNUMBER(SEARCH(Sheet2!A:A, C2)), 0)), "No Match")
+=IFERROR(INDEX(Sheet2!B:B, MATCH(TRUE, LEFT(C2, LEN(Sheet2!A:A)) = Sheet2!A:A, 0)), "No Match")
