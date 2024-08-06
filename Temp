@@ -1,1 +1,36 @@
-=IFERROR(INDEX(Sheet2!B:B, MATCH(TRUE, ISNUMBER(SEARCH(Sheet2!A:A, C2)), 0)), "No Match")
+import React from 'react';
+import { Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Button } from '@mui/material';
+import { useHistory } from 'react-router-dom';
+
+const SessionTimeoutPopup = ({ open, onClose }) => {
+  const history = useHistory();
+
+  const handleLogin = () => {
+    history.push('/login');
+  };
+
+  const handleLogout = () => {
+    history.push('/logout');
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose}>
+      <DialogTitle>Session Timeout</DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          Due to inactivity, your session has timed out.
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleLogout} color="primary">
+          Logout
+        </Button>
+        <Button onClick={handleLogin} color="primary" autoFocus>
+          Login
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+export default SessionTimeoutPopup;
