@@ -1,46 +1,41 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import SessionTimeoutPopup from './SessionTimeoutPopup';  // Adjust the import path as needed
+import re
+from flask import Blueprint, request, jsonify, session
+from flask_cors import cross_origin
 
-const App = () => {
-  const [vendor, setVendor] = useState(null);
-  const [sessionTimeout, setSessionTimeout] = useState(false);
+def extract_features(text, vendor):
+    pattern = r"(?<=USE_SERVER)\n(?:FEATURE)(\n|.)*?(?=#\s*DAEMON|#-+|#LICENSE KEYS END HERE#)"
+    match = re.search(pattern, text, re.MULTILINE)
+    if match:
+        return match.group()
+    else:
+        print("No features got extracted")
+        return None
 
-  useEffect(() => {
-    const fetchVendor = async () => {
-      try {
-        const response = await axios.get('/fetch-vendor', {
-          headers: {
-            'X-Custom-Header': 'your-header-value'
-          }
-        });
-        setVendor(response.data);
-      } catch (error) {
-        if (error.response && error.response.status === 401) {
-          // Show session timeout popup if a 401 error is received
-          setSessionTimeout(true);
-        } else {
-          console.error('Error fetching vendor:', error);
-        }
-      }
-    };
+def process_uploaded_files(files, vendor):
+    uploaded_features_combined = ""
+    for file in files:
+        filepath = file.filename
+        with open(filepath, 'r', encoding='utf-8') as license_file:
+            uploaded_text = license_file.read()
+            uploaded_features = extract_features(uploaded_text, vendor)
+            if uploaded_features:
+                uploaded_features_combined += uploaded_features
+            else:
+                return None  # Return None if extraction fails
+    return uploaded_features_combined
 
-    fetchVendor();
-  }, []);
+upload_bp = Blueprint('upload_bp', __name__)
 
-  return (
-    <div>
-      {vendor ? (
-        <div>
-          <h1>Vendor Name: {vendor.name}</h1>
-          <p>Vendor ID: {vendor.id}</p>
-        </div>
-      ) : (
-        <p>Loading...</p>
-      )}
-      <SessionTimeoutPopup open={sessionTimeout} onClose={() => setSessionTimeout(false)} />
-    </div>
-  );
-};
-
-export default App;
+@upload_bp.route('/upload', methods=["POST"])
+@cross_origin()
+def upload():
+    files = request.files.getlist('files')
+    session['Vendor'] = request.form.get('vendor')
+    Vendor = session['Vendor']
+    
+    uploaded_features_combined = process_uploaded_files(files, Vendor)
+    
+    if uploaded_features_combined:
+        return jsonify({"status": "success", "features": uploaded_features_combined})
+    else:
+        return jsonify({"status": "failure", "message": "File generation failed: No features extracted"}), 400
