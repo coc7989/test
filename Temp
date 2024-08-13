@@ -21,8 +21,8 @@ def extract_beta_features(text):
         return None
 
 def process_uploaded_files(files, vendor):
-    uploaded_features_combined = ""
-    uploaded_beta_features_combined = ""
+    uploaded_features = None
+    uploaded_beta_features = None
     
     for file in files:
         filepath = file.filename
@@ -34,16 +34,13 @@ def process_uploaded_files(files, vendor):
             if not uploaded_features:
                 return None, None
             
-            uploaded_features_combined += uploaded_features
-            
             # Extract beta features if vendor is "cds"
             if vendor == "cds":
                 uploaded_beta_features = extract_beta_features(uploaded_text)
                 if not uploaded_beta_features:
                     return None, None
-                uploaded_beta_features_combined += uploaded_beta_features
     
-    return uploaded_features_combined, uploaded_beta_features_combined
+    return uploaded_features, uploaded_beta_features
 
 upload_bp = Blueprint('upload_bp', __name__)
 
@@ -56,11 +53,8 @@ def upload():
     
     uploaded_features, uploaded_beta_features = process_uploaded_files(files, Vendor)
     
-    if uploaded_features and (Vendor != "cds" or uploaded_beta_features):
-        return jsonify({
-            "status": "success", 
-            "features": uploaded_features, 
-            "beta_features": uploaded_beta_features if Vendor == "cds" else None
-        })
-    else:
+    # Single if condition to check for success, otherwise failure
+    if not (uploaded_features and (Vendor != "cds" or uploaded_beta_features)):
         return jsonify({"status": "failure", "message": "File generation failed: No features extracted"}), 400
+    
+    return jsonify({"status": "success", "message": "Features successfully extracted"}), 200
