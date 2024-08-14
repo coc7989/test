@@ -1,60 +1,45 @@
-import re
-from flask import Blueprint, request, jsonify, session
-from flask_cors import cross_origin
+from flask import Flask, request, jsonify
+import cx_Oracle
 
-def extract_features(text, vendor):
-    pattern = r"(?<=USE_SERVER)\n(?:FEATURE)(\n|.)*?(?=#\s*DAEMON|#-+|#LICENSE KEYS END HERE#)"
-    match = re.search(pattern, text, re.MULTILINE)
-    if match:
-        return match.group()
-    else:
-        print("No features got extracted")
-        return None
+app = Flask(__name__)
 
-def extract_beta_features(text):
-    pattern = r"(?<=# LICENSE KEYS END HERE #)(\n|.)*?(?=#+\s*PRODUCT TO FEATURE MAPPING)"
-    match = re.search(pattern, text, re.MULTILINE)
-    if match:
-        return match.group()
-    else:
-        print("No beta features got extracted")
-        return None
+# Oracle database connection
+dsn = cx_Oracle.makedsn("hostname", "port", sid="your_sid")
+connection = cx_Oracle.connect(user="your_username", password="your_password", dsn=dsn)
 
-def process_uploaded_files(files, vendor):
-    uploaded_features = None
-    uploaded_beta_features = None
-    
-    for file in files:
-        filepath = file.filename
-        with open(filepath, 'r', encoding='utf-8') as license_file:
-            uploaded_text = license_file.read()
-            
-            # Extract standard features
-            uploaded_features = extract_features(uploaded_text, vendor)
-            if not uploaded_features:
-                return None, None
-            
-            # Extract beta features if vendor is "cds"
-            if vendor == "cds":
-                uploaded_beta_features = extract_beta_features(uploaded_text)
-                if not uploaded_beta_features:
-                    return None, None
-    
-    return uploaded_features, uploaded_beta_features
+@app.route('/get_user_data', methods=['POST'])
+def get_user_data():
+    try:
+        # Get the user ID from the request body
+        data = request.json
+        user_id = data.get('user_id')
 
-upload_bp = Blueprint('upload_bp', __name__)
+        if not user_id:
+            return jsonify({"error": "user_id is required"}), 400
 
-@upload_bp.route('/upload', methods=["POST"])
-@cross_origin()
-def upload():
-    files = request.files.getlist('files')
-    session['Vendor'] = request.form.get('vendor')
-    Vendor = session['Vendor']
-    
-    uploaded_features, uploaded_beta_features = process_uploaded_files(files, Vendor)
-    
-    # Single if condition to check for success, otherwise failure
-    if not (uploaded_features and (Vendor != "cds" or uploaded_beta_features)):
-        return jsonify({"status": "failure", "message": "File generation failed: No features extracted"}), 400
-    
-    return jsonify({"status": "success", "message": "Features successfully extracted"}), 200
+        # Query the Oracle database
+        cursor = connection.cursor()
+        query = """
+            SELECT pend_time, run_time, job_efficiency 
+            FROM your_table_name 
+            WHERE user_id = :user_id
+        """
+        cursor.execute(query, user_id=user_id)
+        result = cursor.fetchone()
+
+        if result:
+            pend_time, run_time, job_efficiency = result
+            return jsonify({
+                "user_id": user_id,
+                "pend_time": pend_time,
+                "run_time": run_time,
+                "job_efficiency": job_efficiency
+            })
+        else:
+            return jsonify({"error": "User not found"}), 404
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
