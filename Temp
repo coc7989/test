@@ -1,20 +1,4 @@
-Certainly! Here's a more polished and polite version of the email:
+curl -k https://repo.saltproject.io/salt/py3/redhat/8/x86_64/SALT-PROJECT-GPG-PUBKEY-2023.pub -o /tmp/SALT-PROJECT-GPG-PUBKEY-2023.pub
 
----
 
-**Subject:** Clarification Regarding Recent Issue and Misunderstanding
-
-Hi Arjun,
-
-I hope you're doing well.
-
-I wanted to clarify the situation regarding the recent issue. Firstly, at no point did we indicate that you should push the file to production. Our intention was for you to simply generate a comparison of the file and become familiar with the portal. Please note that our production server is currently set to the test Flamesai server by default. This means that, regardless of the server selected, all operations are performed on the Flamesai server.
-
-The push to production failed due to a server mismatch. I want to reassure you that while the file on the NFS path was altered, the production server file remained unchanged. We have now implemented a step to revert the NFS file in case of failure. This was something we had planned to do after fully transitioning to the production environment, as we had not anticipated any production pushes at this stage.
-
-When Chethan received the file, he backed up the portal-generated file on the NFS path and then manually updated the NFS file for that server. He then provided you with a comparison, which naturally appeared the same, as both files—manual and portal-generated—were identical.
-
-I hope this explanation clarifies the misunderstanding. Please don't hesitate to reach out if you require any further details.
-
-Best regards,  
-[Your Name]
+sudo rpm --import /tmp/SALT-PROJECT-GPG-PUBKEY-2023.pub
