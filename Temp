@@ -1,4 +1,83 @@
-curl -k https://repo.saltproject.io/salt/py3/redhat/8/x86_64/SALT-PROJECT-GPG-PUBKEY-2023.pub -o /tmp/SALT-PROJECT-GPG-PUBKEY-2023.pub
+pipeline {
+    agent any
+    parameters {
+        string(defaultValue: '', name: 'BUILD_NUMBER', description: '')
+        string(defaultValue: '', name: 'MAPPED_LICENSE', description: '')
+        string(defaultValue: '', name: 'VENDOR', description: '')
+        string(defaultValue: '', name: 'SERVER_NAME', description: '')
+        string(defaultValue: '', name: 'USER_EID', description: '')
+    }
 
+    stages {
+        stage('Verify File and Execute Commands') {
+            steps {
+                script {
+                    currentBuild.displayName = params.BUILD_NUMBER
+                    def vendors = params.VENDOR
+                    def servers = params.SERVER_NAME
+                    def buildNum = params.BUILD_NUMBER
+                    def mappedlicense = params.MAPPED_LICENSE
+                    def backupFile = "${mappedlicense}.${buildNum}"
+                    
+                    def output = sh(script:"ssh -tT -o StrictHostKeyChecking=no $servers '/conditional.sh $vendors $mappedlicense $backupFile $buildNum'", returnStdout: true).trim()
+                    echo "${output}"
+                    def result = "${output.split('\n')[-1]}"
 
-sudo rpm --import /tmp/SALT-PROJECT-GPG-PUBKEY-2023.pub
+                    if ("$result" == "Success") {
+                        echo "Pipeline is successful."
+                        currentBuild.result = 'SUCCESS'
+                    } else if ("$result" == "Failure") {
+                        echo "Failing pipeline."
+                        currentBuild.result = 'FAILURE'
+                        sh "rsync -v /home/flames/data/history/${backupFile} /home/flames/data/${mappedlicense}"
+                    } else {
+                        echo "Marking pipeline as unstable."
+                        currentBuild.result = 'UNSTABLE'
+                        sh "rsync -v /home/flames/data/history/${backupFile} /home/flames/data/${mappedlicense}"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            script {
+                def htmlBody = """
+                <html>
+                <body>
+                    <h2>Build Failure Details</h2>
+                    <table border="1" style="border-collapse: collapse; width: 50%;">
+                        <tr>
+                            <th>Vendor</th>
+                            <td>${params.VENDOR}</td>
+                        </tr>
+                        <tr>
+                            <th>Server</th>
+                            <td>${params.SERVER_NAME}</td>
+                        </tr>
+                        <tr>
+                            <th>Build Number</th>
+                            <td>${params.BUILD_NUMBER}</td>
+                        </tr>
+                        <tr>
+                            <th>Error Message</th>
+                            <td>${result}</td>
+                        </tr>
+                    </table>
+                    <p>Check the console output at <a href="$BUILD_URL">$BUILD_URL</a> to view the results.</p>
+                </body>
+                </html>
+                """
+                
+                emailext(
+                    mimeType: 'text/html',
+                    body: htmlBody,
+                    from: "conditional@list.ti.com",
+                    to: "flameshub-admin@list.ti.com, ${params.USER_EID}",
+                    subject: "Build failed in Jenkins Conditional Pipeline: ${JOB_NAME} #${params.BUILD_NUMBER}"
+                )
+            }
+        }
+    }
+}
