@@ -1,83 +1,66 @@
-pipeline {
-    agent any
-    parameters {
-        string(defaultValue: '', name: 'BUILD_NUMBER', description: '')
-        string(defaultValue: '', name: 'MAPPED_LICENSE', description: '')
-        string(defaultValue: '', name: 'VENDOR', description: '')
-        string(defaultValue: '', name: 'SERVER_NAME', description: '')
-        string(defaultValue: '', name: 'USER_EID', description: '')
-    }
+To install `httpd` (Apache HTTP Server) on a Red Hat Enterprise Linux (RHEL) system using SaltStack (Salt Master and Minion setup), you need to follow these steps:
 
-    stages {
-        stage('Verify File and Execute Commands') {
-            steps {
-                script {
-                    currentBuild.displayName = params.BUILD_NUMBER
-                    def vendors = params.VENDOR
-                    def servers = params.SERVER_NAME
-                    def buildNum = params.BUILD_NUMBER
-                    def mappedlicense = params.MAPPED_LICENSE
-                    def backupFile = "${mappedlicense}.${buildNum}"
-                    
-                    def output = sh(script:"ssh -tT -o StrictHostKeyChecking=no $servers '/conditional.sh $vendors $mappedlicense $backupFile $buildNum'", returnStdout: true).trim()
-                    echo "${output}"
-                    def result = "${output.split('\n')[-1]}"
+### Step 1: Ensure Salt Master and Minion are Set Up
+1. Make sure the Salt Master and Minion are installed and running.
+2. The Minion should be configured to connect to the Master.
 
-                    if ("$result" == "Success") {
-                        echo "Pipeline is successful."
-                        currentBuild.result = 'SUCCESS'
-                    } else if ("$result" == "Failure") {
-                        echo "Failing pipeline."
-                        currentBuild.result = 'FAILURE'
-                        sh "rsync -v /home/flames/data/history/${backupFile} /home/flames/data/${mappedlicense}"
-                    } else {
-                        echo "Marking pipeline as unstable."
-                        currentBuild.result = 'UNSTABLE'
-                        sh "rsync -v /home/flames/data/history/${backupFile} /home/flames/data/${mappedlicense}"
-                    }
-                }
-            }
-        }
-    }
+### Step 2: Create a Salt State File
+Create a Salt state file to manage the `httpd` package installation. 
 
-    post {
-        failure {
-            script {
-                def htmlBody = """
-                <html>
-                <body>
-                    <h2>Build Failure Details</h2>
-                    <table border="1" style="border-collapse: collapse; width: 50%;">
-                        <tr>
-                            <th>Vendor</th>
-                            <td>${params.VENDOR}</td>
-                        </tr>
-                        <tr>
-                            <th>Server</th>
-                            <td>${params.SERVER_NAME}</td>
-                        </tr>
-                        <tr>
-                            <th>Build Number</th>
-                            <td>${params.BUILD_NUMBER}</td>
-                        </tr>
-                        <tr>
-                            <th>Error Message</th>
-                            <td>${result}</td>
-                        </tr>
-                    </table>
-                    <p>Check the console output at <a href="$BUILD_URL">$BUILD_URL</a> to view the results.</p>
-                </body>
-                </html>
-                """
-                
-                emailext(
-                    mimeType: 'text/html',
-                    body: htmlBody,
-                    from: "conditional@list.ti.com",
-                    to: "flameshub-admin@list.ti.com, ${params.USER_EID}",
-                    subject: "Build failed in Jenkins Conditional Pipeline: ${JOB_NAME} #${params.BUILD_NUMBER}"
-                )
-            }
-        }
-    }
-}
+1. On the Salt Master, create a directory for your state files, if it doesn't exist:
+   ```bash
+   sudo mkdir -p /srv/salt
+   ```
+
+2. Create a new state file named `install_httpd.sls` inside the `/srv/salt` directory:
+   ```bash
+   sudo nano /srv/salt/install_httpd.sls
+   ```
+
+3. Add the following content to the `install_httpd.sls` file:
+   ```yaml
+   install_httpd:
+     pkg.installed:
+       - name: httpd
+   ```
+
+   This state file tells the Minion to install the `httpd` package.
+
+### Step 3: Apply the State File
+1. On the Salt Master, run the following command to apply the state file to the desired Minion(s):
+   ```bash
+   sudo salt '<minion-id>' state.apply install_httpd
+   ```
+   Replace `<minion-id>` with the ID of the Minion where you want to install `httpd`. If you want to apply it to all Minions, you can use `'*'` instead of `<minion-id>`.
+
+### Step 4: Verify Installation
+1. On the Minion, verify that `httpd` is installed by running:
+   ```bash
+   rpm -q httpd
+   ```
+   Or, check the status of the `httpd` service:
+   ```bash
+   sudo systemctl status httpd
+   ```
+
+### Step 5: Start and Enable the httpd Service (Optional)
+If you want to start and enable the `httpd` service automatically after installation, update the `install_httpd.sls` file to include:
+```yaml
+install_httpd:
+  pkg.installed:
+    - name: httpd
+
+start_httpd:
+  service.running:
+    - name: httpd
+    - enable: True
+    - require:
+      - pkg: install_httpd
+```
+
+Now, apply the state file again using the same `salt` command:
+```bash
+sudo salt '<minion-id>' state.apply install_httpd
+```
+
+This will install the `httpd` package, start the service, and enable it to start on boot.
