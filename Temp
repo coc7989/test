@@ -1,83 +1,99 @@
-Given that `flamesai` and `fllvflamesai` are VM servers you SSH into, and you're using Flask to trigger the Salt API, you'll want to configure your Flask app to send API requests to the Salt Master's `salt-api` endpoint.
+pipeline {
+    agent any
+    parameters {
+        string(defaultValue: '', name: 'BUILD_NUMBER', description: '')
+        string(defaultValue: '', name: 'MAPPED_LICENSE', description: '')
+        string(defaultValue: '', name: 'VENDOR', description: '')
+        string(defaultValue: '', name: 'SERVER_NAME', description: '')
+        string(defaultValue: '', name: 'USER_EID', description: '')
+    }
 
-### Understanding the Salt API Endpoint
+    stages {
+        stage('Verify File and Execute Commands') {
+            steps {
+                script {
+                    currentBuild.displayName = params.BUILD_NUMBER
+                    def vendors = params.VENDOR
+                    def servers = params.SERVER_NAME
+                    def buildNum = params.BUILD_NUMBER
+                    def mappedlicense = params.MAPPED_LICENSE
+                    def backupFile = "${mappedlicense}.${buildNum}"
+                    
+                    // Capture the output of the shell command
+                    def output = sh(script: "ssh -tT -o StrictHostKeyChecking=no $servers '/conditional.sh $vendors $mappedlicense $backupFile $buildNum'", returnStdout: true).trim()
+                    echo "${output}"
+                    
+                    // Extract last few lines of the output or specific error message pattern
+                    def errorMessage = output.split('\n')[-5..-1].join('\n') // Get the last 5 lines of output for more context
 
-The `salt-api` is the interface provided by SaltStack to interact with Salt Master through REST. The endpoint for this API is typically hosted on the Salt Master server (`flamesai` in your case), and you must ensure that:
+                    def result = "${output.split('\n')[-1]}"
+                    
+                    if ("$result" == "Success") {
+                        echo "Pipeline is successful."
+                        currentBuild.result = 'SUCCESS'
+                    } else if ("$result" == "Failure") {
+                        echo "Failing pipeline."
+                        currentBuild.result = 'FAILURE'
+                        sh "rsync -v /home/flames/data/history/${backupFile} /home/flames/data/${mappedlicense}"
+                    } else {
+                        echo "Marking pipeline as unstable."
+                        currentBuild.result = 'UNSTABLE'
+                        sh "rsync -v /home/flames/data/history/${backupFile} /home/flames/data/${mappedlicense}"
+                    }
+                }
+            }
+        }
+    }
 
-1. **`salt-api` is running** on `flamesai` and is accessible from wherever your Flask app is running.
-2. **Network Access**: Your Flask app can reach the `salt-api` endpoint over the network.
-
-### Configuring the API Endpoint
-
-1. **Salt API Endpoint**: The endpoint for `salt-api` typically follows this format:
-
-   ```
-   https://<salt-master-ip>:<port>
-   ```
-
-   Replace `<salt-master-ip>` with the IP address or hostname of your Salt Master (`flamesai`) and `<port>` with the port you configured for `salt-api` (commonly `8000`).
-
-2. **Example Salt API Endpoint for Your Case**:
-
-   If `flamesai` is accessible by the IP `192.168.1.100` and `salt-api` is running on port `8000`, your endpoint would be:
-
-   ```plaintext
-   https://192.168.1.100:8000
-   ```
-
-### Updating the Flask Code with the Correct API Endpoint
-
-You need to set the `SALT_API_URL` in your Flask backend to point to this endpoint:
-
-```python
-from flask import Flask, request, jsonify
-import requests
-
-app = Flask(__name__)
-
-# Replace this with the actual IP address or hostname of your Salt Master (flamesai) and the correct port
-SALT_API_URL = 'https://192.168.1.100:8000'
-SALT_API_USER = 'saltapiuser'  # Replace with your salt-api user
-SALT_API_PASS = 'yourpassword'  # Replace with your salt-api password
-
-# Function to log in to salt-api and get a token
-def get_salt_api_token():
-    response = requests.post(f'{SALT_API_URL}/login', json={
-        'eauth': 'pam',
-        'username': SALT_API_USER,
-        'password': SALT_API_PASS
-    }, verify=False)  # Set verify=False if using self-signed SSL certificates
-    return response.json().get('return', [{}])[0].get('token')
-
-@app.route('/run-command', methods=['POST'])
-def run_command():
-    command = request.json.get('command')
-    minions = request.json.get('minions')  # List of minions from the frontend
-
-    headers = {'X-Auth-Token': get_salt_api_token()}
-    
-    # Targeting multiple minions by providing a comma-separated list
-    response = requests.post(f'{SALT_API_URL}/minions', json={
-        'tgt': ','.join(minions),
-        'fun': 'cmd.run',
-        'arg': command
-    }, headers=headers, verify=False)
-
-    return jsonify(response.json())
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
-```
-
-### Additional Configuration Notes
-
-1. **SSL Verification**:
-   - If your `salt-api` is using self-signed SSL certificates, you may need to disable SSL verification by adding `verify=False` in your `requests.post` calls.
-
-2. **Network Configuration**:
-   - Ensure that your Flask app can reach the Salt Master server (`flamesai`) over the network. You might need to check firewall settings or network routing configurations.
-
-3. **Salt Master Configuration**:
-   - Make sure the Salt Master (`flamesai`) is correctly configured to allow API access. This involves ensuring the `rest_cherrypy` block is correctly set up in the `/etc/salt/master` configuration file and that the `salt-api` service is running.
-
-By following this configuration, your Flask application should be able to trigger commands on the Salt Master server (`flamesai`) through its REST API and perform actions on the specified minions.
+    post {
+        failure {
+            script {
+                def htmlBody = """
+                <html>
+                <body>
+                    <h2>Build Failure Details</h2>
+                    <table border="1" style="border-collapse: collapse; width: 50%;">
+                        <tr>
+                            <th>Vendor</th>
+                            <td>${params.VENDOR}</td>
+                        </tr>
+                        <tr>
+                            <th>Server</th>
+                            <td>${params.SERVER_NAME}</td>
+                        </tr>
+                        <tr>
+                            <th>Build Number</th>
+                            <td>${params.BUILD_NUMBER}</td>
+                        </tr>
+                        <tr>
+                            <th>Error Message</th>
+                            <td><pre>${errorMessage}</pre></td>
+                        </tr>
+                    </table>
+                    <p>Check the console output at <a href="$BUILD_URL">$BUILD_URL</a> to view the full results.</p>
+                    
+                    <hr style="border:none; border-top:1px solid #ccc;"/>
+                    <p style="font-size:14px; color:#333;">For any issues, contact:</p>
+                    <p style="font-size:14px; color:#555;">
+                        <a href="mailto:Flames@gmail.com">Flames@gmail.com</a>
+                    </p>
+                    <p style="font-size:14px; color:#333;">For any escalation, contact:</p>
+                    <p style="font-size:14px; color:#555;">
+                        <a href="mailto:Rajath@gmail.com">Rajath@gmail.com</a>, 
+                        <a href="mailto:Chris@gmail.com">Chris@gmail.com</a>
+                    </p>
+                </body>
+                </html>
+                """
+                
+                emailext(
+                    mimeType: 'text/html',
+                    body: htmlBody,
+                    from: "conditional@list.ti.com",
+                    to: "flameshub-admin@list.ti.com, ${params.USER_EID}",
+                    subject: "Build failed in Jenkins Conditional Pipeline: ${JOB_NAME} #${params.BUILD_NUMBER}"
+                )
+            }
+        }
+    }
+}
