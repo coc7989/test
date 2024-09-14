@@ -1,99 +1,119 @@
-pipeline {
-    agent any
-    parameters {
-        string(defaultValue: '', name: 'BUILD_NUMBER', description: '')
-        string(defaultValue: '', name: 'MAPPED_LICENSE', description: '')
-        string(defaultValue: '', name: 'VENDOR', description: '')
-        string(defaultValue: '', name: 'SERVER_NAME', description: '')
-        string(defaultValue: '', name: 'USER_EID', description: '')
-    }
+The code you've written generally follows good practices, but there are several improvements that can be made for clarity, efficiency, and maintainability. Here are a few suggestions:
 
-    stages {
-        stage('Verify File and Execute Commands') {
-            steps {
-                script {
-                    currentBuild.displayName = params.BUILD_NUMBER
-                    def vendors = params.VENDOR
-                    def servers = params.SERVER_NAME
-                    def buildNum = params.BUILD_NUMBER
-                    def mappedlicense = params.MAPPED_LICENSE
-                    def backupFile = "${mappedlicense}.${buildNum}"
-                    
-                    // Capture the output of the shell command
-                    def output = sh(script: "ssh -tT -o StrictHostKeyChecking=no $servers '/conditional.sh $vendors $mappedlicense $backupFile $buildNum'", returnStdout: true).trim()
-                    echo "${output}"
-                    
-                    // Extract last few lines of the output or specific error message pattern
-                    def errorMessage = output.split('\n')[-5..-1].join('\n') // Get the last 5 lines of output for more context
+1. SQL Query Handling:
 
-                    def result = "${output.split('\n')[-1]}"
-                    
-                    if ("$result" == "Success") {
-                        echo "Pipeline is successful."
-                        currentBuild.result = 'SUCCESS'
-                    } else if ("$result" == "Failure") {
-                        echo "Failing pipeline."
-                        currentBuild.result = 'FAILURE'
-                        sh "rsync -v /home/flames/data/history/${backupFile} /home/flames/data/${mappedlicense}"
-                    } else {
-                        echo "Marking pipeline as unstable."
-                        currentBuild.result = 'UNSTABLE'
-                        sh "rsync -v /home/flames/data/history/${backupFile} /home/flames/data/${mappedlicense}"
-                    }
-                }
-            }
-        }
-    }
+It's always a good idea to handle exceptions when dealing with database operations. You should wrap your database operations in try-except-finally to ensure any errors are caught, and resources are released properly.
 
-    post {
-        failure {
-            script {
-                def htmlBody = """
-                <html>
-                <body>
-                    <h2>Build Failure Details</h2>
-                    <table border="1" style="border-collapse: collapse; width: 50%;">
-                        <tr>
-                            <th>Vendor</th>
-                            <td>${params.VENDOR}</td>
-                        </tr>
-                        <tr>
-                            <th>Server</th>
-                            <td>${params.SERVER_NAME}</td>
-                        </tr>
-                        <tr>
-                            <th>Build Number</th>
-                            <td>${params.BUILD_NUMBER}</td>
-                        </tr>
-                        <tr>
-                            <th>Error Message</th>
-                            <td><pre>${errorMessage}</pre></td>
-                        </tr>
-                    </table>
-                    <p>Check the console output at <a href="$BUILD_URL">$BUILD_URL</a> to view the full results.</p>
-                    
-                    <hr style="border:none; border-top:1px solid #ccc;"/>
-                    <p style="font-size:14px; color:#333;">For any issues, contact:</p>
-                    <p style="font-size:14px; color:#555;">
-                        <a href="mailto:Flames@gmail.com">Flames@gmail.com</a>
-                    </p>
-                    <p style="font-size:14px; color:#333;">For any escalation, contact:</p>
-                    <p style="font-size:14px; color:#555;">
-                        <a href="mailto:Rajath@gmail.com">Rajath@gmail.com</a>, 
-                        <a href="mailto:Chris@gmail.com">Chris@gmail.com</a>
-                    </p>
-                </body>
-                </html>
-                """
-                
-                emailext(
-                    mimeType: 'text/html',
-                    body: htmlBody,
-                    from: "conditional@list.ti.com",
-                    to: "flameshub-admin@list.ti.com, ${params.USER_EID}",
-                    subject: "Build failed in Jenkins Conditional Pipeline: ${JOB_NAME} #${params.BUILD_NUMBER}"
-                )
-            }
-        }
-    }
-}
+Use parameterized queries to prevent SQL injection (although it seems you're already doing this with :vendor_name, etc.).
+
+
+def feature_manage(file_path):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as license_file:
+            text = license_file.read()
+
+        # (rest of the function code here)
+
+        cursor = connection.cursor()
+        sql_delete = "DELETE FROM EXPIRY WHERE VENDOR_NAME = :vendor_name AND SERVER_NAME = :server_name"
+        cursor.execute(sql_delete, {'vendor_name': vendor_name, 'server_name': server_name})
+
+        sql_insert = """
+            INSERT INTO EXPIRY (SERVER_NAME, FEATURE_NAME, VENDOR_NAME, VERSION, EXPIRY_DATE, COUNT)
+            VALUES (:server_name, :feature_name, :vendor_name, :version, :expiry_date, :count)
+        """
+        for match in matches:
+            cursor.execute(sql_insert, match)
+
+        connection.commit()
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        connection.rollback()
+    finally:
+        if cursor:
+            cursor.close()
+
+2. Error Handling for Missing Files or Invalid Inputs:
+
+If the file does not exist, open() will throw an error. Consider adding error handling for this.
+
+def feature_manage(file_path):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as license_file:
+            text = license_file.read()
+    except FileNotFoundError:
+        print(f"Error: File '{file_path}' not found.")
+        return
+    except IOError as e:
+        print(f"Error reading file '{file_path}': {e}")
+        return
+
+3. Avoid Repetitive Code for Expiry Date:
+
+You have this block:
+
+if expiry_date == "permanent" or expiry_date.endswith('0000'):
+    expiry_date = '31-dec-9999'
+
+You could clean this up by using a simpler check:
+
+expiry_date = '31-dec-9999' if expiry_date == "permanent" or expiry_date.endswith('0000') else expiry_date
+
+4. Regex Compilation for Reuse:
+
+Instead of recompiling the regex in every iteration, compile the patterns once outside the loop.
+
+pattern_stop = re.compile(r'########################## LICENSE KEYS END HERE ######################')
+pattern_feature = re.compile(r'(?:INCREMENT|FEATURE|LICENSE)\s+(\S+)\s+(\S+)\s+(\d+|\d+\.\d+)\s+((?:\d+-[a-zA-Z]{3}-\d+)|permanent)\s+(?:\\?\s*(\d+)|\d+)')
+server_pattern = re.compile(r'(?:(?<=\bHOST\b)|(?<=\bSERVER\b))\s+\b[\w.-]+\b(?=\s)')
+
+for line in text.split('\n'):
+    if pattern_stop.search(line):
+        break
+
+    match_feature = pattern_feature.match(line)
+    if match_feature:
+        # Process the match
+
+5. Efficiency with Checksum Storage:
+
+You're recalculating checksums for each file. If your checksum store is in a file or database, you might want to minimize file/database I/O. Consider caching or minimizing the calls.
+
+6. Improving Readability:
+
+It's a good idea to break down the logic into smaller helper functions. For instance, extracting feature information can be a separate function.
+
+def extract_feature_info(line, pattern_feature, file_path):
+    match_feature = pattern_feature.match(line)
+    if match_feature:
+        feature_name, vendor_name, version, expiry_date, count = match_feature.groups()
+        if file_path == '/home/flames/data/simplis.lelvflames19.lic':
+            feature_name, vendor_name = vendor_name, feature_name
+        expiry_date = '31-dec-9999' if expiry_date == "permanent" or expiry_date.endswith('0000') else expiry_date
+        return feature_name, vendor_name, version, expiry_date, count
+    return None
+
+7. Handling Edge Cases:
+
+If a file contains malformed data, the regex match might fail. Ensure you are handling such cases gracefully with proper logging or error messages.
+
+for line in text.split('\n'):
+    if pattern_stop.search(line):
+        break
+
+    feature_info = extract_feature_info(line, pattern_feature, file_path)
+    if feature_info:
+        feature_name, vendor_name, version, expiry_date, count = feature_info
+        # Proceed to add it to the matches
+    else:
+        print(f"Warning: Invalid feature line in file {file_path}: {line}")
+
+8. Checksum and File Modification Logic:
+
+Consider moving the checksum logic to a separate class or module if it's reused elsewhere. This will make the code more modular and maintainable.
+
+
+---
+
+With these improvements, your script will be more efficient, robust, and readable. Would you like me to help with specific changes or further optimizations?
+
