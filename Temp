@@ -1,42 +1,40 @@
-If yum is not available on your CentOS system, you can use the dnf package manager instead, as it's the successor to yum. Alternatively, you can directly use rpm for package installation. Here’s how you can install Java JDK Lite using rpm without relying on yum or dnf:
+To install httpd (Apache) on CentOS using rpm, you'll need to follow these steps. Since yum is not available, you'll manually download the required .rpm packages, including dependencies, and install them using the rpm command.
 
-1. Download the JDK RPM file:
+Here’s a step-by-step guide:
 
-First, manually download the RPM package for the JDK version you need. You can do this using wget or directly from a browser and transfer it to your CentOS machine.
+1. Download the httpd RPM Package: First, download the httpd package. If your system has wget or curl, you can use one of them to download the package.
 
-Example (OpenJDK 11 minimal version):
+Example:
 
-wget https://download.java.net/java/GA/jdk11/13/GPL/openjdk-11.0.2_linux-x64_bin.rpm
-
-
-2. Install the RPM package:
-
-Use the rpm command to install the JDK directly:
-
-sudo rpm -ivh openjdk-11.0.2_linux-x64_bin.rpm
+wget http://mirror.centos.org/centos/7/os/x86_64/Packages/httpd-2.4.6-93.el7.centos.x86_64.rpm
 
 
-3. Verify Installation:
+2. Download Dependency RPMs: httpd has dependencies like apr, apr-util, httpd-tools, and others. Download them from a CentOS mirror. For example:
 
-After installation, verify the installed Java version:
-
-java -version
-
-You should see the version of Java installed.
+wget http://mirror.centos.org/centos/7/os/x86_64/Packages/apr-1.4.8-3.el7_4.1.x86_64.rpm
+wget http://mirror.centos.org/centos/7/os/x86_64/Packages/apr-util-1.5.2-6.el7.x86_64.rpm
+wget http://mirror.centos.org/centos/7/os/x86_64/Packages/httpd-tools-2.4.6-93.el7.centos.x86_64.rpm
 
 
-4. Setting JAVA_HOME (optional):
+3. Install the RPM Packages: After downloading all required .rpm files, install them using the rpm command. Make sure you’re in the directory where the files are stored.
 
-If needed, you can manually set the JAVA_HOME environment variable by editing your .bashrc or .bash_profile:
+Example:
 
-export JAVA_HOME=/usr/lib/jvm/java-11-openjdk
-export PATH=$PATH:$JAVA_HOME/bin
-
-After adding the above lines, reload the profile:
-
-source ~/.bashrc
+sudo rpm -Uvh apr-1.4.8-3.el7_4.1.x86_64.rpm
+sudo rpm -Uvh apr-util-1.5.2-6.el7.x86_64.rpm
+sudo rpm -Uvh httpd-tools-2.4.6-93.el7.centos.x86_64.rpm
+sudo rpm -Uvh httpd-2.4.6-93.el7.centos.x86_64.rpm
 
 
+4. Start the HTTPD Service: Once the installation is complete, start the Apache service.
 
-If you're missing any dependencies while installing via rpm, it will display the missing packages, which you can download and install manually as well.
+sudo systemctl start httpd
 
+
+5. Enable HTTPD at Boot (optional): To ensure Apache starts on system boot:
+
+sudo systemctl enable httpd
+
+
+
+If any dependencies are missing during installation, you'll need to download and install them manually, following the same process.
