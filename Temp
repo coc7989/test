@@ -1,18 +1,42 @@
-from flask import Flask, jsonify
+If yum is not available on your CentOS system, you can use the dnf package manager instead, as it's the successor to yum. Alternatively, you can directly use rpm for package installation. Here’s how you can install Java JDK Lite using rpm without relying on yum or dnf:
 
-app = Flask(__name__)
+1. Download the JDK RPM file:
 
-# Define the API URL prefix
-apiurlprefix = "/api/v1"
+First, manually download the RPM package for the JDK version you need. You can do this using wget or directly from a browser and transfer it to your CentOS machine.
 
-# Example routes using the prefix
-@app.route(f'{apiurlprefix}/example', methods=['GET'])
-def example():
-    return jsonify(message="This is an example API call")
+Example (OpenJDK 11 minimal version):
 
-@app.route(f'{apiurlprefix}/another', methods=['GET'])
-def another_example():
-    return jsonify(message="This is another API call")
+wget https://download.java.net/java/GA/jdk11/13/GPL/openjdk-11.0.2_linux-x64_bin.rpm
 
-if __name__ == '__main__':
-    app.run(debug=True)
+
+2. Install the RPM package:
+
+Use the rpm command to install the JDK directly:
+
+sudo rpm -ivh openjdk-11.0.2_linux-x64_bin.rpm
+
+
+3. Verify Installation:
+
+After installation, verify the installed Java version:
+
+java -version
+
+You should see the version of Java installed.
+
+
+4. Setting JAVA_HOME (optional):
+
+If needed, you can manually set the JAVA_HOME environment variable by editing your .bashrc or .bash_profile:
+
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk
+export PATH=$PATH:$JAVA_HOME/bin
+
+After adding the above lines, reload the profile:
+
+source ~/.bashrc
+
+
+
+If you're missing any dependencies while installing via rpm, it will display the missing packages, which you can download and install manually as well.
+
