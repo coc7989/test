@@ -1,40 +1,9 @@
-To install httpd (Apache) on CentOS using rpm, you'll need to follow these steps. Since yum is not available, you'll manually download the required .rpm packages, including dependencies, and install them using the rpm command.
-
-Here’s a step-by-step guide:
-
-1. Download the httpd RPM Package: First, download the httpd package. If your system has wget or curl, you can use one of them to download the package.
-
-Example:
-
-wget http://mirror.centos.org/centos/7/os/x86_64/Packages/httpd-2.4.6-93.el7.centos.x86_64.rpm
-
-
-2. Download Dependency RPMs: httpd has dependencies like apr, apr-util, httpd-tools, and others. Download them from a CentOS mirror. For example:
-
-wget http://mirror.centos.org/centos/7/os/x86_64/Packages/apr-1.4.8-3.el7_4.1.x86_64.rpm
-wget http://mirror.centos.org/centos/7/os/x86_64/Packages/apr-util-1.5.2-6.el7.x86_64.rpm
-wget http://mirror.centos.org/centos/7/os/x86_64/Packages/httpd-tools-2.4.6-93.el7.centos.x86_64.rpm
-
-
-3. Install the RPM Packages: After downloading all required .rpm files, install them using the rpm command. Make sure you’re in the directory where the files are stored.
-
-Example:
-
-sudo rpm -Uvh apr-1.4.8-3.el7_4.1.x86_64.rpm
-sudo rpm -Uvh apr-util-1.5.2-6.el7.x86_64.rpm
-sudo rpm -Uvh httpd-tools-2.4.6-93.el7.centos.x86_64.rpm
-sudo rpm -Uvh httpd-2.4.6-93.el7.centos.x86_64.rpm
-
-
-4. Start the HTTPD Service: Once the installation is complete, start the Apache service.
-
-sudo systemctl start httpd
-
-
-5. Enable HTTPD at Boot (optional): To ensure Apache starts on system boot:
-
-sudo systemctl enable httpd
-
-
-
-If any dependencies are missing during installation, you'll need to download and install them manually, following the same process.
+def extract_feature_info(line, pattern_feature, file_path):
+    match_feature = pattern_feature.match(line)
+    if match_feature:
+        feature_name, vendor_name, version, expiry_date, count = match_feature.groups()
+        if file_path == '/home/flames/data/simplis.lelvflames19.lic':
+            feature_name, vendor_name = vendor_name, feature_name
+        expiry_date = '31-dec-9999' if expiry_date == "permanent" or expiry_date.endswith('0000') else expiry_date
+        return feature_name, vendor_name, version, expiry_date, count
+    return None
