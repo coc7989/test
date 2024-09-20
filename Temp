@@ -1,9 +1,17 @@
+import fnmatch
+
 def extract_feature_info(line, pattern_feature, file_path):
     match_feature = pattern_feature.match(line)
     if match_feature:
         feature_name, vendor_name, version, expiry_date, count = match_feature.groups()
-        if file_path == '/home/flames/data/simplis.lelvflames19.lic':
+        
+        # Check if the file path matches the patterns for simplis or astc vendors
+        if fnmatch.fnmatch(file_path, '/home/flames/data/simplis*.lic') or fnmatch.fnmatch(file_path, '/home/flames/data/astc*.lic'):
             feature_name, vendor_name = vendor_name, feature_name
+        
+        # Handle expiry date
         expiry_date = '31-dec-9999' if expiry_date == "permanent" or expiry_date.endswith('0000') else expiry_date
+        
         return feature_name, vendor_name, version, expiry_date, count
+    
     return None
