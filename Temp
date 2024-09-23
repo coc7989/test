@@ -1,17 +1,75 @@
-import fnmatch
+Yes, in Material-UI (MUI) DataGrid, you can customize the filter options to include a "not equals" filter.
 
-def extract_feature_info(line, pattern_feature, file_path):
-    match_feature = pattern_feature.match(line)
-    if match_feature:
-        feature_name, vendor_name, version, expiry_date, count = match_feature.groups()
-        
-        # Check if the file path matches the patterns for simplis or astc vendors
-        if fnmatch.fnmatch(file_path, '/home/flames/data/simplis*.lic') or fnmatch.fnmatch(file_path, '/home/flames/data/astc*.lic'):
-            feature_name, vendor_name = vendor_name, feature_name
-        
-        # Handle expiry date
-        expiry_date = '31-dec-9999' if expiry_date == "permanent" or expiry_date.endswith('0000') else expiry_date
-        
-        return feature_name, vendor_name, version, expiry_date, count
-    
-    return None
+To achieve this, you'll need to define a custom filter operator for the DataGrid. Here's an example of how to add a "not equals" filter option for your DataGrid:
+
+import { DataGrid, GridToolbar } from '@mui/x-data-grid';
+import { useState } from 'react';
+
+const CustomDataGrid = () => {
+  const [rows, setRows] = useState([
+    { id: 1, server: 'lelvdck.com' },
+    { id: 2, server: 'mydck-prod.com' },
+    { id: 3, server: 'mydck-dev.com' },
+    { id: 4, server: 'another-server.com' }
+  ]);
+
+  const columns = [
+    { field: 'id', headerName: 'ID', width: 90 },
+    { field: 'server', headerName: 'Server', width: 200 }
+  ];
+
+  const customFilterOperator = {
+    label: 'Not equals',
+    value: 'notEquals',
+    getApplyFilterFn: (filterItem) => {
+      if (!filterItem.value) {
+        return null;
+      }
+      return (params) =>
+        params.value !== filterItem.value;
+    },
+    InputComponent: (props) => (
+      <input
+        type="text"
+        value={props.item.value || ''}
+        onChange={(e) => props.applyValue({ ...props.item, value: e.target.value })}
+        placeholder="Enter server name"
+      />
+    ),
+  };
+
+  return (
+    <div style={{ height: 400, width: '100%' }}>
+      <DataGrid
+        rows={rows}
+        columns={columns}
+        filterModel={{
+          items: [{ columnField: 'server', operatorValue: 'notEquals', value: 'lelvdck.com' }]
+        }}
+        components={{ Toolbar: GridToolbar }}
+        columnTypes={{
+          server: {
+            filterOperators: [
+              ...DataGrid.defaultProps.columnTypes.server.filterOperators,
+              customFilterOperator,
+            ],
+          },
+        }}
+      />
+    </div>
+  );
+};
+
+export default CustomDataGrid;
+
+In this example:
+
+We define a custom filter operator named "Not equals" (customFilterOperator).
+
+This operator checks if the value in the column doesn't match the filter input and applies it to the server column.
+
+You can modify the value in filterModel to pre-filter the data or allow users to enter their own input via the toolbar.
+
+
+This setup allows users to filter rows where the server name is not equal to "lelvdck.com".
+
