@@ -1,75 +1,18 @@
-Yes, in Material-UI (MUI) DataGrid, you can customize the filter options to include a "not equals" filter.
+#!/bin/bash
 
-To achieve this, you'll need to define a custom filter operator for the DataGrid. Here's an example of how to add a "not equals" filter option for your DataGrid:
+# Simulate the lmstat output
+lmstat=$(cat <<EOF
+fllv28.itg.com: license server UP (MASTER) v11.19.0
 
-import { DataGrid, GridToolbar } from '@mui/x-data-grid';
-import { useState } from 'react';
+Vendor daemon status (on fllv28.itg.com):
 
-const CustomDataGrid = () => {
-  const [rows, setRows] = useState([
-    { id: 1, server: 'lelvdck.com' },
-    { id: 2, server: 'mydck-prod.com' },
-    { id: 3, server: 'mydck-dev.com' },
-    { id: 4, server: 'another-server.com' }
-  ]);
+ansyslmd: UP v11.19.0
+ansoftd: UP v11.19.0
+EOF
+)
 
-  const columns = [
-    { field: 'id', headerName: 'ID', width: 90 },
-    { field: 'server', headerName: 'Server', width: 200 }
-  ];
+# Extract the first vendor daemon status
+vendor_status=$(echo "$lmstat" | grep -m 1 -o '^[^:]*: UP' | awk '{print $1}')
 
-  const customFilterOperator = {
-    label: 'Not equals',
-    value: 'notEquals',
-    getApplyFilterFn: (filterItem) => {
-      if (!filterItem.value) {
-        return null;
-      }
-      return (params) =>
-        params.value !== filterItem.value;
-    },
-    InputComponent: (props) => (
-      <input
-        type="text"
-        value={props.item.value || ''}
-        onChange={(e) => props.applyValue({ ...props.item, value: e.target.value })}
-        placeholder="Enter server name"
-      />
-    ),
-  };
-
-  return (
-    <div style={{ height: 400, width: '100%' }}>
-      <DataGrid
-        rows={rows}
-        columns={columns}
-        filterModel={{
-          items: [{ columnField: 'server', operatorValue: 'notEquals', value: 'lelvdck.com' }]
-        }}
-        components={{ Toolbar: GridToolbar }}
-        columnTypes={{
-          server: {
-            filterOperators: [
-              ...DataGrid.defaultProps.columnTypes.server.filterOperators,
-              customFilterOperator,
-            ],
-          },
-        }}
-      />
-    </div>
-  );
-};
-
-export default CustomDataGrid;
-
-In this example:
-
-We define a custom filter operator named "Not equals" (customFilterOperator).
-
-This operator checks if the value in the column doesn't match the filter input and applies it to the server column.
-
-You can modify the value in filterModel to pre-filter the data or allow users to enter their own input via the toolbar.
-
-
-This setup allows users to filter rows where the server name is not equal to "lelvdck.com".
-
+# Print the result
+echo "First vendor daemon status: $vendor_status"
