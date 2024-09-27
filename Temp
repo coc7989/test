@@ -1,18 +1,268 @@
-#!/bin/bash
+For creating an application deployment handbook in Confluence, it’s important to structure it in a way that is easy to navigate and covers all necessary components clearly. Here's a recommended structure and flow for your deployment process:
 
-# Simulate the lmstat output
-lmstat=$(cat <<EOF
-fllv28.itg.com: license server UP (MASTER) v11.19.0
+1. Overview Section
 
-Vendor daemon status (on fllv28.itg.com):
+Provide an introduction to the application, deployment environments (prod/dev), and tools used (Docker, Jenkins, Bitbucket, Apache HTTPD, etc.).
 
-ansyslmd: UP v11.19.0
-ansoftd: UP v11.19.0
-EOF
-)
+Introduction
 
-# Extract the first vendor daemon status
-vendor_status=$(echo "$lmstat" | grep -m 1 -o '^[^:]*: UP' | awk '{print $1}')
+Purpose of the document.
 
-# Print the result
-echo "First vendor daemon status: $vendor_status"
+Application description.
+
+Overview of the deployment process.
+
+
+Technologies Used
+
+Docker: Containerization.
+
+Jenkins: CI/CD pipeline.
+
+Bitbucket: Version control system.
+
+Apache HTTPD: Reverse proxy server.
+
+
+
+2. Folder Structure
+
+Define the folder structure for the application and ensure consistency across environments.
+
+Root Directory Structure
+
+/frontend/ — React app folder.
+
+/backend/ — Flask app folder.
+
+/docker/ — Docker configuration files.
+
+/jenkins/ — Jenkins configuration and pipeline script.
+
+/docs/ — Documentation.
+
+/scripts/ — Custom deployment and maintenance scripts.
+
+
+Frontend Folder Structure
+
+src/ — Source files for React components.
+
+public/ — Public resources (HTML, images).
+
+Dockerfile — Docker configuration for the frontend.
+
+package.json — React dependencies.
+
+
+Backend Folder Structure
+
+src/ — Source code for the Flask app.
+
+requirements.txt — Python dependencies.
+
+Dockerfile — Docker configuration for the backend.
+
+
+Docker Folder Structure
+
+docker-compose.yml — Compose file to define multi-container deployment.
+
+.env — Environment variables.
+
+
+Jenkins Folder Structure
+
+Jenkinsfile — Pipeline as code configuration.
+
+deploy/ — Any additional scripts for deployment automation.
+
+
+
+3. Docker Configuration
+
+Explain how Docker is set up and structured for the application.
+
+Dockerfile for Frontend
+
+Overview of the base image used (Node.js).
+
+Building and copying necessary files into the container.
+
+Exposing port 8081.
+
+
+Dockerfile for Backend
+
+Overview of the base image (Python).
+
+Installing dependencies from requirements.txt.
+
+Exposing port 5000.
+
+
+docker-compose.yml
+
+Define services for both frontend and backend.
+
+Ensure networking and container communication.
+
+Volumes and environment variables.
+
+
+version: '3'
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "8081:8081"
+    networks:
+      - app-network
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    networks:
+      - app-network
+networks:
+  app-network:
+    driver: bridge
+
+
+4. Jenkins Setup
+
+Detail how Jenkins is integrated for continuous deployment.
+
+Jenkins Pipeline Setup
+
+Using Jenkinsfile for CI/CD pipeline.
+
+Overview of stages (e.g., build, test, deploy).
+
+Use of Bitbucket branches for environment-specific deployments (e.g., dev branch triggers deployment to the dev environment).
+
+
+pipeline {
+    agent any
+    stages {
+        stage('Build Frontend') {
+            steps {
+                sh 'docker-compose -f docker-compose.yml up -d frontend'
+            }
+        }
+        stage('Build Backend') {
+            steps {
+                sh 'docker-compose -f docker-compose.yml up -d backend'
+            }
+        }
+        stage('Deploy') {
+            steps {
+                script {
+                    if (env.BRANCH_NAME == 'dev') {
+                        sh 'docker-compose -f docker-compose.yml -p dev up -d'
+                    } else if (env.BRANCH_NAME == 'prod') {
+                        sh 'docker-compose -f docker-compose.yml -p prod up -d'
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+5. Bitbucket Configuration
+
+Explain how Bitbucket is configured to trigger Jenkins pipelines.
+
+Branching Strategy
+
+Use dev branch for development deployment.
+
+Use prod branch for production deployment.
+
+
+Bitbucket Webhook to Jenkins
+
+Set up a webhook in Bitbucket to trigger Jenkins on pushes to specific branches.
+
+Example webhook URL: http://jenkins.example.com/bitbucket-hook/
+
+
+
+6. Apache HTTPD Reverse Proxy Setup
+
+Outline how Apache HTTPD is configured to route traffic between frontend and backend containers.
+
+Apache Configuration (Virtual Hosts)
+
+Virtual host for development (mylsf-dev.com).
+
+Virtual host for production (mylsf.com).
+
+
+<VirtualHost *:443>
+    ServerName mylsf-dev.com
+
+    ProxyPass / http://localhost:8081/
+    ProxyPassReverse / http://localhost:8081/
+
+    ProxyPass /api http://localhost:5000/api
+    ProxyPassReverse /api http://localhost:5000/api
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName mylsf.com
+
+    ProxyPass / http://localhost:8081/
+    ProxyPassReverse / http://localhost:8081/
+
+    ProxyPass /api http://localhost:5000/api
+    ProxyPassReverse /api http://localhost:5000/api
+</VirtualHost>
+
+
+7. Deployment Process
+
+Describe the end-to-end deployment process.
+
+Step-by-step Process
+
+1. Developer pushes code to Bitbucket.
+
+
+2. Bitbucket triggers the Jenkins pipeline.
+
+
+3. Jenkins builds Docker containers for frontend and backend.
+
+
+4. Containers are deployed to the appropriate environment (dev/prod) using docker-compose.
+
+
+5. Apache HTTPD routes traffic between the frontend and backend services.
+
+
+
+
+8. Troubleshooting
+
+Create a section for common errors and their solutions.
+
+Common Issues
+
+Docker container not starting.
+
+Jenkins pipeline failures.
+
+Bitbucket webhook not triggering.
+
+Apache reverse proxy misconfiguration.
+
+
+
+9. Appendix
+
+Include any additional information or references, such as links to documentation or troubleshooting guides.
+
+This structure ensures that all critical aspects of your deployment process are documented and easy to follow.
+
