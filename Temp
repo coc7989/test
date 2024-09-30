@@ -1,321 +1,46 @@
-Certainly! Below is an example of an Application Deployment Handbook tailored to your current setup, incorporating Docker, Jenkins, Bitbucket, and Apache HTTPD configurations:
+Here’s an email template you can use to announce the creation of the deployment handbook to your team:
 
 
 ---
 
-Application Deployment Handbook
+Subject: New Application Deployment Handbook Now Available
 
-1. Overview
+Hi Team,
 
-This document provides a comprehensive guide to deploying our application using Docker, Jenkins, Bitbucket, and Apache HTTPD. The application consists of a React frontend and a Flask backend, which are containerized and deployed using Jenkins pipelines with version control in Bitbucket.
+I hope you're doing well.
 
-Environments
+I’m excited to inform you that I’ve completed the Application Deployment Handbook, which is now available for everyone to use. This handbook will serve as a comprehensive guide for all our deployment-related processes. It covers the full setup, from folder structure and environment variables to the Docker and Jenkins pipeline configuration, including integration with Bitbucket for CI/CD.
 
-Production: mylsf.com
+What's in the Handbook?
 
-Development: mylsf-dev.com
+Folder Structure: A clear breakdown of how to organize project files and maintain a clean, manageable structure.
 
+Jenkins & Docker Pipeline: Step-by-step instructions on setting up Jenkins pipelines for both frontend and backend applications using Docker.
 
-Tools & Technologies
+Bitbucket Integration: Guidelines on using Bitbucket repositories and branches for seamless deployment to different environments (e.g., dev, prod).
 
-Docker: Containerization
-
-Jenkins: Continuous Integration and Deployment
-
-Bitbucket: Source control with branch-based deployment triggers
-
-Apache HTTPD: Reverse proxy for routing traffic to frontend and backend
+Best Practices: Recommendations on environment variables, security credentials, and debugging tips to make the deployment process smoother.
 
 
+How to Utilize It?
 
----
+For New Deployments: Follow the instructions outlined to set up new projects, ensure proper folder structure, and configure Jenkins pipelines correctly.
 
-2. Folder Structure
+For Troubleshooting: Use the handbook to understand the deployment process and troubleshoot issues with environments, container configurations, or build failures.
 
-Root Directory
+For Continuous Integration: Learn how the handbook leverages Bitbucket and Jenkins to automate deployments, reducing manual intervention and errors.
 
-The application's root directory is organized as follows:
 
-project-root/
-│
-├── frontend/              # React frontend code
-│   ├── src/               # Source files
-│   ├── public/            # Static resources
-│   ├── Dockerfile         # Docker config for the frontend
-│   ├── package.json       # Frontend dependencies
-│
-├── backend/               # Flask backend code
-│   ├── src/               # API source code
-│   ├── requirements.txt   # Python dependencies
-│   ├── Dockerfile         # Docker config for the backend
-│
-├── docker/                # Docker-specific configurations
-│   ├── docker-compose.yml # Docker Compose setup
-│   ├── .env               # Environment variables
-│
-├── jenkins/               # Jenkins pipeline configurations
-│   ├── Jenkinsfile        # Pipeline script
-│
-├── scripts/               # Custom scripts for deployment
-└── docs/                  # Documentation and other resources
+The handbook can be found on our Confluence page [Insert Link]. Please feel free to go through it, and if you have any questions or suggestions for improvement, don’t hesitate to reach out.
+
+Thanks, and I hope this document proves helpful for all future deployments!
+
+Best Regards,
+[Your Name]
+Site Reliability Engineer
 
 
 ---
 
-3. Docker Configuration
-
-Dockerfile for Frontend
-
-The frontend Dockerfile builds the React app and exposes it on port 8081:
-
-# Use Node.js as the base image
-FROM node:16-alpine
-
-# Set working directory
-WORKDIR /app
-
-# Copy package.json and install dependencies
-COPY package.json ./
-RUN npm install
-
-# Copy the rest of the application files
-COPY . .
-
-# Build the application
-RUN npm run build
-
-# Expose the port the app runs on
-EXPOSE 8081
-
-# Run the app
-CMD ["npm", "start"]
-
-Dockerfile for Backend
-
-The backend Dockerfile installs Flask and its dependencies, then starts the Flask server on port 5000:
-
-# Use Python base image
-FROM python:3.9-slim
-
-# Set working directory
-WORKDIR /app
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-# Copy application files
-COPY . .
-
-# Expose the port the backend runs on
-EXPOSE 5000
-
-# Start the Flask app
-CMD ["python", "src/app.py"]
-
-docker-compose.yml
-
-The docker-compose.yml file defines services for the frontend and backend, using environment variables from .env:
-
-version: '3'
-services:
-  frontend:
-    build: ./frontend
-    ports:
-      - "8081:8081"
-    networks:
-      - app-network
-
-  backend:
-    build: ./backend
-    ports:
-      - "5000:5000"
-    networks:
-      - app-network
-
-networks:
-  app-network:
-    driver: bridge
-
-
----
-
-4. Jenkins Setup
-
-Jenkinsfile
-
-The Jenkinsfile handles CI/CD, building, testing, and deploying containers based on the branch pushed to Bitbucket. It uses the dev branch for development deployment and the prod branch for production.
-
-pipeline {
-    agent any
-    stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-        stage('Build Frontend') {
-            steps {
-                sh 'docker-compose -f docker/docker-compose.yml build frontend'
-            }
-        }
-        stage('Build Backend') {
-            steps {
-                sh 'docker-compose -f docker/docker-compose.yml build backend'
-            }
-        }
-        stage('Deploy') {
-            steps {
-                script {
-                    if (env.BRANCH_NAME == 'dev') {
-                        echo 'Deploying to development environment...'
-                        sh 'docker-compose -f docker/docker-compose.yml -p dev up -d'
-                    } else if (env.BRANCH_NAME == 'prod') {
-                        echo 'Deploying to production environment...'
-                        sh 'docker-compose -f docker/docker-compose.yml -p prod up -d'
-                    }
-                }
-            }
-        }
-    }
-    post {
-        always {
-            cleanWs() // Clean workspace after build
-        }
-    }
-}
-
-Jenkins Configuration
-
-Build Triggers: Add a webhook in Bitbucket to trigger Jenkins pipelines on push events for dev and prod branches.
-
-Node Agents: Use SSH-based agent launch for executing jobs.
-
-
-
----
-
-5. Bitbucket Configuration
-
-Branch Strategy
-
-dev branch: Used for development deployments.
-
-prod branch: Used for production deployments.
-
-
-Bitbucket Webhook
-
-Configure a webhook in Bitbucket to trigger Jenkins builds on commits:
-
-Webhook URL: http://jenkins-server/bitbucket-hook/
-
-Trigger builds when code is pushed to dev or prod.
-
-
-
----
-
-6. Apache HTTPD Reverse Proxy Setup
-
-Virtual Host Configuration
-
-Apache HTTPD serves as a reverse proxy, routing traffic to the appropriate services based on URL patterns.
-
-Development Environment (mylsf-dev.com)
-
-<VirtualHost *:443>
-    ServerName mylsf-dev.com
-
-    # Route frontend traffic
-    ProxyPass / http://localhost:8081/
-    ProxyPassReverse / http://localhost:8081/
-
-    # Route backend traffic
-    ProxyPass /api http://localhost:5000/api
-    ProxyPassReverse /api http://localhost:5000/api
-</VirtualHost>
-
-Production Environment (mylsf.com)
-
-<VirtualHost *:443>
-    ServerName mylsf.com
-
-    # Route frontend traffic
-    ProxyPass / http://localhost:8081/
-    ProxyPassReverse / http://localhost:8081/
-
-    # Route backend traffic
-    ProxyPass /api http://localhost:5000/api
-    ProxyPassReverse /api http://localhost:5000/api
-</VirtualHost>
-
-Enabling SSL
-
-Ensure SSL is enabled using Let's Encrypt or another SSL provider to secure the application.
-
-
----
-
-7. Deployment Process
-
-Step-by-Step Guide
-
-1. Code Push: A developer pushes code changes to Bitbucket (dev or prod branch).
-
-
-2. Jenkins Pipeline Trigger: Bitbucket webhook triggers the Jenkins pipeline.
-
-
-3. Build Process: Jenkins builds Docker containers for the frontend and backend.
-
-
-4. Deploy to Server: Containers are deployed based on the branch (dev or prod).
-
-
-5. Apache HTTPD Routing: Apache reverse proxy routes the traffic based on the environment.
-
-
-
-Environment Variables
-
-Ensure the .env file is properly configured with environment-specific variables.
-
-
----
-
-8. Troubleshooting
-
-Common Issues
-
-Docker container won't start: Check the logs using docker-compose logs.
-
-Jenkins pipeline failure: Review the Jenkins console output for errors.
-
-Bitbucket webhook not triggering: Verify the webhook settings in Bitbucket.
-
-Apache misconfiguration: Check Apache config syntax using apachectl -t.
-
-
-
----
-
-9. Appendix
-
-Documentation Links: Include links to any additional external documentation or resources.
-
-Docker: https://docs.docker.com/
-
-Jenkins: https://www.jenkins.io/doc/
-
-Bitbucket: https://support.atlassian.com/bitbucket/
-
-Apache HTTPD: https://httpd.apache.org/docs/
-
-
-
-
----
-
-This document provides a structured approach to deploying your application, with specific details relevant to your existing setup. You can easily modify and expand upon this as your project evolves.
+This email provides a concise yet informative overview of what the handbook offers and how the team can benefit from it.
 
