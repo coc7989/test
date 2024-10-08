@@ -2,31 +2,38 @@ pipeline {
     agent any
 
     environment {
-        EMAIL_TO = "p-negi@ti.com"
-        DEV_IMAGE_NAME = "lsfued-backend-dev"
-        PROD_IMAGE_NAME = "lsfued-backend-prod"
-        DEV_AGENT = "LSFUED-DEPLOYMENT"
-        PROD_AGENT = "any"
+        CONFIG_PATH = '/tmp/groups'
+        CONFIG_FILE_OPTIONS = [
+            '12': 'gui_12slots_grp',
+            '16': 'gui_16slots_grp',
+            '32': 'gui_32slots_grp',
+            '40': 'gui_40slots_grp'
+        ]
+        CONFIG_FILE = ""
+    }
+
+    parameters {
+        string(name: 'SLOT_NAME', description: 'Enter the Slot Name')
     }
 
     stages {
-        stage('Checkout') {
-            steps {
-                // Checkout the repository from Bitbucket
-                checkout([$class: 'GitSCM', branches: [[name: '*/${env.BRANCH_NAME}']],
-                    userRemoteConfigs: [[url: 'https://bitbucket.org/your-repo/your-project.git']]
-                ])
-                script {
-                    // Get the branch name from git
-                    env.BRANCH_NAME = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
-                }
-            }
-        }
-        
-        stage('Printing Env Variables') {
+        stage('Config File') {
             steps {
                 script {
-                    echo "BRANCH_NAME: ${env.BRANCH_NAME}"
+                    echo "Get Config File --"
+
+                    try {
+                        def slotName = params.SLOT_NAME
+                        if (env.CONFIG_FILE_OPTIONS.containsKey(slotName)) {
+                            env.CONFIG_FILE = env.CONFIG_FILE_OPTIONS[slotName]
+                            echo "Selected config file: ${env.CONFIG_FILE}"
+                        } else {
+                            error "Invalid Slot Name: ${slotName}"
+                        }
+                    } catch (Exception e) {
+                        currentBuild.result = 'FAILURE'
+                        error "Failed to get config file: ${e.message}"
+                    }
                 }
             }
         }
