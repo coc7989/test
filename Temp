@@ -6,67 +6,92 @@ pipeline {
     }
 
     parameters {
-        string(name: 'SLOT_NAME', description: 'Enter the Slot Name')
         string(name: 'USER_ID', description: 'Enter the User ID to be removed')
     }
 
     stages {
-        stage('Set Config File') {
+        stage('Get Slots Limit from blimits or Config Files') {
             steps {
                 script {
-                    // Define CONFIG_FILE_OPTIONS map
-                    def CONFIG_FILE_OPTIONS = [
-                        '12': 'gui_12slots_grp',
-                        '16': 'gui_16slots_grp',
-                        '32': 'gui_32slots_grp',
-                        '40': 'gui_40slots_grp'
-                    ]
+                    // Try to get the slot limit using the blimits command
+                    def blimitsOutput = sh(script: "blimits ${params.USER_ID}", returnStdout: true).trim()
 
-                    def slotName = params.SLOT_NAME
-                    if (CONFIG_FILE_OPTIONS.containsKey(slotName)) {
-                        CONFIG_FILE = "${env.CONFIG_PATH}/${CONFIG_FILE_OPTIONS[slotName]}"
-                        echo "Config File selected: ${CONFIG_FILE}"
+                    if (blimitsOutput) {
+                        // If blimits returns output, extract the slots limit (e.g., "5/12" -> 12)
+                        echo "blimits output: ${blimitsOutput}"
+                        def slotsLimit = blimitsOutput.split("/")[1].trim()
+                        echo "Extracted Slots Limit from blimits: ${slotsLimit}"
+
+                        // Define CONFIG_FILE_OPTIONS map
+                        def CONFIG_FILE_OPTIONS = [
+                            '12': 'gui_12slots_grp',
+                            '16': 'gui_16slots_grp',
+                            '32': 'gui_32slots_grp',
+                            '40': 'gui_40slots_grp'
+                        ]
+
+                        // Use the slotsLimit to get the corresponding config file
+                        if (CONFIG_FILE_OPTIONS.containsKey(slotsLimit)) {
+                            CONFIG_FILE = "${env.CONFIG_PATH}/${CONFIG_FILE_OPTIONS[slotsLimit]}"
+                            echo "Config File selected based on slots limit: ${CONFIG_FILE}"
+                        } else {
+                            error "Invalid Slots Limit: ${slotsLimit}"
+                        }
+
                     } else {
-                        error "Invalid Slot Name: ${slotName}"
+                        // If blimits returns no output, search each config file manually
+                        echo "No output from blimits for ${params.USER_ID}. Searching config files manually..."
+
+                        def CONFIG_FILE_OPTIONS = [
+                            '12': 'gui_12slots_grp',
+                            '16': 'gui_16slots_grp',
+                            '32': 'gui_32slots_grp',
+                            '40': 'gui_40slots_grp'
+                        ]
+
+                        // Loop through all config files and search for the user ID
+                        CONFIG_FILE_OPTIONS.each { key, configFileName ->
+                            def configFile = "${env.CONFIG_PATH}/${configFileName}"
+                            echo "Checking file: ${configFile} for User ID: ${params.USER_ID}"
+
+                            // Check if the user ID exists in the current file
+                            def grepResult = sh(script: "grep -w '${params.USER_ID}' ${configFile}", returnStatus: true)
+                            if (grepResult == 0) {
+                                echo "User ID ${params.USER_ID} found in ${configFile}. Slot limit: ${key}"
+                                CONFIG_FILE = configFile
+                                return // Exit loop once the file is found
+                            }
+                        }
+
+                        // If no config file contains the user ID
+                        if (!CONFIG_FILE) {
+                            error "User ID ${params.USER_ID} not found in any config file."
+                        }
                     }
                 }
             }
         }
 
-        stage('Remove User ID from All Config Files') {
+        stage('Remove User ID from Config File') {
             steps {
                 script {
-                    // Define the config file options again for this stage
-                    def CONFIG_FILE_OPTIONS = [
-                        '12': 'gui_12slots_grp',
-                        '16': 'gui_16slots_grp',
-                        '32': 'gui_32slots_grp',
-                        '40': 'gui_40slots_grp'
-                    ]
+                    // Check out the config file before making changes
+                    echo "Checking out the file for editing: ${CONFIG_FILE}"
+                    sh "co -reserved ${CONFIG_FILE}"  // Checkout the file
 
-                    // Loop through all config files and perform operations
-                    CONFIG_FILE_OPTIONS.each { key, configFileName ->
-                        def configFile = "${env.CONFIG_PATH}/${configFileName}"
-                        echo "Processing file: ${configFile}"
-
-                        // Checkout the file before making changes
-                        echo "Checking out the file for editing: ${configFile}"
-                        sh "co -reserved ${configFile}"  // Updated checkout command
-
-                        // Search and remove user ID from the file if present
-                        def grepResult = sh(script: "grep -w '${params.USER_ID}' ${configFile}", returnStatus: true)
-                        if (grepResult == 0) {
-                            echo "User ID ${params.USER_ID} found in ${configFile}. Removing line..."
-                            sh "sed -i '/${params.USER_ID}/d' ${configFile}"
-                            echo "User ID ${params.USER_ID} removed from ${configFile}."
-                        } else {
-                            echo "User ID ${params.USER_ID} not found in ${configFile}."
-                        }
-
-                        // Checkin the file after making changes
-                        echo "Checking in the file after editing: ${configFile}"
-                        sh "ci -c 'Removed user ID ${params.USER_ID}' ${configFile}"  // Updated check-in command
+                    // Remove user ID from the config file if present
+                    def grepResult = sh(script: "grep -w '${params.USER_ID}' ${CONFIG_FILE}", returnStatus: true)
+                    if (grepResult == 0) {
+                        echo "User ID ${params.USER_ID} found in ${CONFIG_FILE}. Removing line..."
+                        sh "sed -i '/${params.USER_ID}/d' ${CONFIG_FILE}"
+                        echo "User ID ${params.USER_ID} removed from ${CONFIG_FILE}."
+                    } else {
+                        echo "User ID ${params.USER_ID} not found in ${CONFIG_FILE}."
                     }
+
+                    // Check in the file after making changes
+                    echo "Checking in the file after editing: ${CONFIG_FILE}"
+                    sh "ci -c 'Removed user ID ${params.USER_ID}' ${CONFIG_FILE}"  // Checkin the file
                 }
             }
         }
