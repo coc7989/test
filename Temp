@@ -1,98 +1,82 @@
-def process_uploaded_files(files, vendor):
-    uploaded_features_combined = ""
-    uploaded_beta_features_combined = ""
-    product_feature_mapping = ""
-    product_license_mapping = ""
-    
-    req_id = "dayd8yd7893hhhadha78d"
-    save_directory = os.path.join('/opt/license_files/license_requests', req_id, 'uploaded')
+pipeline {
+    agent any
 
-    for file in files:
-        if file and allowed_file(file.filename):
-            filepath = os.path.join(save_directory, file.filename)
-            file.save(filepath)
+    environment {
+        CONFIG_PATH = '/tmp/groups'
+    }
 
-            with open(filepath, 'r', encoding='utf-8') as license_file:
-                uploaded_text = license_file.read()
-                uploaded_features = extract_features(uploaded_text, vendor)
-                if not uploaded_features:
-                    return None, None, None, None  # Update to return mappings
+    parameters {
+        string(name: 'SLOT_NAME', description: 'Enter the Slot Name')
+        string(name: 'USER_ID', description: 'Enter the User ID to be removed')
+    }
 
-                uploaded_features_combined += uploaded_features + "\n"
+    stages {
+        stage('Set Config File') {
+            steps {
+                script {
+                    // Define CONFIG_FILE_OPTIONS map
+                    def CONFIG_FILE_OPTIONS = [
+                        '12': 'gui_12slots_grp',
+                        '16': 'gui_16slots_grp',
+                        '32': 'gui_32slots_grp',
+                        '40': 'gui_40slots_grp'
+                    ]
 
-                # Vendor-specific logic for beta features and mappings
-                if vendor == "cds":
-                    uploaded_beta_features = extract_beta_features(uploaded_text)
-                    if not uploaded_beta_features:
-                        return None, None, None, None
-                    uploaded_beta_features_combined += uploaded_beta_features
-                    
-                    # Product-Feature mapping logic for 'cds' vendor
-                    product_feature_mapping = extract_product_feature_mapping(uploaded_text)
+                    def slotName = params.SLOT_NAME
+                    if (CONFIG_FILE_OPTIONS.containsKey(slotName)) {
+                        CONFIG_FILE = "${env.CONFIG_PATH}/${CONFIG_FILE_OPTIONS[slotName]}"
+                        echo "Config File selected: ${CONFIG_FILE}"
+                    } else {
+                        error "Invalid Slot Name: ${slotName}"
+                    }
+                }
+            }
+        }
 
-                elif vendor == "ansoft":
-                    # Product-License mapping logic for 'ansoft' vendor
-                    product_license_mapping = extract_product_license_mapping(uploaded_text)
-                    
-    return uploaded_features_combined, uploaded_beta_features_combined, product_feature_mapping, product_license_mapping
+        stage('Remove User ID from All Config Files') {
+            steps {
+                script {
+                    // Define the config file options again for this stage
+                    def CONFIG_FILE_OPTIONS = [
+                        '12': 'gui_12slots_grp',
+                        '16': 'gui_16slots_grp',
+                        '32': 'gui_32slots_grp',
+                        '40': 'gui_40slots_grp'
+                    ]
 
+                    // Loop through all config files and perform operations
+                    CONFIG_FILE_OPTIONS.each { key, configFileName ->
+                        def configFile = "${env.CONFIG_PATH}/${configFileName}"
+                        echo "Processing file: ${configFile}"
 
-def upload():
-    old_license_text = ""
-    modified_text = ""
-    files = request.files.getlist('files')
-    session['Vendor'] = request.form.get('vendor')
-    Vendor = session['Vendor']
-    
-    # Process files and extract all relevant information
-    uploaded_features_combined, uploaded_beta_features_combined, product_feature_mapping, product_license_mapping = process_uploaded_files(files, Vendor)
-    
-    if not (uploaded_features_combined and (Vendor != "cds" or uploaded_beta_features_combined)):
-        return jsonify({'errorUpload': 'File Generation Failed'}), 500
+                        // Checkout the file before making changes
+                        echo "Checking out the file for editing: ${configFile}"
+                        sh "co -reserved ${configFile}"  // Updated checkout command
 
-    req_id = "dayd8yd7893hhhadha78d"
-    old_license_filename = mappedlicense
-    old_license_directory = os.path.join('/opt/license_files/license_requests', req_id, 'old')
-    old_license_file_path = os.path.join(old_license_directory, old_license_filename)
+                        // Search and remove user ID from the file if present
+                        def grepResult = sh(script: "grep -w '${params.USER_ID}' ${configFile}", returnStatus: true)
+                        if (grepResult == 0) {
+                            echo "User ID ${params.USER_ID} found in ${configFile}. Removing line..."
+                            sh "sed -i '/${params.USER_ID}/d' ${configFile}"
+                            echo "User ID ${params.USER_ID} removed from ${configFile}."
+                        } else {
+                            echo "User ID ${params.USER_ID} not found in ${configFile}."
+                        }
 
-    with open(old_license_file_path, 'r', encoding='utf-8') as old_license_file:
-        old_license_text = old_license_file.read()
+                        // Checkin the file after making changes
+                        echo "Checking in the file after editing: ${configFile}"
+                        sh "ci -c 'Removed user ID ${params.USER_ID}' ${configFile}"  // Updated check-in command
+                    }
+                }
+            }
+        }
 
-    current_date = datetime.now().strftime("%dth %b %Y")
-    date_comments = f"#Updated on {current_date}"
-    separator = "#----------------------------------------------------------------------------------"
-
-    if Vendor == "cds":
-        if Operation == 'Replace':
-            temp = old_license_text.split('FEATURE', 1)
-            x = re.split(r"(DAEMON cdslmd.*?\n)", temp[0])
-            modified_text = f"{x[0]}{x[1]}\n{separator}\n#{req_id}\t{date_comments}\t{userAid}\n{Comments}\n{separator}\n{uploaded_features_combined}########################## LICENSE KEYS END HERE ######################{uploaded_beta_features_combined}\n{product_feature_mapping}"
-        
-        pattern = r"(.*(verplex|verisityd).*\n(?:.*\n)?)|(.+\n.*(verplex|verisityd).*)"
-        modified_text = re.sub(pattern, '', modified_text)
-
-    elif Vendor == "snps":
-        if Operation == 'Merge':
-            temp = old_license_text.split('INCREMENT', 1)
-            x = re.split(r"((DAEMON|VENDOR) snpslmd.*?\n)", temp[0])
-            y = 'INCREMENT' + temp[1]
-            modified_text = f"{x[0]}{x[1]}\n{separator}\n#{req_id}\t{date_comments}\t{userAid}\n{Comments}\n{separator}\n{y}\n{uploaded_features_combined}"
-        
-        if Operation == 'Replace':
-            temp = old_license_text.split('INCREMENT', 1)
-            x = re.split(r"((DAEMON|VENDOR) snpslmd.*?\n)", temp[0])
-            modified_text = f"{x[0]}{x[1]}\n{separator}\n#{req_id}\t{date_comments}\t{userAid}\n{Comments}\n{separator}\n{uploaded_features_combined}"
-
-    elif Vendor == "ansoft":
-        if Operation == 'Merge':
-            temp = old_license_text.split('INCREMENT', 1)
-            x = temp[0].split('USE_SERVER')
-            y = 'INCREMENT' + temp[1]
-            modified_text = f"{x[0]}USE_SERVER\n{separator}\n#{req_id}\t{date_comments}\t{userAid}\n{Comments}\n{separator}\n{y}\n{uploaded_features_combined}\n{product_license_mapping}"
-        
-        if Operation == 'Replace':
-            temp = old_license_text.split('INCREMENT', 1)
-            x = temp[0].split('USE_SERVER')
-            modified_text = f"{x[0]}USE_SERVER\n{separator}\n#{req_id}\t{date_comments}\t{userAid}\n{Comments}\n{separator}\n{uploaded_features_combined}\n{product_license_mapping}"
-
-    # Further processing...
+        stage('Use Config File') {
+            steps {
+                script {
+                    echo "Using Config File: ${CONFIG_FILE}"
+                }
+            }
+        }
+    }
+}
