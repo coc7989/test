@@ -3,29 +3,10 @@ import re
 import json
 from datetime import datetime
 
-# Sample config file data
-config = {
-    "reg": {
-        "priority_rating": 30,
-        "current_slot_limit": 300,
-        "new_slot_limit": 400,
-        "run_time_limit": 20,  # in seconds
-        "remainders": [8, 15, 19],
-        "exceptions_allowed": "No",
-        "access": "open",
-        "purpose": "general purpose sims"
-    },
-    "normal": {
-        "priority_rating": 50,
-        "current_slot_limit": 20,
-        "new_slot_limit": 40,
-        "run_time_limit": 20,  # in seconds
-        "remainders": [8, 15, 19],
-        "exceptions_allowed": "No",
-        "access": "open",
-        "purpose": "Debug sims"
-    }
-}
+# Load config from external file
+def load_config(config_file):
+    with open(config_file, 'r') as file:
+        return json.load(file)
 
 # Run the bjobs command and fetch job data
 def get_bjobs_output():
@@ -51,7 +32,7 @@ def parse_bjobs_output(bjobs_output):
     return jobs
 
 # Check if the job is expired or going to expire
-def categorize_jobs(jobs):
+def categorize_jobs(jobs, config):
     already_expired_job_ids = []
     going_to_expire_job_ids = []
 
@@ -68,7 +49,7 @@ def categorize_jobs(jobs):
     return already_expired_job_ids, going_to_expire_job_ids
 
 # Generate final data to be emailed
-def generate_email_data(jobs, expired=True):
+def generate_email_data(jobs, config, expired=True):
     final_data = []
     for job in jobs:
         queue_name = job['queue']
@@ -102,20 +83,23 @@ def log_email(user):
 
 # Main logic
 def main():
+    config_file = "config.json"  # Path to your config file
+    config = load_config(config_file)
+
     bjobs_output = get_bjobs_output()
     jobs = parse_bjobs_output(bjobs_output)
 
-    already_expired_job_ids, going_to_expire_job_ids = categorize_jobs(jobs)
+    already_expired_job_ids, going_to_expire_job_ids = categorize_jobs(jobs, config)
 
     if already_expired_job_ids:
-        final_already_expired_mail_data = generate_email_data(already_expired_job_ids, expired=True)
+        final_already_expired_mail_data = generate_email_data(already_expired_job_ids, config, expired=True)
         grouped_expired_data = group_by_user(final_already_expired_mail_data)
         for user, data in grouped_expired_data.items():
             send_email(user, data)
             log_email(user)
 
     if going_to_expire_job_ids:
-        final_going_to_expire_mail_data = generate_email_data(going_to_expire_job_ids, expired=False)
+        final_going_to_expire_mail_data = generate_email_data(going_to_expire_job_ids, config, expired=False)
         grouped_expire_data = group_by_user(final_going_to_expire_mail_data)
         for user, data in grouped_expire_data.items():
             send_email(user, data)
