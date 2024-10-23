@@ -1,107 +1,125 @@
-pipeline {
-    agent any
+import subprocess
+import re
+import json
+from datetime import datetime
 
-    environment {
-        CONFIG_PATH = '/tmp/groups'
-    }
-
-    parameters {
-        string(name: 'USER_ID', description: 'Enter the User ID to be removed')
-    }
-
-    stages {
-        stage('Get Slots Limit from blimits or Config Files') {
-            steps {
-                script {
-                    // Try to get the slot limit using the blimits command
-                    def blimitsOutput = sh(script: "blimits ${params.USER_ID}", returnStdout: true).trim()
-
-                    if (blimitsOutput) {
-                        // If blimits returns output, extract the slots limit (e.g., "5/12" -> 12)
-                        echo "blimits output: ${blimitsOutput}"
-                        def slotsLimit = blimitsOutput.split("/")[1].trim()
-                        echo "Extracted Slots Limit from blimits: ${slotsLimit}"
-
-                        // Define CONFIG_FILE_OPTIONS map
-                        def CONFIG_FILE_OPTIONS = [
-                            '12': 'gui_12slots_grp',
-                            '16': 'gui_16slots_grp',
-                            '32': 'gui_32slots_grp',
-                            '40': 'gui_40slots_grp'
-                        ]
-
-                        // Use the slotsLimit to get the corresponding config file
-                        if (CONFIG_FILE_OPTIONS.containsKey(slotsLimit)) {
-                            CONFIG_FILE = "${env.CONFIG_PATH}/${CONFIG_FILE_OPTIONS[slotsLimit]}"
-                            echo "Config File selected based on slots limit: ${CONFIG_FILE}"
-                        } else {
-                            error "Invalid Slots Limit: ${slotsLimit}"
-                        }
-
-                    } else {
-                        // If blimits returns no output, search each config file manually
-                        echo "No output from blimits for ${params.USER_ID}. Searching config files manually..."
-
-                        def CONFIG_FILE_OPTIONS = [
-                            '12': 'gui_12slots_grp',
-                            '16': 'gui_16slots_grp',
-                            '32': 'gui_32slots_grp',
-                            '40': 'gui_40slots_grp'
-                        ]
-
-                        // Loop through all config files and search for the user ID
-                        CONFIG_FILE_OPTIONS.each { key, configFileName ->
-                            def configFile = "${env.CONFIG_PATH}/${configFileName}"
-                            echo "Checking file: ${configFile} for User ID: ${params.USER_ID}"
-
-                            // Check if the user ID exists in the current file
-                            def grepResult = sh(script: "grep -w '${params.USER_ID}' ${configFile}", returnStatus: true)
-                            if (grepResult == 0) {
-                                echo "User ID ${params.USER_ID} found in ${configFile}. Slot limit: ${key}"
-                                CONFIG_FILE = configFile
-                                return // Exit loop once the file is found
-                            }
-                        }
-
-                        // If no config file contains the user ID
-                        if (!CONFIG_FILE) {
-                            error "User ID ${params.USER_ID} not found in any config file."
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Remove User ID from Config File') {
-            steps {
-                script {
-                    // Check out the config file before making changes
-                    echo "Checking out the file for editing: ${CONFIG_FILE}"
-                    sh "co -reserved ${CONFIG_FILE}"  // Checkout the file
-
-                    // Remove user ID from the config file if present
-                    def grepResult = sh(script: "grep -w '${params.USER_ID}' ${CONFIG_FILE}", returnStatus: true)
-                    if (grepResult == 0) {
-                        echo "User ID ${params.USER_ID} found in ${CONFIG_FILE}. Removing line..."
-                        sh "sed -i '/${params.USER_ID}/d' ${CONFIG_FILE}"
-                        echo "User ID ${params.USER_ID} removed from ${CONFIG_FILE}."
-                    } else {
-                        echo "User ID ${params.USER_ID} not found in ${CONFIG_FILE}."
-                    }
-
-                    // Check in the file after making changes
-                    echo "Checking in the file after editing: ${CONFIG_FILE}"
-                    sh "ci -c 'Removed user ID ${params.USER_ID}' ${CONFIG_FILE}"  // Checkin the file
-                }
-            }
-        }
-
-        stage('Use Config File') {
-            steps {
-                script {
-                    echo "Using Config File: ${CONFIG_FILE}"
-                }
-            }
-        }
+# Sample config file data
+config = {
+    "reg": {
+        "priority_rating": 30,
+        "current_slot_limit": 300,
+        "new_slot_limit": 400,
+        "run_time_limit": 20,  # in seconds
+        "remainders": [8, 15, 19],
+        "exceptions_allowed": "No",
+        "access": "open",
+        "purpose": "general purpose sims"
+    },
+    "normal": {
+        "priority_rating": 50,
+        "current_slot_limit": 20,
+        "new_slot_limit": 40,
+        "run_time_limit": 20,  # in seconds
+        "remainders": [8, 15, 19],
+        "exceptions_allowed": "No",
+        "access": "open",
+        "purpose": "Debug sims"
     }
 }
+
+# Run the bjobs command and fetch job data
+def get_bjobs_output():
+    command = "bjobs -u all -r -o 'delimiter=\",\" user jobid jobindex queue start_time run_time stat' | sort -g | grep -v gui"
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    return result.stdout.strip()
+
+# Parse the output from the bjobs command
+def parse_bjobs_output(bjobs_output):
+    jobs = []
+    for line in bjobs_output.splitlines():
+        user, jobid, jobindex, queue, start_time, run_time, status = line.split(',')
+        run_time_sec = int(re.search(r'\d+', run_time).group())
+        jobs.append({
+            "user": user,
+            "jobid": jobid,
+            "jobindex": jobindex,
+            "queue": queue,
+            "start_time": start_time,
+            "run_time": run_time_sec,
+            "status": status
+        })
+    return jobs
+
+# Check if the job is expired or going to expire
+def categorize_jobs(jobs):
+    already_expired_job_ids = []
+    going_to_expire_job_ids = []
+
+    for job in jobs:
+        queue_name = job['queue']
+        run_time_limit = config[queue_name]['run_time_limit']
+        remainders = config[queue_name]['remainders']
+
+        if job['run_time'] >= run_time_limit:
+            already_expired_job_ids.append(job)
+        elif any(job['run_time'] >= r for r in remainders):
+            going_to_expire_job_ids.append(job)
+
+    return already_expired_job_ids, going_to_expire_job_ids
+
+# Generate final data to be emailed
+def generate_email_data(jobs, expired=True):
+    final_data = []
+    for job in jobs:
+        queue_name = job['queue']
+        run_time_limit = config[queue_name]['run_time_limit']
+        if expired and job['run_time'] >= run_time_limit:
+            final_data.append(job)
+        elif not expired:
+            remainders = config[queue_name]['remainders']
+            if any(job['run_time'] >= r for r in remainders):
+                final_data.append(job)
+    return final_data
+
+# Group data by user
+def group_by_user(jobs):
+    user_data = {}
+    for job in jobs:
+        user = job['user']
+        if user not in user_data:
+            user_data[user] = []
+        user_data[user].append(job)
+    return user_data
+
+# Send email (mocked function, replace with actual sending logic)
+def send_email(user, data):
+    print(f"Sending email to {user} with data: {data}")
+
+# Log email activity
+def log_email(user):
+    with open("log.txt", "a") as log_file:
+        log_file.write(f"{datetime.now()}: Sent email to {user}\n")
+
+# Main logic
+def main():
+    bjobs_output = get_bjobs_output()
+    jobs = parse_bjobs_output(bjobs_output)
+
+    already_expired_job_ids, going_to_expire_job_ids = categorize_jobs(jobs)
+
+    if already_expired_job_ids:
+        final_already_expired_mail_data = generate_email_data(already_expired_job_ids, expired=True)
+        grouped_expired_data = group_by_user(final_already_expired_mail_data)
+        for user, data in grouped_expired_data.items():
+            send_email(user, data)
+            log_email(user)
+
+    if going_to_expire_job_ids:
+        final_going_to_expire_mail_data = generate_email_data(going_to_expire_job_ids, expired=False)
+        grouped_expire_data = group_by_user(final_going_to_expire_mail_data)
+        for user, data in grouped_expire_data.items():
+            send_email(user, data)
+            log_email(user)
+
+if __name__ == "__main__":
+    main()
