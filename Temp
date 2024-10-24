@@ -1,12 +1,22 @@
 import subprocess
 import re
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Load config from external file
 def load_config(config_file):
     with open(config_file, 'r') as file:
         return json.load(file)
+
+# Convert time limits (e.g., "20 days", "15 mins") to seconds
+def convert_time_to_seconds(time_str):
+    if "days" in time_str:
+        days = int(re.search(r'\d+', time_str).group())
+        return days * 24 * 3600  # 1 day = 24 * 3600 seconds
+    elif "mins" in time_str:
+        mins = int(re.search(r'\d+', time_str).group())
+        return mins * 60  # 1 minute = 60 seconds
+    return int(re.search(r'\d+', time_str).group())  # fallback, if only seconds are provided
 
 # Run the bjobs command and fetch job data
 def get_bjobs_output():
@@ -38,12 +48,13 @@ def categorize_jobs(jobs, config):
 
     for job in jobs:
         queue_name = job['queue']
-        run_time_limit = config[queue_name]['run_time_limit']
-        remainders = config[queue_name]['remainders']
+        queue_config = config[queue_name]
+        run_time_limit = convert_time_to_seconds(queue_config['run_time_limit'])
+        remainders = [convert_time_to_seconds(f"{r} days") for r in queue_config['remainders']]
 
         if job['run_time'] >= run_time_limit:
             already_expired_job_ids.append(job)
-        elif any(job['run_time'] >= r for r in remainders):
+        elif any(job['run_time'] >= remainder for remainder in remainders):
             going_to_expire_job_ids.append(job)
 
     return already_expired_job_ids, going_to_expire_job_ids
@@ -53,12 +64,14 @@ def generate_email_data(jobs, config, expired=True):
     final_data = []
     for job in jobs:
         queue_name = job['queue']
-        run_time_limit = config[queue_name]['run_time_limit']
+        queue_config = config[queue_name]
+        run_time_limit = convert_time_to_seconds(queue_config['run_time_limit'])
+        
         if expired and job['run_time'] >= run_time_limit:
             final_data.append(job)
         elif not expired:
-            remainders = config[queue_name]['remainders']
-            if any(job['run_time'] >= r for r in remainders):
+            remainders = [convert_time_to_seconds(f"{r} days") for r in queue_config['remainders']]
+            if any(job['run_time'] >= remainder for remainder in remainders):
                 final_data.append(job)
     return final_data
 
