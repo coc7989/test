@@ -1,3 +1,7 @@
+Sure, I'll walk you through the script line by line. This script is designed to monitor job expiration, categorize them as either expired or about to expire, and send email notifications to users with an attached Excel file listing the relevant jobs.
+
+Code Explanation
+
 import subprocess
 import re
 import json
@@ -8,12 +12,33 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
-# Load config from external file
+Imports:
+
+subprocess: To execute shell commands.
+
+re: For regular expressions to parse text.
+
+json: For handling JSON-formatted config files.
+
+datetime: To handle dates and times for logging.
+
+pandas: To create and manipulate data as tables and export to Excel.
+
+smtplib and email modules: For sending emails with attachments.
+
+
+
+Loading the Config
+
 def load_config(config_file):
     with open(config_file, 'r') as file:
         return json.load(file)
 
-# Convert time limits (e.g., "20 days", "15 mins") to seconds
+load_config function: Reads a JSON-formatted config file, which stores information like queue settings and runtime limits, and returns the parsed content.
+
+
+Time Conversion Function
+
 def convert_time_to_seconds(time_str):
     if "days" in time_str:
         days = int(re.search(r'\d+', time_str).group())
@@ -23,13 +48,31 @@ def convert_time_to_seconds(time_str):
         return mins * 60  # 1 minute = 60 seconds
     return int(re.search(r'\d+', time_str).group())  # fallback, if only seconds are provided
 
-# Run the bjobs command and fetch job data
+convert_time_to_seconds function: Converts time strings like "20 days" or "15 mins" to seconds for easy comparison with job runtime.
+
+Extracts the number from time_str using a regex, then multiplies it by 86400 (for days) or 60 (for mins) to convert to seconds.
+
+This makes sure that any format (days, mins, or direct seconds) can be processed uniformly.
+
+
+
+Fetching Job Data from bjobs
+
 def get_bjobs_output():
     command = "bjobs -u all -r -o 'delimiter=\",\" user jobid jobindex queue start_time run_time stat' | sort -g | grep -v gui"
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     return result.stdout.strip()
 
-# Parse the output from the bjobs command
+get_bjobs_output function: Runs the bjobs command to get the list of running jobs in a specific format, sorts them, and excludes entries related to "gui".
+
+Uses subprocess.run to execute the command and capture its output.
+
+Returns the output as a string after stripping any extra whitespace.
+
+
+
+Parsing Job Data
+
 def parse_bjobs_output(bjobs_output):
     jobs = []
     for line in bjobs_output.splitlines():
@@ -46,7 +89,16 @@ def parse_bjobs_output(bjobs_output):
         })
     return jobs
 
-# Check if the job is expired or going to expire
+parse_bjobs_output function: Converts each line from the bjobs output into a dictionary with specific fields (user, jobid, etc.).
+
+Each job entry is parsed, and the run_time value is converted to seconds using regex.
+
+Appends each job dictionary to a jobs list and returns it.
+
+
+
+Categorizing Jobs
+
 def categorize_jobs(jobs, config):
     already_expired_job_ids = []
     going_to_expire_job_ids = []
@@ -64,7 +116,16 @@ def categorize_jobs(jobs, config):
 
     return already_expired_job_ids, going_to_expire_job_ids
 
-# Generate final data to be emailed
+categorize_jobs function: Classifies jobs into expired or going to expire categories based on the config.
+
+Retrieves the queue configuration for each job, gets its runtime limit and reminder times (converted to seconds).
+
+Adds the job to already_expired_job_ids if it has exceeded the runtime limit; otherwise, if it meets any remainder condition, it goes to going_to_expire_job_ids.
+
+
+
+Finalizing Email Data
+
 def generate_email_data(jobs, config, expired=True):
     final_data = []
     for job in jobs:
@@ -80,7 +141,14 @@ def generate_email_data(jobs, config, expired=True):
                 final_data.append(job)
     return final_data
 
-# Group data by user
+generate_email_data function: Prepares the jobs data to include in emails, distinguishing between expired and going-to-expire jobs.
+
+Applies criteria similar to categorize_jobs to build final_data for each category.
+
+
+
+Grouping by User
+
 def group_by_user(jobs):
     user_data = {}
     for job in jobs:
@@ -90,12 +158,23 @@ def group_by_user(jobs):
         user_data[user].append(job)
     return user_data
 
-# Create an Excel file with the job data
+group_by_user function: Organizes jobs by user to ensure each user receives only their own data.
+
+
+Creating Excel File
+
 def create_excel_file(jobs, file_name):
     df = pd.DataFrame(jobs)
     df.to_excel(file_name, index=False)
 
-# Send email with attachment
+create_excel_file function: Converts job data into an Excel file.
+
+Uses pandas.DataFrame to create a table and exports it to an Excel file with the given filename.
+
+
+
+Sending Email with Attachment
+
 def send_email(user, data, expired=True):
     subject = "Job Expiry Notification"
     message = "Dear {0},\n\n".format(user)
@@ -104,45 +183,53 @@ def send_email(user, data, expired=True):
     else:
         message += "The following jobs are about to expire:\n"
     
-    # Prepare email body and attachment
     message += "Please find the attached Excel file for details.\n\nRegards,\nJob Monitoring Team"
     file_name = f"jobs_{user}.xlsx"
     create_excel_file(data, file_name)
 
-    # Prepare email
     msg = MIMEMultipart()
     msg['From'] = "your_email@example.com"
     msg['To'] = f"{user}@company.com"
     msg['Subject'] = subject
 
-    # Attach text message
     msg.attach(MIMEText(message, 'plain'))
 
-    # Attach Excel file
     with open(file_name, 'rb') as attachment:
         part = MIMEApplication(attachment.read(), Name=file_name)
         part['Content-Disposition'] = f'attachment; filename="{file_name}"'
         msg.attach(part)
 
-    # Send email (using your mail server configuration)
     try:
-        server = smtplib.SMTP('smtp.example.com', 587)  # Replace with your SMTP server
+        server = smtplib.SMTP('smtp.example.com', 587)
         server.starttls()
-        server.login('your_email@example.com', 'your_password')  # Replace with actual credentials
+        server.login('your_email@example.com', 'your_password')
         server.send_message(msg)
         server.quit()
         print(f"Email sent to {user}")
     except Exception as e:
         print(f"Failed to send email to {user}: {e}")
 
-# Log email activity
+send_email function: Sends an email with job data as an Excel attachment.
+
+Builds the email message with different body text depending on whether jobs are expired or expiring.
+
+Uses smtplib to connect to the SMTP server, send the email, and handle errors if they occur.
+
+
+
+Logging Email Activity
+
 def log_email(user):
     with open("log.txt", "a") as log_file:
         log_file.write(f"{datetime.now()}: Sent email to {user}\n")
 
-# Main logic
+log_email function: Records email activity in a log.txt file with the user and timestamp.
+
+
+Main Execution Logic
+
 def main():
-    config_file = "config.json"  # Path to your config file
+    config_file = "config.json"
     config = load_config(config_file)
 
     bjobs_output = get_bjobs_output()
@@ -155,14 +242,4 @@ def main():
         grouped_expired_data = group_by_user(final_already_expired_mail_data)
         for user, data in grouped_expired_data.items():
             send_email(user, data, expired=True)
-            log_email(user)
 
-    if going_to_expire_job_ids:
-        final_going_to_expire_mail_data = generate_email_data(going_to_expire_job_ids, config, expired=False)
-        grouped_expire_data = group_by_user(final_going_to_expire_mail_data)
-        for user, data in grouped_expire_data.items():
-            send_email(user, data, expired=False)
-            log_email(user)
-
-if __name__ == "__main__":
-    main()
