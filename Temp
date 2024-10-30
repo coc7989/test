@@ -1,245 +1,60 @@
-Sure, I'll walk you through the script line by line. This script is designed to monitor job expiration, categorize them as either expired or about to expire, and send email notifications to users with an attached Excel file listing the relevant jobs.
-
-Code Explanation
-
-import subprocess
-import re
-import json
-from datetime import datetime
-import pandas as pd
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
-
-Imports:
-
-subprocess: To execute shell commands.
-
-re: For regular expressions to parse text.
-
-json: For handling JSON-formatted config files.
-
-datetime: To handle dates and times for logging.
-
-pandas: To create and manipulate data as tables and export to Excel.
-
-smtplib and email modules: For sending emails with attachments.
-
-
-
-Loading the Config
-
-def load_config(config_file):
-    with open(config_file, 'r') as file:
-        return json.load(file)
-
-load_config function: Reads a JSON-formatted config file, which stores information like queue settings and runtime limits, and returns the parsed content.
-
-
-Time Conversion Function
-
-def convert_time_to_seconds(time_str):
-    if "days" in time_str:
-        days = int(re.search(r'\d+', time_str).group())
-        return days * 24 * 3600  # 1 day = 24 * 3600 seconds
-    elif "mins" in time_str:
-        mins = int(re.search(r'\d+', time_str).group())
-        return mins * 60  # 1 minute = 60 seconds
-    return int(re.search(r'\d+', time_str).group())  # fallback, if only seconds are provided
-
-convert_time_to_seconds function: Converts time strings like "20 days" or "15 mins" to seconds for easy comparison with job runtime.
-
-Extracts the number from time_str using a regex, then multiplies it by 86400 (for days) or 60 (for mins) to convert to seconds.
-
-This makes sure that any format (days, mins, or direct seconds) can be processed uniformly.
-
-
-
-Fetching Job Data from bjobs
-
-def get_bjobs_output():
-    command = "bjobs -u all -r -o 'delimiter=\",\" user jobid jobindex queue start_time run_time stat' | sort -g | grep -v gui"
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    return result.stdout.strip()
-
-get_bjobs_output function: Runs the bjobs command to get the list of running jobs in a specific format, sorts them, and excludes entries related to "gui".
-
-Uses subprocess.run to execute the command and capture its output.
-
-Returns the output as a string after stripping any extra whitespace.
-
-
-
-Parsing Job Data
-
-def parse_bjobs_output(bjobs_output):
-    jobs = []
-    for line in bjobs_output.splitlines():
-        user, jobid, jobindex, queue, start_time, run_time, status = line.split(',')
-        run_time_sec = int(re.search(r'\d+', run_time).group())
-        jobs.append({
-            "user": user,
-            "jobid": jobid,
-            "jobindex": jobindex,
-            "queue": queue,
-            "start_time": start_time,
-            "run_time": run_time_sec,
-            "status": status
-        })
-    return jobs
-
-parse_bjobs_output function: Converts each line from the bjobs output into a dictionary with specific fields (user, jobid, etc.).
-
-Each job entry is parsed, and the run_time value is converted to seconds using regex.
-
-Appends each job dictionary to a jobs list and returns it.
-
-
-
-Categorizing Jobs
-
-def categorize_jobs(jobs, config):
-    already_expired_job_ids = []
-    going_to_expire_job_ids = []
-
-    for job in jobs:
-        queue_name = job['queue']
-        queue_config = config[queue_name]
-        run_time_limit = convert_time_to_seconds(queue_config['run_time_limit'])
-        remainders = [convert_time_to_seconds(f"{r} days") for r in queue_config['remainders']]
-
-        if job['run_time'] >= run_time_limit:
-            already_expired_job_ids.append(job)
-        elif any(job['run_time'] >= remainder for remainder in remainders):
-            going_to_expire_job_ids.append(job)
-
-    return already_expired_job_ids, going_to_expire_job_ids
-
-categorize_jobs function: Classifies jobs into expired or going to expire categories based on the config.
-
-Retrieves the queue configuration for each job, gets its runtime limit and reminder times (converted to seconds).
-
-Adds the job to already_expired_job_ids if it has exceeded the runtime limit; otherwise, if it meets any remainder condition, it goes to going_to_expire_job_ids.
-
-
-
-Finalizing Email Data
-
-def generate_email_data(jobs, config, expired=True):
-    final_data = []
-    for job in jobs:
-        queue_name = job['queue']
-        queue_config = config[queue_name]
-        run_time_limit = convert_time_to_seconds(queue_config['run_time_limit'])
-        
-        if expired and job['run_time'] >= run_time_limit:
-            final_data.append(job)
-        elif not expired:
-            remainders = [convert_time_to_seconds(f"{r} days") for r in queue_config['remainders']]
-            if any(job['run_time'] >= remainder for remainder in remainders):
-                final_data.append(job)
-    return final_data
-
-generate_email_data function: Prepares the jobs data to include in emails, distinguishing between expired and going-to-expire jobs.
-
-Applies criteria similar to categorize_jobs to build final_data for each category.
-
-
-
-Grouping by User
-
-def group_by_user(jobs):
-    user_data = {}
-    for job in jobs:
-        user = job['user']
-        if user not in user_data:
-            user_data[user] = []
-        user_data[user].append(job)
-    return user_data
-
-group_by_user function: Organizes jobs by user to ensure each user receives only their own data.
-
-
-Creating Excel File
-
-def create_excel_file(jobs, file_name):
-    df = pd.DataFrame(jobs)
-    df.to_excel(file_name, index=False)
-
-create_excel_file function: Converts job data into an Excel file.
-
-Uses pandas.DataFrame to create a table and exports it to an Excel file with the given filename.
-
-
-
-Sending Email with Attachment
-
-def send_email(user, data, expired=True):
-    subject = "Job Expiry Notification"
-    message = "Dear {0},\n\n".format(user)
-    if expired:
-        message += "The following jobs have expired:\n"
-    else:
-        message += "The following jobs are about to expire:\n"
-    
-    message += "Please find the attached Excel file for details.\n\nRegards,\nJob Monitoring Team"
-    file_name = f"jobs_{user}.xlsx"
-    create_excel_file(data, file_name)
-
-    msg = MIMEMultipart()
-    msg['From'] = "your_email@example.com"
-    msg['To'] = f"{user}@company.com"
-    msg['Subject'] = subject
-
-    msg.attach(MIMEText(message, 'plain'))
-
-    with open(file_name, 'rb') as attachment:
-        part = MIMEApplication(attachment.read(), Name=file_name)
-        part['Content-Disposition'] = f'attachment; filename="{file_name}"'
-        msg.attach(part)
-
-    try:
-        server = smtplib.SMTP('smtp.example.com', 587)
-        server.starttls()
-        server.login('your_email@example.com', 'your_password')
-        server.send_message(msg)
-        server.quit()
-        print(f"Email sent to {user}")
-    except Exception as e:
-        print(f"Failed to send email to {user}: {e}")
-
-send_email function: Sends an email with job data as an Excel attachment.
-
-Builds the email message with different body text depending on whether jobs are expired or expiring.
-
-Uses smtplib to connect to the SMTP server, send the email, and handle errors if they occur.
-
-
-
-Logging Email Activity
-
-def log_email(user):
-    with open("log.txt", "a") as log_file:
-        log_file.write(f"{datetime.now()}: Sent email to {user}\n")
-
-log_email function: Records email activity in a log.txt file with the user and timestamp.
-
-
-Main Execution Logic
-
-def main():
-    config_file = "config.json"
-    config = load_config(config_file)
-
-    bjobs_output = get_bjobs_output()
-    jobs = parse_bjobs_output(bjobs_output)
-
-    already_expired_job_ids, going_to_expire_job_ids = categorize_jobs(jobs, config)
-
-    if already_expired_job_ids:
-        final_already_expired_mail_data = generate_email_data(already_expired_job_ids, config, expired=True)
-        grouped_expired_data = group_by_user(final_already_expired_mail_data)
-        for user, data in grouped_expired_data.items():
-            send_email(user, data, expired=True)
-
+stage('Get Current Slots Limit from blimits or Config Files') {
+    steps {
+        script {
+            echo "----------------Get Current Slots Limit from blimits or Config Files---------------"
+            def cmd ="""
+                   blimits -u \"${params.USER_ID}\" | grep gui | awk '{\$1=\$1};1' | cut -d ' ' -f 7
+                """.trim()
+            println "blimit cmd : ${cmd}"
+            def blimit_output = sh(script:"blimits -u \"${params.USER_ID}\" | grep gui | awk '{\$1=\$1};1' | cut -d ' ' -f 7",returnStdout: true)
+            echo "blimit output: ${blimit_output}"
+            def CONFIG_FILE_OPTIONS = [
+                  '12': 'gui_12slots_grp',
+                  '16': 'gui_16slots_grp',
+                  '32': 'gui_32slots_grp',
+                  '40': 'gui_40slots_grp'
+              ]
+            if (blimit_output) {
+              echo "I am inside blimit output"
+              def current_slot_limit = blimit_output.split("/")[1].trim()
+              echo "Extracted current Slots Limit: ${current_slot_limit}"
+
+              if (CONFIG_FILE_OPTIONS.containsKey(current_slot_limit)) {
+                  CURRENT_CONFIG_FILE = "${CONFIG_FILE_OPTIONS[current_slot_limit]}"
+                  echo "Config File selected based on current slots limit: ${CURRENT_CONFIG_FILE}"
+              } else {
+                  error "Invalid Slots Limit: ${current_slot_limit}"
+              }
+            } else {
+                echo "No output from blimits for ${params.USER_ID}. Searching config files manually..."
+
+                def keys = CONFIG_FILE_OPTIONS.keySet() as List
+                def i = 0
+                while (i < keys.size() && !CURRENT_CONFIG_FILE) {
+                    def key = keys[i]
+                    def configFileName = CONFIG_FILE_OPTIONS[key]
+                    def filename = "${env.CONFIG_PATH}/${configFileName}"
+                    echo "Checking file: ${filename} for User ID: ${params.USER_ID}"
+                    def grepcmd = """
+                    grep -w \"${params.USER_ID}\" ${filename}
+                    """.trim()
+                    println "grepResult cmd : ${grepcmd}"
+                    def grepResult = sh(script:"grep -w \"${params.USER_ID}\" ${filename}", returnStatus: true)
+                    echo "grep result is ${grepResult}"
+                    if (grepResult == 0) {
+                        echo "User ID ${params.USER_ID} found in ${filename}. Slot limit: ${key}"
+                        CURRENT_CONFIG_FILE = configFileName
+                    } else {
+                        echo "User ID ${params.USER_ID} not found in ${filename}. Slot limit: ${key}"
+                    }
+                    i++
+                }
+
+                echo "Config File selected based on current slots limit: ${CURRENT_CONFIG_FILE}"
+                if (!CURRENT_CONFIG_FILE) {
+                    error "User ID ${params.USER_ID} not found in any config file."
+                }
+            }
+        }
+    }
+}
