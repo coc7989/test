@@ -1,84 +1,173 @@
-To set up the staging environment (mylsf-stage.com) alongside your development environment (mylsf-dev.com), you will need to configure docker-proxy.conf to handle both virtual hosts, routing requests appropriately to your development and staging Docker containers. Here’s how to do it:
+To set up a multi-branch pipeline for both frontend and backend containers, I'll outline the Dockerfile and Jenkinsfile for each. This setup will allow Jenkins to build different branches and deploy both dev and stage environments.
 
-1. Add a VirtualHost Block for mylsf-stage.com:
-Copy the existing <VirtualHost *:80> block and modify it for mylsf-stage.com to specify the new staging container routes.
+Frontend Dockerfile (Dockerfile.frontend)
+
+# Use a Node.js base image
+FROM node:16 AS build
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm install
+
+# Copy the entire frontend source code
+COPY . .
+
+# Build the frontend
+RUN npm run build
+
+# Serve with a lightweight server
+FROM nginx:alpine
+COPY --from=build /app/build /usr/share/nginx/html
+
+# Expose the port
+EXPOSE 80
+
+Backend Dockerfile (Dockerfile.backend)
+
+# Use a Python base image
+FROM python:3.9-slim
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements file and install dependencies
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Copy the entire backend source code
+COPY . .
+
+# Expose the API port
+EXPOSE 5000
+
+# Run the application
+CMD ["python", "app.py"]
+
+Jenkinsfile for Frontend (Jenkinsfile.frontend)
+
+pipeline {
+    agent any
+    environment {
+        DOCKER_IMAGE = "myrepo/frontend:${BRANCH_NAME}"
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.build("${DOCKER_IMAGE}", "-f Dockerfile.frontend .")
+                }
+            }
+        }
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub-credentials') {
+                        docker.image("${DOCKER_IMAGE}").push()
+                    }
+                }
+            }
+        }
+        stage('Deploy') {
+            steps {
+                script {
+                    if (BRANCH_NAME == 'dev') {
+                        sh 'docker run -d --name frontend-dev -p 8080:80 ${DOCKER_IMAGE}'
+                    } else if (BRANCH_NAME == 'stage') {
+                        sh 'docker run -d --name frontend-stage -p 8081:80 ${DOCKER_IMAGE}'
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                docker.image("${DOCKER_IMAGE}").remove()
+            }
+        }
+    }
+}
+
+Jenkinsfile for Backend (Jenkinsfile.backend)
+
+pipeline {
+    agent any
+    environment {
+        DOCKER_IMAGE = "myrepo/backend:${BRANCH_NAME}"
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.build("${DOCKER_IMAGE}", "-f Dockerfile.backend .")
+                }
+            }
+        }
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub-credentials') {
+                        docker.image("${DOCKER_IMAGE}").push()
+                    }
+                }
+            }
+        }
+        stage('Deploy') {
+            steps {
+                script {
+                    if (BRANCH_NAME == 'dev') {
+                        sh 'docker run -d --name backend-dev -p 5000:5000 ${DOCKER_IMAGE}'
+                    } else if (BRANCH_NAME == 'stage') {
+                        sh 'docker run -d --name backend-stage -p 6000:5000 ${DOCKER_IMAGE}'
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                docker.image("${DOCKER_IMAGE}").remove()
+            }
+        }
+    }
+}
+
+Explanation
+
+Dockerfile.frontend and Dockerfile.backend: Each Dockerfile is tailored to build the frontend and backend services, using nginx for the frontend and python for the backend.
+
+Jenkinsfile (frontend and backend):
+
+Checkout: Pulls the code for the current branch.
+
+Build Docker Image: Builds the Docker image and tags it with the branch name.
+
+Push Docker Image: Pushes the built Docker image to Docker Hub (or any other Docker registry).
+
+Deploy: Runs a container based on the branch (dev or stage), mapping the necessary ports.
+
+Post-Stage Cleanup: Removes the Docker image from the local Jenkins environment after the pipeline finishes.
 
 
-2. Update docker-proxy.conf to include both VirtualHosts:
-Here’s what the updated configuration should look like:
 
-# Development VirtualHost
-<VirtualHost *:80>
-    ServerName mylsf-dev.com
+Note: Make sure to:
 
-    # Proxy for API calls to Development Backend Container
-    ProxyPass /api http://localhost:5000/api timeout=600
-    ProxyPassReverse /api http://localhost:5000/api
+Replace myrepo/frontend and myrepo/backend with your actual Docker Hub repository.
 
-    # Proxy for Swagger UI on Development Backend
-    ProxyPass /swaggerui http://localhost:5000/swaggerui timeout=600
-    ProxyPassReverse /swaggerui http://localhost:5000/swaggerui
+Configure Docker Hub credentials (dockerhub-credentials) in Jenkins.
 
-    # Proxy for other requests to Development Frontend Container
-    ProxyPass / http://localhost:8080/ timeout=600
-    ProxyPassReverse / http://localhost:8080/
-
-    ErrorLog /etc/httpd/logs/dev_error_log
-    LogLevel warn
-    CustomLog /etc/httpd/logs/dev_access_log combined
-</VirtualHost>
-
-# Staging VirtualHost
-<VirtualHost *:80>
-    ServerName mylsf-stage.com
-
-    # Proxy for API calls to Staging Backend Container
-    ProxyPass /api http://localhost:6000/api timeout=600
-    ProxyPassReverse /api http://localhost:6000/api
-
-    # Proxy for Swagger UI on Staging Backend
-    ProxyPass /swaggerui http://localhost:6000/swaggerui timeout=600
-    ProxyPassReverse /swaggerui http://localhost:6000/swaggerui
-
-    # Proxy for other requests to Staging Frontend Container
-    ProxyPass / http://localhost:8081/ timeout=600
-    ProxyPassReverse / http://localhost:8081/
-
-    ErrorLog /etc/httpd/logs/stage_error_log
-    LogLevel warn
-    CustomLog /etc/httpd/logs/stage_access_log combined
-</VirtualHost>
-
-In this example:
-
-Requests to mylsf-dev.com/api route to localhost:5000, which is the dev backend container.
-
-Requests to mylsf-dev.com/ route to localhost:8080, which is the dev frontend container.
-
-Requests to mylsf-stage.com/api route to localhost:6000, which is the stage backend container.
-
-Requests to mylsf-stage.com/ route to localhost:8081, which is the stage frontend container.
-
-
-
-3. Adjust Container Ports:
-Ensure that your staging containers are mapped to different ports from your development containers (as specified in the docker-proxy.conf file above).
-
-
-4. Restart the Apache Server:
-After updating docker-proxy.conf, restart Apache to apply the changes:
-
-sudo systemctl restart httpd
-
-
-5. Verification:
-
-Test accessing http://mylsf-dev.com/api and http://mylsf-dev.com/ to confirm they route to the development containers.
-
-Test accessing http://mylsf-stage.com/api and http://mylsf-stage.com/ to confirm they route to the staging containers.
-
-
-
-
-By setting up separate VirtualHost blocks, you can manage both the development and staging environments independently on the same server. Make sure to monitor the logs to troubleshoot if needed.
 
