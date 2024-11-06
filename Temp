@@ -1,60 +1,84 @@
-stage('Get Current Slots Limit from blimits or Config Files') {
-    steps {
-        script {
-            echo "----------------Get Current Slots Limit from blimits or Config Files---------------"
-            def cmd ="""
-                   blimits -u \"${params.USER_ID}\" | grep gui | awk '{\$1=\$1};1' | cut -d ' ' -f 7
-                """.trim()
-            println "blimit cmd : ${cmd}"
-            def blimit_output = sh(script:"blimits -u \"${params.USER_ID}\" | grep gui | awk '{\$1=\$1};1' | cut -d ' ' -f 7",returnStdout: true)
-            echo "blimit output: ${blimit_output}"
-            def CONFIG_FILE_OPTIONS = [
-                  '12': 'gui_12slots_grp',
-                  '16': 'gui_16slots_grp',
-                  '32': 'gui_32slots_grp',
-                  '40': 'gui_40slots_grp'
-              ]
-            if (blimit_output) {
-              echo "I am inside blimit output"
-              def current_slot_limit = blimit_output.split("/")[1].trim()
-              echo "Extracted current Slots Limit: ${current_slot_limit}"
+To set up the staging environment (mylsf-stage.com) alongside your development environment (mylsf-dev.com), you will need to configure docker-proxy.conf to handle both virtual hosts, routing requests appropriately to your development and staging Docker containers. Here’s how to do it:
 
-              if (CONFIG_FILE_OPTIONS.containsKey(current_slot_limit)) {
-                  CURRENT_CONFIG_FILE = "${CONFIG_FILE_OPTIONS[current_slot_limit]}"
-                  echo "Config File selected based on current slots limit: ${CURRENT_CONFIG_FILE}"
-              } else {
-                  error "Invalid Slots Limit: ${current_slot_limit}"
-              }
-            } else {
-                echo "No output from blimits for ${params.USER_ID}. Searching config files manually..."
+1. Add a VirtualHost Block for mylsf-stage.com:
+Copy the existing <VirtualHost *:80> block and modify it for mylsf-stage.com to specify the new staging container routes.
 
-                def keys = CONFIG_FILE_OPTIONS.keySet() as List
-                def i = 0
-                while (i < keys.size() && !CURRENT_CONFIG_FILE) {
-                    def key = keys[i]
-                    def configFileName = CONFIG_FILE_OPTIONS[key]
-                    def filename = "${env.CONFIG_PATH}/${configFileName}"
-                    echo "Checking file: ${filename} for User ID: ${params.USER_ID}"
-                    def grepcmd = """
-                    grep -w \"${params.USER_ID}\" ${filename}
-                    """.trim()
-                    println "grepResult cmd : ${grepcmd}"
-                    def grepResult = sh(script:"grep -w \"${params.USER_ID}\" ${filename}", returnStatus: true)
-                    echo "grep result is ${grepResult}"
-                    if (grepResult == 0) {
-                        echo "User ID ${params.USER_ID} found in ${filename}. Slot limit: ${key}"
-                        CURRENT_CONFIG_FILE = configFileName
-                    } else {
-                        echo "User ID ${params.USER_ID} not found in ${filename}. Slot limit: ${key}"
-                    }
-                    i++
-                }
 
-                echo "Config File selected based on current slots limit: ${CURRENT_CONFIG_FILE}"
-                if (!CURRENT_CONFIG_FILE) {
-                    error "User ID ${params.USER_ID} not found in any config file."
-                }
-            }
-        }
-    }
-}
+2. Update docker-proxy.conf to include both VirtualHosts:
+Here’s what the updated configuration should look like:
+
+# Development VirtualHost
+<VirtualHost *:80>
+    ServerName mylsf-dev.com
+
+    # Proxy for API calls to Development Backend Container
+    ProxyPass /api http://localhost:5000/api timeout=600
+    ProxyPassReverse /api http://localhost:5000/api
+
+    # Proxy for Swagger UI on Development Backend
+    ProxyPass /swaggerui http://localhost:5000/swaggerui timeout=600
+    ProxyPassReverse /swaggerui http://localhost:5000/swaggerui
+
+    # Proxy for other requests to Development Frontend Container
+    ProxyPass / http://localhost:8080/ timeout=600
+    ProxyPassReverse / http://localhost:8080/
+
+    ErrorLog /etc/httpd/logs/dev_error_log
+    LogLevel warn
+    CustomLog /etc/httpd/logs/dev_access_log combined
+</VirtualHost>
+
+# Staging VirtualHost
+<VirtualHost *:80>
+    ServerName mylsf-stage.com
+
+    # Proxy for API calls to Staging Backend Container
+    ProxyPass /api http://localhost:6000/api timeout=600
+    ProxyPassReverse /api http://localhost:6000/api
+
+    # Proxy for Swagger UI on Staging Backend
+    ProxyPass /swaggerui http://localhost:6000/swaggerui timeout=600
+    ProxyPassReverse /swaggerui http://localhost:6000/swaggerui
+
+    # Proxy for other requests to Staging Frontend Container
+    ProxyPass / http://localhost:8081/ timeout=600
+    ProxyPassReverse / http://localhost:8081/
+
+    ErrorLog /etc/httpd/logs/stage_error_log
+    LogLevel warn
+    CustomLog /etc/httpd/logs/stage_access_log combined
+</VirtualHost>
+
+In this example:
+
+Requests to mylsf-dev.com/api route to localhost:5000, which is the dev backend container.
+
+Requests to mylsf-dev.com/ route to localhost:8080, which is the dev frontend container.
+
+Requests to mylsf-stage.com/api route to localhost:6000, which is the stage backend container.
+
+Requests to mylsf-stage.com/ route to localhost:8081, which is the stage frontend container.
+
+
+
+3. Adjust Container Ports:
+Ensure that your staging containers are mapped to different ports from your development containers (as specified in the docker-proxy.conf file above).
+
+
+4. Restart the Apache Server:
+After updating docker-proxy.conf, restart Apache to apply the changes:
+
+sudo systemctl restart httpd
+
+
+5. Verification:
+
+Test accessing http://mylsf-dev.com/api and http://mylsf-dev.com/ to confirm they route to the development containers.
+
+Test accessing http://mylsf-stage.com/api and http://mylsf-stage.com/ to confirm they route to the staging containers.
+
+
+
+
+By setting up separate VirtualHost blocks, you can manage both the development and staging environments independently on the same server. Make sure to monitor the logs to troubleshoot if needed.
+
