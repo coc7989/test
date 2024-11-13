@@ -1,173 +1,93 @@
-To set up a multi-branch pipeline for both frontend and backend containers, I'll outline the Dockerfile and Jenkinsfile for each. This setup will allow Jenkins to build different branches and deploy both dev and stage environments.
+#!/bin/bash
 
-Frontend Dockerfile (Dockerfile.frontend)
+vendor="$1"
+mappedlicense="$2"
+backupFile="$3"
+buildNum="$4"
+ansoftlog="${mappedlicense/.lic/.lmgrd.log}"
+echo "vendor: ${vendor}"
+echo "mappedlicense: ${mappedlicense}"
+echo "backupFile: ${backupFile}"
+echo "buildNum: ${buildNum}"
+echo "Considered when vendor is Ansys then ansoftlog: ${ansoftlog}"
+crontab -l > /data/mycron
+sed -i "/check_daemon_prs/s/^/#/" /data/mycron
+counter=0
+result=""
+error=""
+first_error=""
+encountered_issue=false
 
-# Use a Node.js base image
-FROM node:16 AS build
+while [[ $counter -lt 2 ]]; do
+    if [ $(( $(date +%s) - $(stat -c %Y "/data/$mappedlicense") )) -lt 120 ]; then
+        if [[ $vendor == "cds" ]]; then
+            lmreread=$(/vendors/cds/pgms.linux/lmreread -c "/data/$mappedlicense")
+            sleep 5
+            lmstat=$(/vendors/cds/pgms.linux/lmstat -c "/data/$mappedlicense")
+        elif [[ $vendor == "snps" ]]; then
+            lmreread=$(/vendors/snps/pgms.linux/lmreread -c "/data/$mappedlicense")
+            /bin/restart_server $vendor
+            sleep 5
+            lmstat=$(/bin/lmstat -c "/data/$mappedlicense" -a)
+        elif [[ $vendor == "ansoft" ]]; then
+            /vendors/ansys/shared_files/licensing/linx64/ansysli_server -k stop
+            sleep 10
+            /vendors/ansys/shared_files/licensing/linx64/ansysli_server
+            sleep 50
+            tail -n 10 "/annals/$ansoftlog"
+            lmreread="lmreread successful"
+            lmstat=$(/bin/lmstat -c "/data/$mappedlicense")
+        else
+            echo "I am inside Unsuccessful"
+            echo "backup file when issue ${backupFile}"
+            echo "mapped license when issue ${mappedlicense}"
+            rsync -v /tmp/$backupFile /data/$mappedlicense
+            result="Failure"
+            error="Vendor is not known"
+            encountered_issue=true
+            [[ -z "$first_error" ]] && first_error="$error"
+        fi
 
-# Set working directory
-WORKDIR /app
+        echo "lmreread: ${lmreread}"
+        reread_status=$(echo "$lmreread" | grep -o "lmreread successful")
+        echo "reread_status: ${reread_status}"
+        vendor_status=$(echo "$lmstat" | grep -o ': UP' | awk '{print $2}' | head -n 1)
+        echo "lmstat: ${lmstat}"
+        echo "vendor_status: ${vendor_status}"
+        
+        if [[ $reread_status == "lmreread successful" && $vendor_status == "UP" ]]; then
+            echo "I am inside Success"
+            result="Success"
+            error="No Error"
+            break
+        else
+            echo "I am inside Unstable"
+            echo "backup file when issue ${backupFile}"
+            echo "mapped license when issue ${mappedlicense}"
+            rsync -v /tmp/$backupFile /data/$mappedlicense
+            result="Failure"
+            error="lmreread Unsuccessful or vendor is not UP"
+            encountered_issue=true
+            [[ -z "$first_error" ]] && first_error="$error"
+        fi
+    else
+        echo "I am inside Failure"
+        echo "backup file when issue ${backupFile}"
+        echo "mapped license when issue ${mappedlicense}"
+        rsync -v /tmp/$backupFile /data/$mappedlicense
+        result="Failure"
+        error="License file is not synced properly to the server"
+        encountered_issue=true
+        [[ -z "$first_error" ]] && first_error="$error"
+    fi
+    ((counter++))
+done
 
-# Copy package files and install dependencies
-COPY package*.json ./
-RUN npm install
+if [[ $encountered_issue == true ]]; then
+    result="Failure"
+fi
 
-# Copy the entire frontend source code
-COPY . .
-
-# Build the frontend
-RUN npm run build
-
-# Serve with a lightweight server
-FROM nginx:alpine
-COPY --from=build /app/build /usr/share/nginx/html
-
-# Expose the port
-EXPOSE 80
-
-Backend Dockerfile (Dockerfile.backend)
-
-# Use a Python base image
-FROM python:3.9-slim
-
-# Set working directory
-WORKDIR /app
-
-# Copy requirements file and install dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-# Copy the entire backend source code
-COPY . .
-
-# Expose the API port
-EXPOSE 5000
-
-# Run the application
-CMD ["python", "app.py"]
-
-Jenkinsfile for Frontend (Jenkinsfile.frontend)
-
-pipeline {
-    agent any
-    environment {
-        DOCKER_IMAGE = "myrepo/frontend:${BRANCH_NAME}"
-    }
-    stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}", "-f Dockerfile.frontend .")
-                }
-            }
-        }
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub-credentials') {
-                        docker.image("${DOCKER_IMAGE}").push()
-                    }
-                }
-            }
-        }
-        stage('Deploy') {
-            steps {
-                script {
-                    if (BRANCH_NAME == 'dev') {
-                        sh 'docker run -d --name frontend-dev -p 8080:80 ${DOCKER_IMAGE}'
-                    } else if (BRANCH_NAME == 'stage') {
-                        sh 'docker run -d --name frontend-stage -p 8081:80 ${DOCKER_IMAGE}'
-                    }
-                }
-            }
-        }
-    }
-    post {
-        always {
-            script {
-                docker.image("${DOCKER_IMAGE}").remove()
-            }
-        }
-    }
-}
-
-Jenkinsfile for Backend (Jenkinsfile.backend)
-
-pipeline {
-    agent any
-    environment {
-        DOCKER_IMAGE = "myrepo/backend:${BRANCH_NAME}"
-    }
-    stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}", "-f Dockerfile.backend .")
-                }
-            }
-        }
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub-credentials') {
-                        docker.image("${DOCKER_IMAGE}").push()
-                    }
-                }
-            }
-        }
-        stage('Deploy') {
-            steps {
-                script {
-                    if (BRANCH_NAME == 'dev') {
-                        sh 'docker run -d --name backend-dev -p 5000:5000 ${DOCKER_IMAGE}'
-                    } else if (BRANCH_NAME == 'stage') {
-                        sh 'docker run -d --name backend-stage -p 6000:5000 ${DOCKER_IMAGE}'
-                    }
-                }
-            }
-        }
-    }
-    post {
-        always {
-            script {
-                docker.image("${DOCKER_IMAGE}").remove()
-            }
-        }
-    }
-}
-
-Explanation
-
-Dockerfile.frontend and Dockerfile.backend: Each Dockerfile is tailored to build the frontend and backend services, using nginx for the frontend and python for the backend.
-
-Jenkinsfile (frontend and backend):
-
-Checkout: Pulls the code for the current branch.
-
-Build Docker Image: Builds the Docker image and tags it with the branch name.
-
-Push Docker Image: Pushes the built Docker image to Docker Hub (or any other Docker registry).
-
-Deploy: Runs a container based on the branch (dev or stage), mapping the necessary ports.
-
-Post-Stage Cleanup: Removes the Docker image from the local Jenkins environment after the pipeline finishes.
-
-
-
-Note: Make sure to:
-
-Replace myrepo/frontend and myrepo/backend with your actual Docker Hub repository.
-
-Configure Docker Hub credentials (dockerhub-credentials) in Jenkins.
-
-
+echo "${first_error:-$error}"  # Print the first error if it exists; otherwise, print the last error
+echo "${result}"
+sed -i "/check_daemon_prs/s/^#//" /data/mycron
+crontab /data/mycron
