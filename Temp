@@ -30,6 +30,7 @@ function log_issue() {
     echo "$message"
     echo "Backup file when issue: ${backupFile}"
     echo "Mapped license when issue: ${mappedlicense}"
+    [[ -z "$first_error" ]] && first_error="$message"  # Store the first error if it hasn’t been set
 }
 
 # Vendor-specific operations
@@ -76,6 +77,7 @@ while [[ $counter -lt 2 ]]; do
 
         if [[ $reread_status == "lmreread successful" && $vendor_status == "UP" ]]; then
             result="Success"
+            [[ -z "$first_error" ]] && first_error="No Error"  # Set to "No Error" on success if no prior error
             break
         else
             log_issue "lmreread Unsuccessful or vendor is not UP"
