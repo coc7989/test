@@ -1,93 +1,98 @@
 #!/bin/bash
 
+# Variables and input validation
 vendor="$1"
 mappedlicense="$2"
 backupFile="$3"
 buildNum="$4"
+
+if [[ $# -lt 4 ]]; then
+    echo "Usage: $0 <vendor> <mappedlicense> <backupFile> <buildNum>"
+    exit 1
+fi
+
 ansoftlog="${mappedlicense/.lic/.lmgrd.log}"
-echo "vendor: ${vendor}"
-echo "mappedlicense: ${mappedlicense}"
-echo "backupFile: ${backupFile}"
-echo "buildNum: ${buildNum}"
-echo "Considered when vendor is Ansys then ansoftlog: ${ansoftlog}"
-crontab -l > /data/mycron
-sed -i "/check_daemon_prs/s/^/#/" /data/mycron
-counter=0
-result=""
-error=""
-first_error=""
+CRON_FILE="/data/mycron"
+BACKUP_DIR="/tmp"
+LICENSE_DIR="/data"
+VENDORS_DIR="/vendors"
 encountered_issue=false
+result=""
+first_error=""
 
+# Functions
+function update_license() {
+    rsync -v "$BACKUP_DIR/$backupFile" "$LICENSE_DIR/$mappedlicense"
+}
+
+function log_issue() {
+    local message="$1"
+    echo "$message"
+    echo "Backup file when issue: ${backupFile}"
+    echo "Mapped license when issue: ${mappedlicense}"
+}
+
+# Vendor-specific operations
+function process_vendor_cds() {
+    lmreread=$($VENDORS_DIR/cds/pgms.linux/lmreread -c "$LICENSE_DIR/$mappedlicense")
+    sleep 5
+    lmstat=$($VENDORS_DIR/cds/pgms.linux/lmstat -c "$LICENSE_DIR/$mappedlicense")
+}
+
+function process_vendor_snps() {
+    lmreread=$($VENDORS_DIR/snps/pgms.linux/lmreread -c "$LICENSE_DIR/$mappedlicense")
+    /bin/restart_server "$vendor"
+    sleep 5
+    lmstat=$(/bin/lmstat -c "$LICENSE_DIR/$mappedlicense" -a)
+}
+
+function process_vendor_ansoft() {
+    $VENDORS_DIR/ansys/shared_files/licensing/linx64/ansysli_server -k stop
+    sleep 10
+    $VENDORS_DIR/ansys/shared_files/licensing/linx64/ansysli_server
+    sleep 50
+    tail -n 10 "/annals/$ansoftlog"
+    lmreread="lmreread successful"
+    lmstat=$(/bin/lmstat -c "$LICENSE_DIR/$mappedlicense")
+}
+
+# Main loop and logic
+crontab -l > "$CRON_FILE"
+sed -i "/check_daemon_prs/s/^/#/" "$CRON_FILE"
+
+counter=0
 while [[ $counter -lt 2 ]]; do
-    if [ $(( $(date +%s) - $(stat -c %Y "/data/$mappedlicense") )) -lt 120 ]; then
-        if [[ $vendor == "cds" ]]; then
-            lmreread=$(/vendors/cds/pgms.linux/lmreread -c "/data/$mappedlicense")
-            sleep 5
-            lmstat=$(/vendors/cds/pgms.linux/lmstat -c "/data/$mappedlicense")
-        elif [[ $vendor == "snps" ]]; then
-            lmreread=$(/vendors/snps/pgms.linux/lmreread -c "/data/$mappedlicense")
-            /bin/restart_server $vendor
-            sleep 5
-            lmstat=$(/bin/lmstat -c "/data/$mappedlicense" -a)
-        elif [[ $vendor == "ansoft" ]]; then
-            /vendors/ansys/shared_files/licensing/linx64/ansysli_server -k stop
-            sleep 10
-            /vendors/ansys/shared_files/licensing/linx64/ansysli_server
-            sleep 50
-            tail -n 10 "/annals/$ansoftlog"
-            lmreread="lmreread successful"
-            lmstat=$(/bin/lmstat -c "/data/$mappedlicense")
-        else
-            echo "I am inside Unsuccessful"
-            echo "backup file when issue ${backupFile}"
-            echo "mapped license when issue ${mappedlicense}"
-            rsync -v /tmp/$backupFile /data/$mappedlicense
-            result="Failure"
-            error="Vendor is not known"
-            encountered_issue=true
-            [[ -z "$first_error" ]] && first_error="$error"
-        fi
+    if [[ $(( $(date +%s) - $(stat -c %Y "$LICENSE_DIR/$mappedlicense") )) -lt 120 ]]; then
+        case $vendor in
+            cds) process_vendor_cds ;;
+            snps) process_vendor_snps ;;
+            ansoft) process_vendor_ansoft ;;
+            *) log_issue "Unknown vendor" && update_license && encountered_issue=true && break ;;
+        esac
 
-        echo "lmreread: ${lmreread}"
+        # Check results
         reread_status=$(echo "$lmreread" | grep -o "lmreread successful")
-        echo "reread_status: ${reread_status}"
         vendor_status=$(echo "$lmstat" | grep -o ': UP' | awk '{print $2}' | head -n 1)
-        echo "lmstat: ${lmstat}"
-        echo "vendor_status: ${vendor_status}"
-        
+
         if [[ $reread_status == "lmreread successful" && $vendor_status == "UP" ]]; then
-            echo "I am inside Success"
             result="Success"
-            error="No Error"
             break
         else
-            echo "I am inside Unstable"
-            echo "backup file when issue ${backupFile}"
-            echo "mapped license when issue ${mappedlicense}"
-            rsync -v /tmp/$backupFile /data/$mappedlicense
-            result="Failure"
-            error="lmreread Unsuccessful or vendor is not UP"
+            log_issue "lmreread Unsuccessful or vendor is not UP"
+            update_license
             encountered_issue=true
-            [[ -z "$first_error" ]] && first_error="$error"
         fi
     else
-        echo "I am inside Failure"
-        echo "backup file when issue ${backupFile}"
-        echo "mapped license when issue ${mappedlicense}"
-        rsync -v /tmp/$backupFile /data/$mappedlicense
-        result="Failure"
-        error="License file is not synced properly to the server"
+        log_issue "License file is not synced properly to the server"
+        update_license
         encountered_issue=true
-        [[ -z "$first_error" ]] && first_error="$error"
     fi
     ((counter++))
 done
 
-if [[ $encountered_issue == true ]]; then
-    result="Failure"
-fi
+# Final result and cleanup
+[[ $encountered_issue == true ]] && result="Failure"
+echo "${first_error:-$result}"
 
-echo "${first_error:-$error}"  # Print the first error if it exists; otherwise, print the last error
-echo "${result}"
-sed -i "/check_daemon_prs/s/^#//" /data/mycron
-crontab /data/mycron
+sed -i "/check_daemon_prs/s/^#//" "$CRON_FILE"
+crontab "$CRON_FILE"
