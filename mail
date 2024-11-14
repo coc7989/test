@@ -1,14 +1,38 @@
-Subject: Apology and Clarification on Recent Production Issue
+import hudson.model.Computer
 
-Dear [Team/Colleagues],
+node {
+    def offlineNodes = []
+    
+    // Check each node's online status
+    for (node in Jenkins.instance.computers) {
+        if (node.offline) {
+            offlineNodes.add(node.name)
+        }
+    }
+    
+    // Send an email if any nodes are offline
+    if (!offlineNodes.isEmpty()) {
+        def offlineNodeList = offlineNodes.join(', ')
+        
+        // Print to console for debugging
+        echo "Offline nodes: ${offlineNodeList}"
+        
+        // Send email notification
+        emailext (
+            subject: "Jenkins Alert: Offline Nodes Detected",
+            body: """Hello Admin,
+            
+The following Jenkins nodes are currently offline:
+${offlineNodeList}
 
-I want to sincerely apologize for the recent issue that caused a disruption in production. I take full responsibility for the oversight and want to explain what happened to help clarify the situation.
-
-When Terry submitted the file for production deployment from the portal, the vendor daemon failed to start as expected due to an error in the conditional script. As a result, the old file was automatically restored on the ind13 server. After restoring, I checked the vendor daemon status again, and this time it successfully started. However, due to a variable overwrite, the script misinterpreted the situation as a success even though it was initially a failure, which caused the conditional pipeline to skip restoring the old file to the NFS path.
-
-I've identified and corrected the issue, and everything should be functioning normally now. I apologize for any inconvenience this may have caused and am committed to preventing similar problems in the future. Please feel free to reach out if you need any further information or clarification.
-
-Thank you for your understanding and patience.
+Please check the status of these nodes to ensure they are operational.
 
 Best regards,
-[Your Name]
+Jenkins Monitoring System
+""",
+            to: "admin@gmajl.com"
+        )
+    } else {
+        echo "All nodes are online."
+    }
+}
