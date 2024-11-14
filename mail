@@ -1,17 +1,14 @@
-<Box mb={4}>
-        <Typography variant="h6" gutterBottom>
-          Total Data
-        </Typography>
-        <Typography variant="body1">
-          <strong>Feature Name:</strong> {totalData.feature_name}
-        </Typography>
-        <Typography variant="body1">
-          <strong>Total Licenses:</strong> {totalData.total_license}
-        </Typography>
-        <Typography variant="body1">
-          <strong>Total Used:</strong> {totalData.total_used}
-        </Typography>
-        <Typography variant="body1">
-          <strong>Total Available:</strong> {totalData.total_available}
-        </Typography>
-      </Box>
+Subject: Apology and Clarification on Recent Production Issue
+
+Dear [Team/Colleagues],
+
+I want to sincerely apologize for the recent issue that caused a disruption in production. I take full responsibility for the oversight and want to explain what happened to help clarify the situation.
+
+When Terry submitted the file for production deployment from the portal, the vendor daemon failed to start as expected due to an error in the conditional script. As a result, the old file was automatically restored on the ind13 server. After restoring, I checked the vendor daemon status again, and this time it successfully started. However, due to a variable overwrite, the script misinterpreted the situation as a success even though it was initially a failure, which caused the conditional pipeline to skip restoring the old file to the NFS path.
+
+I've identified and corrected the issue, and everything should be functioning normally now. I apologize for any inconvenience this may have caused and am committed to preventing similar problems in the future. Please feel free to reach out if you need any further information or clarification.
+
+Thank you for your understanding and patience.
+
+Best regards,
+[Your Name]
