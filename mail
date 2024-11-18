@@ -1,1 +1,73 @@
+import cx_Oracle
+from collections import defaultdict
 
+def fetch_and_group_bjobs_data(oracle_config):
+    """
+    Fetch data from the bjobs table in Oracle DB and group records by USERID.
+
+    Args:
+        oracle_config (dict): Oracle DB connection parameters.
+
+    Returns:
+        dict: Grouped records by USERID.
+    """
+    # Oracle connection details
+    dsn = cx_Oracle.makedsn(
+        oracle_config['host'],
+        oracle_config['port'],
+        sid=oracle_config['sid']
+    )
+
+    # Connect to Oracle Database
+    conn = cx_Oracle.connect(
+        user=oracle_config['user'],
+        password=oracle_config['password'],
+        dsn=dsn
+    )
+
+    try:
+        cursor = conn.cursor()
+
+        # Query to fetch filtered data
+        query = """
+        SELECT USERID, JOBID, SUBMIT_TIME, STATUS, RES_REQ
+        FROM bjobs
+        WHERE RES_REQ LIKE '%ws70%'
+        """
+        cursor.execute(query)
+
+        # Fetch data and group by USERID
+        grouped_data = defaultdict(list)
+        for row in cursor.fetchall():
+            user_id = row[0]
+            grouped_data[user_id].append({
+                "JOBID": row[1],
+                "SUBMIT_TIME": row[2],
+                "STATUS": row[3],
+                "RES_REQ": row[4]
+            })
+
+        return grouped_data
+    finally:
+        # Close the cursor and connection
+        cursor.close()
+        conn.close()
+
+if __name__ == "__main__":
+    # Oracle database configuration
+    oracle_config = {
+        "host": "your_oracle_host",
+        "port": 1521,  # Default Oracle DB port
+        "sid": "your_oracle_sid",
+        "user": "your_db_user",
+        "password": "your_db_password"
+    }
+
+    # Fetch and group data
+    grouped_data = fetch_and_group_bjobs_data(oracle_config)
+
+    # Print grouped data
+    for user_id, records in grouped_data.items():
+        print(f"USERID: {user_id}")
+        for record in records:
+            print(f"  JOBID: {record['JOBID']}, SUBMIT_TIME: {record['SUBMIT_TIME']}, STATUS: {record['STATUS']}, RES_REQ: {record['RES_REQ']}")
