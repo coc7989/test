@@ -1,105 +1,46 @@
-pipeline {
-    agent any
-    environment {
-        CONFIG_PATH = '/user/lsfadmin/tmp'
-        BACKUP_PATH = '/user/lsfadmin/backup'
-    }
-    parameters {
-        string(name: 'USER_ID', defaultValue: 'some_user_id', description: 'User ID (string)')
-        choice(name: 'QUEUE', choices: ['gui', 'regress'], description: 'Select the queue type')
-    }
-    stages {
-        stage('Select Config File Options') {
-            steps {
-                script {
-                    // Set CONFIG_FILE_OPTIONS based on the selected queue
-                    def CONFIG_FILE_OPTIONS = [:]
-                    if (params.QUEUE == 'gui') {
-                        CONFIG_FILE_OPTIONS = [
-                            "12slots_grp": "gui_12slots_grp",
-                            "24slots_grp": "gui_24slots_grp"
-                        ]
-                        echo "Selected GUI queue configuration."
-                    } else if (params.QUEUE == 'regress') {
-                        CONFIG_FILE_OPTIONS = [
-                            "4slots_grp": "regress_4slots_grp",
-                            "8slots_grp": "regress_8slots_grp"
-                        ]
-                        echo "Selected Regress queue configuration."
-                    } else {
-                        error "Unknown queue selected: ${params.QUEUE}"
-                    }
+try {
+    // Step 1: Create a backup
+    sh "cp ${configFile} ${backupFile}"
+    echo "Backup created: ${backupFile}"
 
-                    // Identify the file where the user exists
-                    def CURRENT_CONFIG_FILE = null
-                    def configFiles = CONFIG_FILE_OPTIONS.entrySet().iterator()
-                    while (configFiles.hasNext()) {
-                        def entry = configFiles.next()
-                        def key = entry.key
-                        def configFileName = entry.value
-                        def configFile = "${env.CONFIG_PATH}/${configFileName}"
-                        echo "Checking file: ${configFile} for User ID: ${params.USER_ID}"
+    // Step 2: Check out the file for editing
+    sh "co -l ${configFile}"
+    echo "File checked out: ${configFile}"
 
-                        // Check if the user exists in this file
-                        def grepResult = sh(
-                            script: "grep -w \"${params.USER_ID}\" ${configFile}",
-                            returnStatus: true
-                        )
-                        if (grepResult == 0) {
-                            echo "User ID ${params.USER_ID} found in ${configFile}. Slot limit: ${key}"
-                            CURRENT_CONFIG_FILE = configFileName
-                            break
-                        }
-                    }
+    // Step 3: Remove USER_ID from the file
+    sh "sed -i '/${params.USER_ID}/d' ${configFile}"
+    echo "User ID ${params.USER_ID} removed from ${configFile}"
 
-                    if (!CURRENT_CONFIG_FILE) {
-                        error "User ID ${params.USER_ID} not found in any config file for ${params.QUEUE} queue."
-                    }
+    // Step 4: Check the file back in
+    sh "ci -u ${configFile}"
+    echo "File checked back in: ${configFile}"
 
-                    // Perform RCS operations
-                    def configFile = "${env.CONFIG_PATH}/${CURRENT_CONFIG_FILE}"
-                    def backupFile = "${env.BACKUP_PATH}/${CURRENT_CONFIG_FILE}.backup"
+    // Step 5: Add USER_ID to a new config file
+    def newConfigFile = "${env.CONFIG_PATH}/new_config_file" // Change to desired target file
+    sh "co -l ${newConfigFile}"
+    echo "${params.USER_ID}" >> "${newConfigFile}"
+    echo "User ID ${params.USER_ID} added to ${newConfigFile}"
+    sh "ci -u ${newConfigFile}"
+    echo "File checked back in: ${newConfigFile}"
 
-                    try {
-                        // Step 1: Create a backup
-                        sh "cp ${configFile} ${backupFile}"
-                        echo "Backup created: ${backupFile}"
+} catch (Exception e) {
+    echo "Error encountered: ${e.message}"
+    echo "Initiating rollback..."
 
-                        // Step 2: Check out the file for editing
-                        sh "co -l ${configFile}"
-                        echo "File checked out: ${configFile}"
+    // Step 6: Restore backup file
+    sh "cp ${backupFile} ${configFile}"
+    echo "Backup restored: ${configFile}"
 
-                        // Step 3: Remove USER_ID from the file
-                        sh "sed -i '/${params.USER_ID}/d' ${configFile}"
-                        echo "User ID ${params.USER_ID} removed from ${configFile}"
+    // Step 7: Revert to the previous version in RCS
+    def prevVersion = sh(
+        script: "rlog -h ${configFile} | grep 'head:' | awk '{print \$2}'",
+        returnStdout: true
+    ).trim()
+    sh "rcs -o${prevVersion} ${configFile}"
+    echo "RCS version reverted to ${prevVersion} for ${configFile}"
 
-                        // Step 4: Check the file back in
-                        sh "ci -u ${configFile}"
-                        echo "File checked back in: ${configFile}"
-
-                        // Step 5: Add USER_ID to a new config file
-                        def newConfigFile = "${env.CONFIG_PATH}/new_config_file" // Change to desired target file
-                        sh "co -l ${newConfigFile}"
-                        echo "${params.USER_ID}" >> "${newConfigFile}"
-                        echo "User ID ${params.USER_ID} added to ${newConfigFile}"
-                        sh "ci -u ${newConfigFile}"
-                        echo "File checked back in: ${newConfigFile}"
-                    } catch (Exception e) {
-                        echo "Error encountered: ${e.message}"
-                        echo "Initiating rollback..."
-
-                        // Rollback to backup
-                        sh "mv ${backupFile} ${configFile}"
-                        sh "ci -u ${configFile}"
-                        error "Rolled back to previous version of ${configFile} due to error."
-                    }
-                }
-            }
-        }
-    }
-    post {
-        always {
-            echo "Pipeline execution completed."
-        }
-    }
+    // Step 8: Re-checkout and validate rollback
+    sh "co -l ${configFile}"
+    echo "File checked out again: ${configFile}"
+    error "Rollback complete. Pipeline stopped due to failure."
 }
