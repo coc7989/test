@@ -1,73 +1,105 @@
-import cx_Oracle
-from collections import defaultdict
-
-def fetch_and_group_bjobs_data(oracle_config):
-    """
-    Fetch data from the bjobs table in Oracle DB and group records by USERID.
-
-    Args:
-        oracle_config (dict): Oracle DB connection parameters.
-
-    Returns:
-        dict: Grouped records by USERID.
-    """
-    # Oracle connection details
-    dsn = cx_Oracle.makedsn(
-        oracle_config['host'],
-        oracle_config['port'],
-        sid=oracle_config['sid']
-    )
-
-    # Connect to Oracle Database
-    conn = cx_Oracle.connect(
-        user=oracle_config['user'],
-        password=oracle_config['password'],
-        dsn=dsn
-    )
-
-    try:
-        cursor = conn.cursor()
-
-        # Query to fetch filtered data
-        query = """
-        SELECT USERID, JOBID, SUBMIT_TIME, STATUS, RES_REQ
-        FROM bjobs
-        WHERE RES_REQ LIKE '%ws70%'
-        """
-        cursor.execute(query)
-
-        # Fetch data and group by USERID
-        grouped_data = defaultdict(list)
-        for row in cursor.fetchall():
-            user_id = row[0]
-            grouped_data[user_id].append({
-                "JOBID": row[1],
-                "SUBMIT_TIME": row[2],
-                "STATUS": row[3],
-                "RES_REQ": row[4]
-            })
-
-        return grouped_data
-    finally:
-        # Close the cursor and connection
-        cursor.close()
-        conn.close()
-
-if __name__ == "__main__":
-    # Oracle database configuration
-    oracle_config = {
-        "host": "your_oracle_host",
-        "port": 1521,  # Default Oracle DB port
-        "sid": "your_oracle_sid",
-        "user": "your_db_user",
-        "password": "your_db_password"
+pipeline {
+    agent any
+    environment {
+        CONFIG_PATH = '/user/lsfadmin/tmp'
+        BACKUP_PATH = '/user/lsfadmin/backup'
     }
+    parameters {
+        string(name: 'USER_ID', defaultValue: 'some_user_id', description: 'User ID (string)')
+        choice(name: 'QUEUE', choices: ['gui', 'regress'], description: 'Select the queue type')
+    }
+    stages {
+        stage('Select Config File Options') {
+            steps {
+                script {
+                    // Set CONFIG_FILE_OPTIONS based on the selected queue
+                    def CONFIG_FILE_OPTIONS = [:]
+                    if (params.QUEUE == 'gui') {
+                        CONFIG_FILE_OPTIONS = [
+                            "12slots_grp": "gui_12slots_grp",
+                            "24slots_grp": "gui_24slots_grp"
+                        ]
+                        echo "Selected GUI queue configuration."
+                    } else if (params.QUEUE == 'regress') {
+                        CONFIG_FILE_OPTIONS = [
+                            "4slots_grp": "regress_4slots_grp",
+                            "8slots_grp": "regress_8slots_grp"
+                        ]
+                        echo "Selected Regress queue configuration."
+                    } else {
+                        error "Unknown queue selected: ${params.QUEUE}"
+                    }
 
-    # Fetch and group data
-    grouped_data = fetch_and_group_bjobs_data(oracle_config)
+                    // Identify the file where the user exists
+                    def CURRENT_CONFIG_FILE = null
+                    def configFiles = CONFIG_FILE_OPTIONS.entrySet().iterator()
+                    while (configFiles.hasNext()) {
+                        def entry = configFiles.next()
+                        def key = entry.key
+                        def configFileName = entry.value
+                        def configFile = "${env.CONFIG_PATH}/${configFileName}"
+                        echo "Checking file: ${configFile} for User ID: ${params.USER_ID}"
 
-    # Print grouped data
-    for user_id, records in grouped_data.items():
-        print(f"USERID: {user_id}")
-        for record in records:
-            print(f"  JOBID: {record['JOBID']}, SUBMIT_TIME: {record['SUBMIT_TIME']}, STATUS: {record['STATUS']}, RES_REQ: {record['RES_REQ']}")
+                        // Check if the user exists in this file
+                        def grepResult = sh(
+                            script: "grep -w \"${params.USER_ID}\" ${configFile}",
+                            returnStatus: true
+                        )
+                        if (grepResult == 0) {
+                            echo "User ID ${params.USER_ID} found in ${configFile}. Slot limit: ${key}"
+                            CURRENT_CONFIG_FILE = configFileName
+                            break
+                        }
+                    }
+
+                    if (!CURRENT_CONFIG_FILE) {
+                        error "User ID ${params.USER_ID} not found in any config file for ${params.QUEUE} queue."
+                    }
+
+                    // Perform RCS operations
+                    def configFile = "${env.CONFIG_PATH}/${CURRENT_CONFIG_FILE}"
+                    def backupFile = "${env.BACKUP_PATH}/${CURRENT_CONFIG_FILE}.backup"
+
+                    try {
+                        // Step 1: Create a backup
+                        sh "cp ${configFile} ${backupFile}"
+                        echo "Backup created: ${backupFile}"
+
+                        // Step 2: Check out the file for editing
+                        sh "co -l ${configFile}"
+                        echo "File checked out: ${configFile}"
+
+                        // Step 3: Remove USER_ID from the file
+                        sh "sed -i '/${params.USER_ID}/d' ${configFile}"
+                        echo "User ID ${params.USER_ID} removed from ${configFile}"
+
+                        // Step 4: Check the file back in
+                        sh "ci -u ${configFile}"
+                        echo "File checked back in: ${configFile}"
+
+                        // Step 5: Add USER_ID to a new config file
+                        def newConfigFile = "${env.CONFIG_PATH}/new_config_file" // Change to desired target file
+                        sh "co -l ${newConfigFile}"
+                        echo "${params.USER_ID}" >> "${newConfigFile}"
+                        echo "User ID ${params.USER_ID} added to ${newConfigFile}"
+                        sh "ci -u ${newConfigFile}"
+                        echo "File checked back in: ${newConfigFile}"
+                    } catch (Exception e) {
+                        echo "Error encountered: ${e.message}"
+                        echo "Initiating rollback..."
+
+                        // Rollback to backup
+                        sh "mv ${backupFile} ${configFile}"
+                        sh "ci -u ${configFile}"
+                        error "Rolled back to previous version of ${configFile} due to error."
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            echo "Pipeline execution completed."
+        }
+    }
+}
