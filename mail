@@ -1,46 +1,115 @@
-try {
-    // Step 1: Create a backup
-    sh "cp ${configFile} ${backupFile}"
-    echo "Backup created: ${backupFile}"
+Here are some best practices your team can follow while working in the shared Jenkins instance:
 
-    // Step 2: Check out the file for editing
-    sh "co -l ${configFile}"
-    echo "File checked out: ${configFile}"
 
-    // Step 3: Remove USER_ID from the file
-    sh "sed -i '/${params.USER_ID}/d' ${configFile}"
-    echo "User ID ${params.USER_ID} removed from ${configFile}"
+---
 
-    // Step 4: Check the file back in
-    sh "ci -u ${configFile}"
-    echo "File checked back in: ${configFile}"
+Jenkins Best Practices for Team Collaboration
 
-    // Step 5: Add USER_ID to a new config file
-    def newConfigFile = "${env.CONFIG_PATH}/new_config_file" // Change to desired target file
-    sh "co -l ${newConfigFile}"
-    echo "${params.USER_ID}" >> "${newConfigFile}"
-    echo "User ID ${params.USER_ID} added to ${newConfigFile}"
-    sh "ci -u ${newConfigFile}"
-    echo "File checked back in: ${newConfigFile}"
+1. Organize Jobs in Folders
 
-} catch (Exception e) {
-    echo "Error encountered: ${e.message}"
-    echo "Initiating rollback..."
+Use folders to group related jobs by project, team, or environment. This improves navigation and keeps the dashboard clean.
 
-    // Step 6: Restore backup file
-    sh "cp ${backupFile} ${configFile}"
-    echo "Backup restored: ${configFile}"
 
-    // Step 7: Revert to the previous version in RCS
-    def prevVersion = sh(
-        script: "rlog -h ${configFile} | grep 'head:' | awk '{print \$2}'",
-        returnStdout: true
-    ).trim()
-    sh "rcs -o${prevVersion} ${configFile}"
-    echo "RCS version reverted to ${prevVersion} for ${configFile}"
 
-    // Step 8: Re-checkout and validate rollback
-    sh "co -l ${configFile}"
-    echo "File checked out again: ${configFile}"
-    error "Rollback complete. Pipeline stopped due to failure."
-}
+2. Use Descriptive Names
+
+Give meaningful names to jobs, pipelines, and folders that clearly indicate their purpose or the project they belong to.
+
+
+
+3. Parameterize Jobs Carefully
+
+Use parameters to make jobs reusable but define default values and restrict user input wherever possible to avoid errors.
+
+
+
+4. Use Credentials Securely
+
+Store sensitive information like passwords, keys, or tokens in Jenkins credentials and never hardcode them in jobs or scripts.
+
+
+
+5. Version-Control Your Pipelines
+
+Use Jenkinsfile stored in source control (e.g., Git) for pipeline definitions to ensure traceability and easy updates.
+
+
+
+6. Avoid Running Jobs on the Master Node
+
+Always configure jobs to run on agent nodes, not on the master node, to ensure stability and security.
+
+
+
+7. Implement Job Ownership and Access Control
+
+Assign owners to jobs to clarify responsibility and restrict access to jobs and folders based on roles to prevent accidental changes.
+
+
+
+8. Use Build Labels and Tags
+
+Use labels to control where jobs run, and tag builds with meaningful metadata for better tracking and troubleshooting.
+
+
+
+9. Set Retention Policies
+
+Define appropriate retention policies for job builds to balance storage usage and the need for historical build data.
+
+
+
+10. Enable Notifications
+
+Configure email or messaging notifications for build statuses (e.g., success, failure) to keep stakeholders informed.
+
+
+
+11. Monitor Agent Health
+
+Regularly monitor agent nodes for connectivity and resource usage. Set up alerts for offline agents.
+
+
+
+12. Test Changes in Staging First
+
+Test any new jobs or pipeline configurations in a staging environment before deploying them to production.
+
+
+
+13. Document Job Configurations
+
+Use the job description field to document what a job does, including parameters, dependencies, and other key details.
+
+
+
+14. Automate Job Cleanup
+
+Use scripts or plugins to clean up unused jobs, outdated build artifacts, and temporary files periodically.
+
+
+
+15. Review and Audit
+
+Periodically review job configurations and access permissions to ensure compliance with best practices and team standards.
+
+
+
+16. Communicate Changes
+
+Notify the team before making significant changes to shared jobs, plugins, or global configurations to avoid disruptions.
+
+
+
+17. Backup Jenkins Regularly
+
+Ensure regular backups of the Jenkins configuration, plugins, and job data to recover from accidental changes or failures.
+
+
+
+
+
+---
+
+Following these practices will ensure a clean, efficient, and secure Jenkins environment for the whole team.
+
