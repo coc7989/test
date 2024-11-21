@@ -1,7 +1,16 @@
 Abstract
 
-License installation has traditionally been a manual, time-intensive process. A WPL user would log a request via the ITSM platform, detailing whether a license merge or replacement was needed. Flames L2 admins would then retrieve the ticket, consult vendor-specific articles, and spend an average of 20 minutes manually manipulating old and new license files to generate an updated version. Following this, the admin would send a confirmation email to the WPL user, initiating a feedback loop that often spanned 2-3 days. Errors or discrepancies would extend this cycle, causing delays and inefficiencies.
+License installation has traditionally been a manual, time-intensive process. A WPL user would log a request 
+via the ITSM platform, detailing whether a license merge or replacement was needed. Flames L2 admins would then retrieve the ticket, consult 
+vendor-specific articles, and spend an average of 20 minutes manually manipulating old and new license files to generate an updated version. Following this, the admin would send a 
+confirmation email to the WPL user, initiating a feedback loop that often spanned 2-3 days. Errors or discrepancies would extend this cycle, causing delays and inefficiencies.
 
-To address these challenges, we have developed a self-service portal that automates the entire workflow. Users can log in, select the vendor and server, specify the required operation, and upload new license files. Once submitted, the request is logged in a database, and backend processing using Flask automates the file manipulation. A Jenkins pipeline is then triggered to compare the updated file with the original, displaying the differences in the portal for user confirmation. Upon approval, another automated pipeline synchronizes the updated file to the production server, performing post-validation checks to ensure accuracy. Any failure triggers an automated rollback to the previous working license file, ensuring system stability.
+To address these challenges, we 
+have developed a self-service portal that automates the entire workflow.
+Users can log in, select the vendor and server, specify the required operation, and upload new license files. Once submitted, the request is logged in a database, and backend processing 
+using Flask automates the file manipulation. A Jenkins pipeline is then triggered to compare the updated file with the original, displaying the differences in the portal for user confirmation. 
+Upon approval, another automated pipeline synchronizes the updated file to the production server, performing post-validation checks to ensure accuracy. Any failure triggers an automated rollback 
+to the previous working license file, ensuring system stability.
 
-The portal also provides users with access to their submission history, enables admins to view all user requests, and features proactive alerts for critical or expiring licenses. This solution dramatically reduces manual effort, accelerates the license installation process, and improves accuracy and transparency, providing a robust and scalable tool for efficient license management.
+The portal also provides users with access to their submission history, enables admins to view all user requests, and features proactive alerts for critical or expiring licenses. This solution dramatically 
+reduces manual effort, accelerates the license installation process, and improves accuracy and transparency, providing a robust and scalable tool for efficient license management.
