@@ -1,40 +1,73 @@
 import hudson.model.Computer
+import java.text.SimpleDateFormat
 
 node {
     // Define the list of specific nodes to monitor
     def nodesToMonitor = ['node1', 'node2', 'node3']  // Replace with your node names
     def offlineNodes = []
     
+    // Date formatter for offline timestamps
+    def dateFormatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+
     // Check each node in the monitor list
     for (nodeName in nodesToMonitor) {
         def node = Jenkins.instance.getNode(nodeName)?.toComputer()
         if (node == null) {
             echo "Node ${nodeName} does not exist in Jenkins."
         } else if (node.offline) {
-            offlineNodes.add(node.name)
+            def offlineTime = node.getOfflineCause()?.getTimestamp()
+            def offlineReason = node.getOfflineCause()?.getShortDescription() ?: "Unknown reason"
+            
+            def formattedTime = offlineTime ? dateFormatter.format(offlineTime) : "Unknown time"
+            offlineNodes.add([name: node.name, since: formattedTime, reason: offlineReason])
         }
     }
     
     // Send an email if any monitored nodes are offline
     if (!offlineNodes.isEmpty()) {
-        def offlineNodeList = offlineNodes.join(', ')
-        
+        // Build HTML table for the email
+        def tableRows = offlineNodes.collect { node ->
+            """
+            <tr>
+                <td>${node.name}</td>
+                <td>${node.since}</td>
+                <td>${node.reason}</td>
+            </tr>
+            """
+        }.join('\n')
+
+        def emailBody = """
+        <html>
+        <body>
+            <p>Hello Admin,</p>
+            <p>The following monitored Jenkins nodes are currently offline:</p>
+            <table border="1" cellspacing="0" cellpadding="5">
+                <thead>
+                    <tr>
+                        <th>Node Name</th>
+                        <th>Offline Since</th>
+                        <th>Offline Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows}
+                </tbody>
+            </table>
+            <p>Please check the status of these nodes to ensure they are operational.</p>
+            <p>Best regards,</p>
+            <p><b>Jenkins Monitoring System</b></p>
+        </body>
+        </html>
+        """
+
         // Print to console for debugging
-        echo "Offline monitored nodes: ${offlineNodeList}"
-        
+        echo "Offline monitored nodes:\n${offlineNodes}"
+
         // Send email notification
         emailext (
             subject: "Jenkins Alert: Offline Monitored Nodes Detected",
-            body: """Hello Admin,
-            
-The following monitored Jenkins nodes are currently offline:
-${offlineNodeList}
-
-Please check the status of these nodes to ensure they are operational.
-
-Best regards,
-Jenkins Monitoring System
-""",
+            body: emailBody,
+            mimeType: 'text/html',
             to: "admin@gmajl.com"
         )
     } else {
