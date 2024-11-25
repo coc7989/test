@@ -1,77 +1,10 @@
-import hudson.model.Computer
-import java.text.SimpleDateFormat
+Subject: Proposal to Use Jenkins Direct Connection with On-Demand Setup
 
-node {
-    // Define the list of specific nodes to monitor
-    def nodesToMonitor = ['node1', 'node2', 'node3']  // Replace with your node names
-    def offlineNodes = []
-    
-    // Date formatter for offline timestamps
-    def dateFormatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+Dear Team,
 
-    // Check each node in the monitor list
-    for (nodeName in nodesToMonitor) {
-        def node = Jenkins.instance.getNode(nodeName)?.toComputer()
-        if (node == null) {
-            echo "Node ${nodeName} does not exist in Jenkins."
-        } else if (node.offline) {
-            def offlineCause = node.getOfflineCause()
-            def offlineTime = offlineCause?.getTimestamp()
-            def offlineReason = offlineCause?.toString() ?: "Unknown reason" // Fallback to toString() if description is unavailable
-            
-            def formattedTime = offlineTime ? dateFormatter.format(offlineTime) : "Unknown time"
-            offlineNodes.add([name: node.name, since: formattedTime, reason: offlineReason])
-        }
-    }
-    
-    // Send an email if any monitored nodes are offline
-    if (!offlineNodes.isEmpty()) {
-        // Build HTML table for the email
-        def tableRows = offlineNodes.collect { node ->
-            """
-            <tr>
-                <td>${node.name}</td>
-                <td>${node.since}</td>
-                <td>${node.reason}</td>
-            </tr>
-            """
-        }.join('\n')
+After reviewing our Jenkins setup, I propose using a direct connection to the master server (dbdmaster.com) with the on-demand option, instead of adding a hop host. When we used a live direct connection, it maintained minimal overhead to keep the connection alive, utilizing 0.1% to 0.7% CPU and 0.1% memory. However, by switching to the on-demand option, this constant load is eliminated as the agent only connects during active builds. Performance metrics show CPU usage ranges from 0.0% to ~30%, depending on process complexity, and memory usage ranges from 0.0% to 0.1%, making this setup efficient and resource-conscious.
 
-        def emailBody = """
-        <html>
-        <body>
-            <p>Hello Admin,</p>
-            <p>The following monitored Jenkins nodes are currently offline:</p>
-            <table border="1" cellspacing="0" cellpadding="5">
-                <thead>
-                    <tr>
-                        <th>Node Name</th>
-                        <th>Offline Since</th>
-                        <th>Offline Reason</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${tableRows}
-                </tbody>
-            </table>
-            <p>Please check the status of these nodes to ensure they are operational.</p>
-            <p>Best regards,</p>
-            <p><b>Jenkins Monitoring System</b></p>
-        </body>
-        </html>
-        """
+Using a hop host would not reduce the load on dbdmaster.com during builds, as tasks still execute there. It would add unnecessary complexity without any real performance gains. The on-demand setup achieves the same objective—minimizing load during idle times—while keeping the architecture simple and reliable. I recommend continuing with the direct connection using the on-demand configuration. Please share your thoughts.
 
-        // Print to console for debugging
-        echo "Offline monitored nodes:\n${offlineNodes}"
-
-        // Send email notification
-        emailext (
-            subject: "Jenkins Alert: Offline Monitored Nodes Detected",
-            body: emailBody,
-            mimeType: 'text/html',
-            to: "admin@gmajl.com"
-        )
-    } else {
-        echo "All monitored nodes are online."
-    }
-}
+Best regards,
+[Your Name]
