@@ -15,8 +15,9 @@ node {
         if (node == null) {
             echo "Node ${nodeName} does not exist in Jenkins."
         } else if (node.offline) {
-            def offlineTime = node.getOfflineCause()?.getTimestamp()
-            def offlineReason = node.getOfflineCause()?.getShortDescription() ?: "Unknown reason"
+            def offlineCause = node.getOfflineCause()
+            def offlineTime = offlineCause?.getTimestamp()
+            def offlineReason = offlineCause?.toString() ?: "Unknown reason" // Fallback to toString() if description is unavailable
             
             def formattedTime = offlineTime ? dateFormatter.format(offlineTime) : "Unknown time"
             offlineNodes.add([name: node.name, since: formattedTime, reason: offlineReason])
