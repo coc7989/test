@@ -1,16 +1,43 @@
-Abstract
+import hudson.model.Computer
 
-License installation has traditionally been a manual, time-intensive process. A WPL user would log a request 
-via the ITSM platform, detailing whether a license merge or replacement was needed. Flames L2 admins would then retrieve the ticket, consult 
-vendor-specific articles, and spend an average of 20 minutes manually manipulating old and new license files to generate an updated version. Following this, the admin would send a 
-confirmation email to the WPL user, initiating a feedback loop that often spanned 2-3 days. Errors or discrepancies would extend this cycle, causing delays and inefficiencies.
+node {
+    // Define the list of specific nodes to monitor
+    def nodesToMonitor = ['node1', 'node2', 'node3']  // Replace with your node names
+    def offlineNodes = []
+    
+    // Check each node in the monitor list
+    for (nodeName in nodesToMonitor) {
+        def node = Jenkins.instance.getNode(nodeName)?.toComputer()
+        if (node == null) {
+            echo "Node ${nodeName} does not exist in Jenkins."
+        } else if (node.offline) {
+            offlineNodes.add(node.name)
+        }
+    }
+    
+    // Send an email if any monitored nodes are offline
+    if (!offlineNodes.isEmpty()) {
+        def offlineNodeList = offlineNodes.join(', ')
+        
+        // Print to console for debugging
+        echo "Offline monitored nodes: ${offlineNodeList}"
+        
+        // Send email notification
+        emailext (
+            subject: "Jenkins Alert: Offline Monitored Nodes Detected",
+            body: """Hello Admin,
+            
+The following monitored Jenkins nodes are currently offline:
+${offlineNodeList}
 
-To address these challenges, we 
-have developed a self-service portal that automates the entire workflow.
-Users can log in, select the vendor and server, specify the required operation, and upload new license files. Once submitted, the request is logged in a database, and backend processing 
-using Flask automates the file manipulation. A Jenkins pipeline is then triggered to compare the updated file with the original, displaying the differences in the portal for user confirmation. 
-Upon approval, another automated pipeline synchronizes the updated file to the production server, performing post-validation checks to ensure accuracy. Any failure triggers an automated rollback 
-to the previous working license file, ensuring system stability.
+Please check the status of these nodes to ensure they are operational.
 
-The portal also provides users with access to their submission history, enables admins to view all user requests, and features proactive alerts for critical or expiring licenses. This solution dramatically 
-reduces manual effort, accelerates the license installation process, and improves accuracy and transparency, providing a robust and scalable tool for efficient license management.
+Best regards,
+Jenkins Monitoring System
+""",
+            to: "admin@gmajl.com"
+        )
+    } else {
+        echo "All monitored nodes are online."
+    }
+}
