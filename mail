@@ -1,5 +1,10 @@
-License installation was a manual, time-intensive process, requiring WPL users to log requests through ITSM. Flames L2 admins would retrieve tickets, consult vendor-specific guidelines, and spend ~20 minutes manually updating license files. This process often involved 2–3 days of back-and-forth emails to address errors, causing inefficiencies.
-
-To solve these challenges, a self-service portal now automates the workflow. Users log in, choose the vendor and server, specify operations, and upload license files. Flask-based backend processing manipulates the files, while a Jenkins pipeline compares updates with originals, displaying differences for user confirmation. Approved updates are synchronized to production, with post-validation checks ensuring accuracy. Failures trigger automated rollbacks to the last working file, maintaining system stability.
-
-The portal offers submission history for users, request tracking for admins, and proactive alerts for critical or expiring licenses. It also includes a Master List dashboard, feature search, and charts for insightful visualizations. This automation significantly reduces manual effort, accelerates installation, and enhances transparency, providing a scalable solution for efficient license management.
+stage('Debug Flask Container') {
+    steps {
+        script {
+            sh '''
+            docker exec ${DEV_IMAGE_NAME} ls -la /app
+            docker exec ${DEV_IMAGE_NAME} env
+            '''
+        }
+    }
+}
