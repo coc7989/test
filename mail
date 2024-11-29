@@ -1,54 +1,5 @@
-pipeline {
-    agent any
+License installation was a manual, time-intensive process, requiring WPL users to log requests through ITSM. Flames L2 admins would retrieve tickets, consult vendor-specific guidelines, and spend ~20 minutes manually updating license files. This process often involved 2–3 days of back-and-forth emails to address errors, causing inefficiencies.
 
-    stages {
-        stage('Build Frontend') {
-            steps {
-                script {
-                    // Build the React frontend Docker image
-                    sh '''
-                    docker build -t react-frontend ./react-app
-                    '''
-                }
-            }
-        }
+To solve these challenges, a self-service portal now automates the workflow. Users log in, choose the vendor and server, specify operations, and upload license files. Flask-based backend processing manipulates the files, while a Jenkins pipeline compares updates with originals, displaying differences for user confirmation. Approved updates are synchronized to production, with post-validation checks ensuring accuracy. Failures trigger automated rollbacks to the last working file, maintaining system stability.
 
-        stage('Run Frontend Container with Hot Reload') {
-            steps {
-                script {
-                    // Run the React frontend container with hot reload
-                    sh '''
-                    docker run -d -p 3000:3000 \
-                    -v $WORKSPACE/react-app:/usr/src/app \
-                    -v /usr/src/app/node_modules \
-                    react-frontend
-                    '''
-                }
-            }
-        }
-
-        stage('Build Backend') {
-            steps {
-                script {
-                    // Build the Flask backend Docker image
-                    sh '''
-                    docker build -t flask-backend ./flaskapp
-                    '''
-                }
-            }
-        }
-
-        stage('Run Backend Container with Hot Reload') {
-            steps {
-                script {
-                    // Run the Flask backend container with hot reload
-                    sh '''
-                    docker run -d -p 5000:5000 \
-                    -v $WORKSPACE/flaskapp:/usr/src/app \
-                    flask-backend
-                    '''
-                }
-            }
-        }
-    }
-}
+The portal offers submission history for users, request tracking for admins, and proactive alerts for critical or expiring licenses. It also includes a Master List dashboard, feature search, and charts for insightful visualizations. This automation significantly reduces manual effort, accelerates installation, and enhances transparency, providing a scalable solution for efficient license management.
