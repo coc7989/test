@@ -1,10 +1,85 @@
-stage('Debug Flask Container') {
-    steps {
-        script {
-            sh '''
-            docker exec ${DEV_IMAGE_NAME} ls -la /app
-            docker exec ${DEV_IMAGE_NAME} env
-            '''
+pipeline {
+    agent any
+
+    environment {
+        CONFIG_PATH = '/tmp/groups'
+        PRIORITY_FILE = "${env.CONFIG_PATH}/priority_file" // Path to priority file
+        LSB_FILE = "${env.CONFIG_PATH}/lsb_file"          // Path to LSB file
+        DEFAULT_SLA_POOL = 35                             // Default SLA pool value
+    }
+
+    parameters {
+        booleanParam(name: 'LSB_OPTION', defaultValue: false, description: 'Enable LSB option')
+        string(name: 'SLA_POOL', description: 'Slot Pool to allocate (Only if LSB option is checked)', defaultValue: '35')
+        string(name: 'USER_IDS', description: 'Enter comma-separated User IDs')
+    }
+
+    stages {
+        stage('Validate Parameters') {
+            steps {
+                script {
+                    // Validate SLA_POOL parameter if LSB_OPTION is true
+                    if (params.LSB_OPTION) {
+                        try {
+                            def slaPoolValue = Integer.parseInt(params.SLA_POOL)
+                            if (slaPoolValue <= 0) {
+                                error "Invalid SLA Pool value: ${params.SLA_POOL}. It must be a positive number."
+                            }
+                        } catch (Exception e) {
+                            error "Invalid SLA Pool value: ${params.SLA_POOL}. It must be a number."
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Process Priority File') {
+            steps {
+                script {
+                    def userIds = params.USER_IDS.split(',').collect { it.trim() }
+                    echo "Adding User IDs to Priority File: ${userIds}"
+
+                    // Check out the priority file
+                    sh "co -reserved ${PRIORITY_FILE}"
+
+                    // Add each user ID on a new line
+                    userIds.each { userId ->
+                        echo "Adding User ID: ${userId} to Priority File"
+                        sh "echo '${userId}' >> ${PRIORITY_FILE}"
+                    }
+
+                    // Check in the priority file
+                    sh "ci -c 'Added User IDs: ${userIds}' ${PRIORITY_FILE}"
+                    echo "Priority File updated successfully."
+                }
+            }
+        }
+
+        stage('Process LSB File (if applicable)') {
+            when {
+                expression { return params.LSB_OPTION }
+            }
+            steps {
+                script {
+                    def userIds = params.USER_IDS.split(',').collect { it.trim() }
+                    def slaPool = params.SLA_POOL ?: env.DEFAULT_SLA_POOL
+                    echo "Adding User IDs to LSB File: ${userIds} with SLA Pool: ${slaPool}"
+
+                    // Format the user IDs for the LSB file
+                    def formattedEntry = "(${userIds.join(',')}) - ${slaPool}"
+
+                    // Check out the LSB file
+                    sh "co -reserved ${LSB_FILE}"
+
+                    // Add the entry to the LSB file
+                    echo "Adding entry to LSB File: ${formattedEntry}"
+                    sh "echo '${formattedEntry}' >> ${LSB_FILE}"
+
+                    // Check in the LSB file
+                    sh "ci -c 'Added entry: ${formattedEntry}' ${LSB_FILE}"
+                    echo "LSB File updated successfully."
+                }
+            }
         }
     }
 }
