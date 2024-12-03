@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { Navigate, useRoutes, Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route } from 'react-router-dom';
 import DashboardLayout from './layouts/dashboard';
 import { ClusterContext } from './NotificationContext';
 import DashboardAppPage from './pages/DashboardAppPage';
@@ -39,39 +39,26 @@ export default function Router() {
     return <div>Loading...</div>;
   }
 
-  // Use routes dynamically based on the `isAdmin` status
-  const routes = useRoutes([
-    {
-      path: '/dashboard',
-      element: <DashboardLayout />,
-      children: [
-        {
-          path: 'app',
-          element: isAdmin ? <AdminDashboard /> : <DashboardAppPage />,
-        },
-      ],
-    },
-    {
-      path: '/history',
-      element: <DashboardLayout />,
-      children: [
-        { element: <Navigate to="/history/app" />, index: true },
-        { path: 'app', element: <LoginPage /> },
-      ],
-    },
-    {
-      element: <SimpleLayout />,
-      children: [
-        { element: <Navigate to="/dashboard/app" />, index: true },
-        { path: '404', element: <Page404 /> },
-        { path: '*', element: <Navigate to="/404" /> },
-      ],
-    },
-    {
-      path: '*',
-      element: <Navigate to="/404" replace />,
-    },
-  ]);
+  return (
+    <Routes>
+      {/* Main Dashboard Layout */}
+      <Route path="/" element={<DashboardLayout />}>
+        {/* Default route */}
+        <Route
+          index
+          element={isAdmin ? <AdminDashboard /> : <DashboardAppPage />}
+        />
 
-  return routes;
+        {/* Other routes */}
+        <Route path="/access" element={<QueueAccessForm />} />
+        <Route path="/slot" element={<SlotRequest />} />
+        <Route path="/adminqueue" element={<AdminQueue />} />
+        <Route path="/query" element={<QueryBuild />} />
+        <Route path="/demo" element={<Auto />} />
+
+        {/* 404 Fallback */}
+        <Route path="*" element={<Page404 />} />
+      </Route>
+    </Routes>
+  );
 }
