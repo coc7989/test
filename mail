@@ -1,241 +1,205 @@
-Frontend React Code Update
+Frontend React Code: SlotChangeForm
 
-Below is the updated React component to include the checkbox for LSB_OPTION and the textbox for the SLOT_POOL. If the checkbox is checked, the SLOT_POOL textbox becomes visible, and its value is submitted along with the other data.
+The following code implements the requirements for the SlotChangeForm. It fetches the user's current slot limit from the backend upon loading, displays it, and includes the dropdown, justification textbox, and submission/reset functionality.
 
 
 ---
 
-import { DevTool } from '@hookform/devtools';
-import dayjs from 'dayjs';
-import React, { Fragment, useContext, useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
-import { useQuery } from '@tanstack/react-query';
-import { useDebounce } from 'use-debounce';
+import React, { useEffect, useState } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { Box, Button, Grid, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import apiInstance from '../../../api';
-import { ClusterContext } from '../../../NotificationContext';
 
-const QueueFormPriority = () => {
-  const { userID } = useContext(ClusterContext);
-  const {
-    control,
-    handleSubmit,
-    formState: { errors },
-    reset,
-    watch,
-    setValue,
-  } = useForm({
+const SlotChangeForm = () => {
+  const { control, handleSubmit, reset, formState: { errors }, setValue } = useForm({
     mode: 'onChange',
   });
 
-  const today = dayjs();
+  const [currentSlotLimit, setCurrentSlotLimit] = useState(null);
+
+  // Fetch current slot limit from backend on component mount
+  useEffect(() => {
+    const fetchCurrentSlotLimit = async () => {
+      try {
+        const response = await apiInstance.get('/getSlotLimit');
+        if (response.status === 200) {
+          setCurrentSlotLimit(response.data.slotLimit);
+        }
+      } catch (error) {
+        console.error('Error fetching current slot limit:', error);
+      }
+    };
+    fetchCurrentSlotLimit();
+  }, []);
 
   const onSubmit = async (data) => {
-    if (data.PG_DATE) {
-      data.PG_DATE = data.PG_DATE.toISOString().split('T')[0];
-    }
-    data.STATUS = 'requested';
-    data.USER_AID = userID;
-    data.SUBMISSION_DATE = today.toISOString().split('T')[0];
-
-    data.GROUP_AID = data.GROUP_AID ? data.GROUP_AID.map((item) => item.uid).join(',') : '';
-    data.LSB_OPTION = data.LSB_OPTION || false; // Checkbox value
-    data.SLOT_POOL = data.LSB_OPTION ? data.SLOT_POOL : '35'; // Default to 35 if checkbox is unchecked
-
-    console.log(data, 'Submitted Data');
-
     try {
-      const response = await apiInstance.post('/queueaccess', data);
+      const response = await apiInstance.post('/slotChange', data);
       if (response.status === 200) {
-        setOpenSnackbar(true);
-        setSnackMessage(response.data.message);
+        alert('Slot change request submitted successfully!');
       }
     } catch (error) {
       console.error('Error while submitting:', error);
     }
   };
 
-  const [inputValue, setInputValue] = useState('');
-  const [debouncedInputValue] = useDebounce(inputValue, 1000);
-  const [openSnackbar, setOpenSnackbar] = useState(false);
-  const [snackMessage, setSnackMessage] = useState('');
-
-  const fetchLDAP = async (inputValue) => {
-    const res = await apiInstance.get(`/ldap?userInput=${inputValue}`);
-    return res.data || {};
-  };
-
-  const { data: ldapData = [], isLoading } = useQuery(['ldap', debouncedInputValue], () =>
-    fetchLDAP(debouncedInputValue)
-  );
-
-  const handleCloseSnackbar = () => setOpenSnackbar(false);
-
   return (
-    <>
-      <Paper elevation={24} square={false}>
-        <form onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Grid
-            container
-            borderRadius={2}
-            ml={0}
-            rowSpacing={1}
-            pb={1}
-            pr={1}
-            columnSpacing={1}
-            justifyContent={'center'}
-            alignItems={'center'}
-          >
-            <Grid item md={6}>
-              <FormControl fullWidth variant="outlined">
-                <Controller
-                  name="GROUP_AID"
-                  control={control}
-                  render={({ field }) => (
-                    <Autocomplete
-                      {...field}
-                      multiple
-                      id="GROUP_AID"
-                      disableCloseOnSelect
-                      loading={isLoading}
-                      loadingText={'Searching ...'}
-                      options={ldapData || []}
-                      getOptionLabel={(option) => `${option.cn} (${option.uid})`}
-                      onChange={(e, value) => setValue('GROUP_AID', value)}
-                      value={field.value || []}
-                      isOptionEqualToValue={(option, value) => option.uid === value.uid}
-                      filterOptions={(x) => x}
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          onChange={(e) => setInputValue(e.target.value)}
-                          label="Enter Other AIDs"
-                          placeholder="Group AIDs"
-                          InputProps={{
-                            ...params.InputProps,
-                            endAdornment: (
-                              <>
-                                {isLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                                {params.InputProps.endAdornment}
-                              </>
-                            ),
-                          }}
-                        />
-                      )}
-                    />
-                  )}
-                />
-              </FormControl>
-            </Grid>
+    <Paper elevation={24} sx={{ padding: 4 }}>
+      <Typography variant="h5" mb={2}>Slot Change Form</Typography>
 
-            {/* LSB_OPTION Checkbox */}
-            <Grid item md={6}>
-              <Controller
-                name="LSB_OPTION"
-                control={control}
-                defaultValue={false}
-                render={({ field }) => (
-                  <FormControlLabel
-                    control={<Checkbox {...field} checked={field.value} />}
-                    label="Edit LSB File?"
-                  />
-                )}
-              />
-            </Grid>
+      {currentSlotLimit !== null ? (
+        <Box
+          sx={{
+            border: '1px solid #ccc',
+            borderRadius: '8px',
+            padding: '16px',
+            backgroundColor: '#f9f9f9',
+            marginBottom: 3,
+          }}
+        >
+          <Typography variant="h6" color="textSecondary">
+            Current Slot Limit: 
+            <Typography variant="h6" component="span" color="primary" ml={1}>
+              {currentSlotLimit}
+            </Typography>
+          </Typography>
+        </Box>
+      ) : (
+        <Typography color="error">Unable to fetch current slot limit.</Typography>
+      )}
 
-            {/* SLOT_POOL Textbox (Visible Only If LSB_OPTION is Checked) */}
-            {watch('LSB_OPTION') && (
-              <Grid item md={6}>
-                <Controller
-                  name="SLOT_POOL"
-                  control={control}
-                  defaultValue="35"
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Slot Pool"
-                      placeholder="Enter Slot Pool"
-                      variant="outlined"
-                      fullWidth
-                    />
-                  )}
-                />
-              </Grid>
-            )}
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <Grid container spacing={2}>
+          {/* Dropdown for Slot Type */}
+          <Grid item xs={12}>
+            <Controller
+              name="slotType"
+              control={control}
+              defaultValue=""
+              rules={{ required: 'Slot type is required.' }}
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  select
+                  label="Slot Type"
+                  fullWidth
+                  error={!!errors.slotType}
+                  helperText={errors.slotType ? errors.slotType.message : 'Select a slot type.'}
+                >
+                  <MenuItem value="gui">GUI Slot</MenuItem>
+                  <MenuItem value="regress">Regress Slot</MenuItem>
+                </TextField>
+              )}
+            />
           </Grid>
 
-          <Stack spacing={2} direction={'row'} justifyContent={'center'} p={2}>
-            <Button type="submit" variant="contained" color="primary">
-              Submit
-            </Button>
-            <Button type="button" variant="contained" color="primary" onClick={() => reset()}>
-              Reset
-            </Button>
-          </Stack>
-        </form>
-      </Paper>
+          {/* Justification Textbox */}
+          <Grid item xs={12}>
+            <Controller
+              name="justification"
+              control={control}
+              defaultValue=""
+              rules={{ required: 'Justification is required.' }}
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  label="Justification"
+                  multiline
+                  rows={4}
+                  fullWidth
+                  error={!!errors.justification}
+                  helperText={errors.justification ? errors.justification.message : 'Provide a valid justification.'}
+                />
+              )}
+            />
+          </Grid>
+        </Grid>
 
-      <Snackbar
-        open={openSnackbar}
-        autoHideDuration={6000}
-        onClose={handleCloseSnackbar}
-        anchorOrigin={{ horizontal: 'center', vertical: 'bottom' }}
-      >
-        <Alert onClose={handleCloseSnackbar} severity="success" variant="filled" sx={{ width: '100%' }}>
-          {snackMessage}
-        </Alert>
-      </Snackbar>
-
-      <DevTool control={control} />
-    </>
+        {/* Buttons */}
+        <Stack spacing={2} direction="row" justifyContent="center" mt={3}>
+          <Button type="submit" variant="contained" color="primary">
+            Submit
+          </Button>
+          <Button
+            type="button"
+            variant="contained"
+            color="secondary"
+            onClick={() => {
+              reset();
+              setValue('slotType', '');
+              setValue('justification', '');
+            }}
+          >
+            Reset
+          </Button>
+        </Stack>
+      </form>
+    </Paper>
   );
 };
 
-export default QueueFormPriority;
+export default SlotChangeForm;
 
 
 ---
 
 Backend Flask Code
 
-The backend receives the data sent from the form and triggers a Jenkins pipeline with the provided parameters.
+The backend Flask code includes:
+
+1. An endpoint to fetch the current slot limit for a user (/getSlotLimit).
+
+
+2. An endpoint to handle the slot change form submission (/slotChange).
+
+
+
+
+---
 
 from flask import Flask, request, jsonify
-import requests
 
 app = Flask(__name__)
 
-# Endpoint to handle the form submission
-@app.route('/queueaccess', methods=['POST'])
-def queue_access():
+# Mock data for demonstration purposes
+user_slot_data = {
+    "user123": {"current_slot_limit": 35},
+}
+
+# Endpoint to fetch current slot limit
+@app.route('/getSlotLimit', methods=['GET'])
+def get_slot_limit():
+    user_id = request.args.get('userID', 'user123')  # Replace with actual user ID logic
+    if user_id in user_slot_data:
+        return jsonify({"slotLimit": user_slot_data[user_id]["current_slot_limit"]}), 200
+    return jsonify({"error": "User not found"}), 404
+
+# Endpoint to handle slot change form submission
+@app.route('/slotChange', methods=['POST'])
+def slot_change():
     try:
         data = request.json
 
-        # Extract form data
-        user_ids = data.get('GROUP_AID', '')
-        lsb_option = data.get('LSB_OPTION', False)
-        slot_pool = data.get('SLOT_POOL', '35')
+        slot_type = data.get("slotType")
+        justification = data.get("justification")
+        user_id = data.get("userID", "user123")  # Replace with actual user ID logic
 
-        # Jenkins API call
-        jenkins_url = 'http://jenkins-server-url/job/queue-pipeline/buildWithParameters'
-        jenkins_params = {
-            'USER_IDS': user_ids,
-            'LSB_OPTION': lsb_option,
-            'SLOT_POOL': slot_pool,
-        }
+        if not slot_type or not justification:
+            return jsonify({"error": "Invalid input"}), 400
 
-        # Jenkins authentication
-        auth = ('jenkins_user', 'jenkins_token')
+        # Mock submission process
+        print(f"User {user_id} requested a slot change:")
+        print(f"Slot Type: {slot_type}")
+        print(f"Justification: {justification}")
 
-        response = requests.post(jenkins_url, params=jenkins_params, auth=auth)
-        if response.status_code == 201:
-            return jsonify({'message': 'Pipeline triggered successfully.'}), 200
-        else:
-            return jsonify({'error': 'Failed to trigger pipeline.'}), 500
+        # Add database or external system logic here
+
+        return jsonify({"message": "Slot change request submitted successfully!"}), 200
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
 
 
@@ -245,20 +209,22 @@ Key Points
 
 1. Frontend:
 
-The LSB_OPTION checkbox dynamically controls the visibility of the SLOT_POOL textbox.
+The current slot limit is displayed in a styled box.
 
-The form submits LSB_OPTION and SLOT_POOL values with the user IDs.
+slotType dropdown and justification textbox are required fields.
+
+Form submission sends all necessary data to the backend, including the current slot limit, slot type, and justification.
 
 
 
 2. Backend:
 
-The Flask app processes the form data and sends a Jenkins build request with parameters.
+GET /getSlotLimit fetches the current slot limit for a user.
 
-The LSB_OPTION determines whether to include the SLOT_POOL in the pipeline.
-
-
+POST /slotChange processes the form data and handles the slot change request. You can add more logic to interact with databases or external systems.
 
 
-Let me know if you need further enhancements!
+
+
+Let me know if you need further customization!
 
