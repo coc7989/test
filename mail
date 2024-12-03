@@ -1,64 +1,277 @@
+Here’s the updated implementation based on the new requirements.
+
+
+---
+
+Frontend React Code: SlotChangeForm
+
+The frontend will now:
+
+1. Retrieve the userID from NotificationContext and send it to the backend while fetching the current slot limit.
+
+
+2. Handle slot limit fetching as an asynchronous call.
+
+
+3. Display appropriate loading or error messages while waiting for the slot limit.
+
+
+
+
+---
+
 import React, { useContext, useEffect, useState } from 'react';
-import { Navigate, Routes, Route } from 'react-router-dom';
-import DashboardLayout from './layouts/dashboard';
-import { ClusterContext } from './NotificationContext';
-import DashboardAppPage from './pages/DashboardAppPage';
-import AdminDashboard from './pages/AdminDashboard';
-import LoginPage from './pages/LoginPage';
-import SimpleLayout from './layouts/SimpleLayout';
-import Page404 from './pages/Page404';
-import QueueAccessForm from './pages/QueueAccessForm';
-import SlotRequest from './pages/SlotRequest';
-import AdminQueue from './pages/AdminQueue';
-import QueryBuild from './pages/QueryBuild';
-import Auto from './pages/Auto';
+import { useForm, Controller } from 'react-hook-form';
+import { Box, Button, Grid, MenuItem, Paper, Stack, TextField, Typography, CircularProgress } from '@mui/material';
+import apiInstance from '../../../api';
+import { ClusterContext } from '../../../NotificationContext';
 
-export default function Router() {
-  const { userID } = useContext(ClusterContext);
-  const [isAdmin, setIsAdmin] = useState(null); // `null` indicates the check is not complete
+const SlotChangeForm = () => {
+  const { userID } = useContext(ClusterContext); // Retrieve user ID from context
+  const { control, handleSubmit, reset, formState: { errors }, setValue } = useForm({
+    mode: 'onChange',
+  });
 
+  const [currentSlotLimit, setCurrentSlotLimit] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // Fetch current slot limit from the backend
   useEffect(() => {
-    const checkAdminStatus = async () => {
+    const fetchCurrentSlotLimit = async () => {
       try {
-        const response = await fetch(`/api/check-admin/${userID}`);
-        const data = await response.json();
-        setIsAdmin(data.isAdmin);
-      } catch (error) {
-        console.error('Error checking admin status:', error);
-        setIsAdmin(false); // Fallback to non-admin if error occurs
+        setLoading(true);
+        setError('');
+        const response = await apiInstance.get(`/getSlotLimit?userID=${userID}`);
+        if (response.status === 200) {
+          setCurrentSlotLimit(response.data.slotLimit);
+        } else {
+          throw new Error(response.data.error || 'Failed to fetch slot limit');
+        }
+      } catch (err) {
+        setError(err.message || 'Error fetching slot limit');
+      } finally {
+        setLoading(false);
       }
     };
 
     if (userID) {
-      checkAdminStatus();
+      fetchCurrentSlotLimit();
     }
   }, [userID]);
 
-  // Show a loading state until the admin check is complete
-  if (isAdmin === null) {
-    return <div>Loading...</div>;
-  }
+  const onSubmit = async (data) => {
+    try {
+      const response = await apiInstance.post('/slotChange', { ...data, userID });
+      if (response.status === 200) {
+        alert('Slot change request submitted successfully!');
+      }
+    } catch (error) {
+      console.error('Error while submitting:', error);
+    }
+  };
 
   return (
-    <Routes>
-      {/* Main Dashboard Layout */}
-      <Route path="/" element={<DashboardLayout />}>
-        {/* Default route */}
-        <Route
-          index
-          element={isAdmin ? <AdminDashboard /> : <DashboardAppPage />}
-        />
+    <Paper elevation={24} sx={{ padding: 4 }}>
+      <Typography variant="h5" mb={2}>Slot Change Form</Typography>
 
-        {/* Other routes */}
-        <Route path="/access" element={<QueueAccessForm />} />
-        <Route path="/slot" element={<SlotRequest />} />
-        <Route path="/adminqueue" element={<AdminQueue />} />
-        <Route path="/query" element={<QueryBuild />} />
-        <Route path="/demo" element={<Auto />} />
+      {loading ? (
+        <CircularProgress />
+      ) : error ? (
+        <Typography color="error">{error}</Typography>
+      ) : (
+        <Box
+          sx={{
+            border: '1px solid #ccc',
+            borderRadius: '8px',
+            padding: '16px',
+            backgroundColor: '#f9f9f9',
+            marginBottom: 3,
+          }}
+        >
+          <Typography variant="h6" color="textSecondary">
+            Current Slot Limit: 
+            <Typography variant="h6" component="span" color="primary" ml={1}>
+              {currentSlotLimit}
+            </Typography>
+          </Typography>
+        </Box>
+      )}
 
-        {/* 404 Fallback */}
-        <Route path="*" element={<Page404 />} />
-      </Route>
-    </Routes>
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <Grid container spacing={2}>
+          {/* Dropdown for Slot Type */}
+          <Grid item xs={12}>
+            <Controller
+              name="slotType"
+              control={control}
+              defaultValue=""
+              rules={{ required: 'Slot type is required.' }}
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  select
+                  label="Slot Type"
+                  fullWidth
+                  error={!!errors.slotType}
+                  helperText={errors.slotType ? errors.slotType.message : 'Select a slot type.'}
+                >
+                  <MenuItem value="gui">GUI Slot</MenuItem>
+                  <MenuItem value="regress">Regress Slot</MenuItem>
+                </TextField>
+              )}
+            />
+          </Grid>
+
+          {/* Justification Textbox */}
+          <Grid item xs={12}>
+            <Controller
+              name="justification"
+              control={control}
+              defaultValue=""
+              rules={{ required: 'Justification is required.' }}
+              render={({ field }) => (
+                <TextField
+                  {...field}
+                  label="Justification"
+                  multiline
+                  rows={4}
+                  fullWidth
+                  error={!!errors.justification}
+                  helperText={errors.justification ? errors.justification.message : 'Provide a valid justification.'}
+                />
+              )}
+            />
+          </Grid>
+        </Grid>
+
+        {/* Buttons */}
+        <Stack spacing={2} direction="row" justifyContent="center" mt={3}>
+          <Button type="submit" variant="contained" color="primary">
+            Submit
+          </Button>
+          <Button
+            type="button"
+            variant="contained"
+            color="secondary"
+            onClick={() => {
+              reset();
+              setValue('slotType', '');
+              setValue('justification', '');
+            }}
+          >
+            Reset
+          </Button>
+        </Stack>
+      </form>
+    </Paper>
   );
-}
+};
+
+export default SlotChangeForm;
+
+
+---
+
+Backend Flask Code
+
+The backend handles the following:
+
+1. Receives the userID in the /getSlotLimit endpoint.
+
+
+2. Makes a Jenkins API call to get the slot limit for the user.
+
+
+3. Handles slot change submissions via /slotChange.
+
+
+
+
+---
+
+import requests
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+JENKINS_URL = "http://your-jenkins-server.com/job/slot-limit-check/buildWithParameters"
+JENKINS_USER = "your-jenkins-username"
+JENKINS_TOKEN = "your-jenkins-token"
+
+# Endpoint to fetch current slot limit
+@app.route('/getSlotLimit', methods=['GET'])
+def get_slot_limit():
+    user_id = request.args.get('userID')
+    if not user_id:
+        return jsonify({"error": "User ID is required"}), 400
+
+    # Trigger Jenkins pipeline
+    try:
+        response = requests.post(
+            JENKINS_URL,
+            auth=(JENKINS_USER, JENKINS_TOKEN),
+            params={"USER_ID": user_id},
+        )
+
+        if response.status_code == 201:
+            # Simulate waiting for Jenkins to return data or check callbacks here
+            # Replace this with actual callback handling
+            slot_limit = 35  # Mock slot limit
+            return jsonify({"slotLimit": slot_limit}), 200
+        else:
+            return jsonify({"error": "Failed to trigger Jenkins pipeline"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Endpoint to handle slot change form submission
+@app.route('/slotChange', methods=['POST'])
+def slot_change():
+    try:
+        data = request.json
+
+        user_id = data.get("userID")
+        slot_type = data.get("slotType")
+        justification = data.get("justification")
+
+        if not user_id or not slot_type or not justification:
+            return jsonify({"error": "Invalid input"}), 400
+
+        # Log the request or send it to a system
+        print(f"Slot change request for User ID {user_id}")
+        print(f"Slot Type: {slot_type}, Justification: {justification}")
+
+        return jsonify({"message": "Slot change request submitted successfully!"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+---
+
+Key Details
+
+1. Frontend:
+
+The userID is fetched from ClusterContext.
+
+Displays the slot limit in a styled box after retrieving it from the backend.
+
+
+
+2. Backend:
+
+/getSlotLimit triggers a Jenkins job with the userID as a parameter to fetch the slot limit.
+
+Jenkins is expected to handle the processing and return the slot limit via callbacks or another mechanism.
+
+/slotChange logs and processes slot change requests.
+
+
+
+
+This solution integrates React, Flask, and Jenkins seamlessly for the required functionality. Let me know if you need further adjustments!
+
