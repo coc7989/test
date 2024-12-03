@@ -1,230 +1,77 @@
-Frontend React Code: SlotChangeForm
+import React, { useContext, useEffect, useState } from 'react';
+import { Navigate, useRoutes, Routes, Route } from 'react-router-dom';
+import DashboardLayout from './layouts/dashboard';
+import { ClusterContext } from './NotificationContext';
+import DashboardAppPage from './pages/DashboardAppPage';
+import AdminDashboard from './pages/AdminDashboard';
+import LoginPage from './pages/LoginPage';
+import SimpleLayout from './layouts/SimpleLayout';
+import Page404 from './pages/Page404';
+import QueueAccessForm from './pages/QueueAccessForm';
+import SlotRequest from './pages/SlotRequest';
+import AdminQueue from './pages/AdminQueue';
+import QueryBuild from './pages/QueryBuild';
+import Auto from './pages/Auto';
 
-The following code implements the requirements for the SlotChangeForm. It fetches the user's current slot limit from the backend upon loading, displays it, and includes the dropdown, justification textbox, and submission/reset functionality.
+export default function Router() {
+  const { userID } = useContext(ClusterContext);
+  const [isAdmin, setIsAdmin] = useState(null); // `null` indicates the check is not complete
 
-
----
-
-import React, { useEffect, useState } from 'react';
-import { useForm, Controller } from 'react-hook-form';
-import { Box, Button, Grid, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
-import apiInstance from '../../../api';
-
-const SlotChangeForm = () => {
-  const { control, handleSubmit, reset, formState: { errors }, setValue } = useForm({
-    mode: 'onChange',
-  });
-
-  const [currentSlotLimit, setCurrentSlotLimit] = useState(null);
-
-  // Fetch current slot limit from backend on component mount
   useEffect(() => {
-    const fetchCurrentSlotLimit = async () => {
+    const checkAdminStatus = async () => {
       try {
-        const response = await apiInstance.get('/getSlotLimit');
-        if (response.status === 200) {
-          setCurrentSlotLimit(response.data.slotLimit);
-        }
+        const response = await fetch(`/api/check-admin/${userID}`);
+        const data = await response.json();
+        setIsAdmin(data.isAdmin);
       } catch (error) {
-        console.error('Error fetching current slot limit:', error);
+        console.error('Error checking admin status:', error);
+        setIsAdmin(false); // Fallback to non-admin if error occurs
       }
     };
-    fetchCurrentSlotLimit();
-  }, []);
 
-  const onSubmit = async (data) => {
-    try {
-      const response = await apiInstance.post('/slotChange', data);
-      if (response.status === 200) {
-        alert('Slot change request submitted successfully!');
-      }
-    } catch (error) {
-      console.error('Error while submitting:', error);
+    if (userID) {
+      checkAdminStatus();
     }
-  };
+  }, [userID]);
 
-  return (
-    <Paper elevation={24} sx={{ padding: 4 }}>
-      <Typography variant="h5" mb={2}>Slot Change Form</Typography>
+  // Show a loading state until the admin check is complete
+  if (isAdmin === null) {
+    return <div>Loading...</div>;
+  }
 
-      {currentSlotLimit !== null ? (
-        <Box
-          sx={{
-            border: '1px solid #ccc',
-            borderRadius: '8px',
-            padding: '16px',
-            backgroundColor: '#f9f9f9',
-            marginBottom: 3,
-          }}
-        >
-          <Typography variant="h6" color="textSecondary">
-            Current Slot Limit: 
-            <Typography variant="h6" component="span" color="primary" ml={1}>
-              {currentSlotLimit}
-            </Typography>
-          </Typography>
-        </Box>
-      ) : (
-        <Typography color="error">Unable to fetch current slot limit.</Typography>
-      )}
+  // Use routes dynamically based on the `isAdmin` status
+  const routes = useRoutes([
+    {
+      path: '/dashboard',
+      element: <DashboardLayout />,
+      children: [
+        {
+          path: 'app',
+          element: isAdmin ? <AdminDashboard /> : <DashboardAppPage />,
+        },
+      ],
+    },
+    {
+      path: '/history',
+      element: <DashboardLayout />,
+      children: [
+        { element: <Navigate to="/history/app" />, index: true },
+        { path: 'app', element: <LoginPage /> },
+      ],
+    },
+    {
+      element: <SimpleLayout />,
+      children: [
+        { element: <Navigate to="/dashboard/app" />, index: true },
+        { path: '404', element: <Page404 /> },
+        { path: '*', element: <Navigate to="/404" /> },
+      ],
+    },
+    {
+      path: '*',
+      element: <Navigate to="/404" replace />,
+    },
+  ]);
 
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <Grid container spacing={2}>
-          {/* Dropdown for Slot Type */}
-          <Grid item xs={12}>
-            <Controller
-              name="slotType"
-              control={control}
-              defaultValue=""
-              rules={{ required: 'Slot type is required.' }}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  select
-                  label="Slot Type"
-                  fullWidth
-                  error={!!errors.slotType}
-                  helperText={errors.slotType ? errors.slotType.message : 'Select a slot type.'}
-                >
-                  <MenuItem value="gui">GUI Slot</MenuItem>
-                  <MenuItem value="regress">Regress Slot</MenuItem>
-                </TextField>
-              )}
-            />
-          </Grid>
-
-          {/* Justification Textbox */}
-          <Grid item xs={12}>
-            <Controller
-              name="justification"
-              control={control}
-              defaultValue=""
-              rules={{ required: 'Justification is required.' }}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  label="Justification"
-                  multiline
-                  rows={4}
-                  fullWidth
-                  error={!!errors.justification}
-                  helperText={errors.justification ? errors.justification.message : 'Provide a valid justification.'}
-                />
-              )}
-            />
-          </Grid>
-        </Grid>
-
-        {/* Buttons */}
-        <Stack spacing={2} direction="row" justifyContent="center" mt={3}>
-          <Button type="submit" variant="contained" color="primary">
-            Submit
-          </Button>
-          <Button
-            type="button"
-            variant="contained"
-            color="secondary"
-            onClick={() => {
-              reset();
-              setValue('slotType', '');
-              setValue('justification', '');
-            }}
-          >
-            Reset
-          </Button>
-        </Stack>
-      </form>
-    </Paper>
-  );
-};
-
-export default SlotChangeForm;
-
-
----
-
-Backend Flask Code
-
-The backend Flask code includes:
-
-1. An endpoint to fetch the current slot limit for a user (/getSlotLimit).
-
-
-2. An endpoint to handle the slot change form submission (/slotChange).
-
-
-
-
----
-
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
-# Mock data for demonstration purposes
-user_slot_data = {
-    "user123": {"current_slot_limit": 35},
+  return routes;
 }
-
-# Endpoint to fetch current slot limit
-@app.route('/getSlotLimit', methods=['GET'])
-def get_slot_limit():
-    user_id = request.args.get('userID', 'user123')  # Replace with actual user ID logic
-    if user_id in user_slot_data:
-        return jsonify({"slotLimit": user_slot_data[user_id]["current_slot_limit"]}), 200
-    return jsonify({"error": "User not found"}), 404
-
-# Endpoint to handle slot change form submission
-@app.route('/slotChange', methods=['POST'])
-def slot_change():
-    try:
-        data = request.json
-
-        slot_type = data.get("slotType")
-        justification = data.get("justification")
-        user_id = data.get("userID", "user123")  # Replace with actual user ID logic
-
-        if not slot_type or not justification:
-            return jsonify({"error": "Invalid input"}), 400
-
-        # Mock submission process
-        print(f"User {user_id} requested a slot change:")
-        print(f"Slot Type: {slot_type}")
-        print(f"Justification: {justification}")
-
-        # Add database or external system logic here
-
-        return jsonify({"message": "Slot change request submitted successfully!"}), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(debug=True)
-
-
----
-
-Key Points
-
-1. Frontend:
-
-The current slot limit is displayed in a styled box.
-
-slotType dropdown and justification textbox are required fields.
-
-Form submission sends all necessary data to the backend, including the current slot limit, slot type, and justification.
-
-
-
-2. Backend:
-
-GET /getSlotLimit fetches the current slot limit for a user.
-
-POST /slotChange processes the form data and handles the slot change request. You can add more logic to interact with databases or external systems.
-
-
-
-
-Let me know if you need further customization!
-
