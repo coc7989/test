@@ -1,12 +1,32 @@
-Subject: Proposal to Use Jenkins Direct Connection with On-Demand Setup
+pipeline {
+    agent any
 
-Dear Team,
+    parameters {
+        string(name: 'CLUSTER_NAME', defaultValue: 'tii-shared', description: 'Enter the cluster')
+    }
 
-After reviewing our Jenkins setup, I propose using a direct connection to the master server (dbdmaster.com) with the on-demand option, instead of adding a hop host. When we used a live direct connection, it maintained minimal overhead to keep the connection alive, utilizing 0.1% to 0.7% CPU and 0.1% memory. However, by switching to the on-demand option, this constant load is eliminated as the agent only connects during active builds.
+    environment {
+        // Temporary placeholder, to be overwritten dynamically in the script block
+        CONFIG_PATH = ''
+    }
 
-During pipeline execution, resource usage depends on the complexity of the tasks being processed. In our tests, CPU usage showed brief spikes, with the highest momentary spike around 30% for specific tasks like code compilation or test execution. These are quick, millisecond-level bursts and not sustained usage. For most of the pipeline duration, CPU and memory usage remained low, typically around 0.0% to 5%. Memory usage during builds consistently stayed within 0.0% to 0.1%, indicating minimal overall impact on the server.
+    stages {
+        stage('Set Config Path') {
+            steps {
+                script {
+                    env.CONFIG_PATH = "/user/${params.CLUSTER_NAME}/lsfadmin/tmp"
+                    echo "Config Path set to: ${env.CONFIG_PATH}"
+                }
+            }
+        }
 
-Using a hop host would not reduce the load on dbdmaster.com during builds, as tasks still execute there. It would add unnecessary complexity without any real performance gains. The on-demand setup achieves the same objective—minimizing load during idle times—while keeping the architecture simple and reliable. I recommend continuing with the direct connection using the on-demand configuration. Please share your thoughts.
-
-Best regards,
-[Your Name]
+        stage('Using Config Path') {
+            steps {
+                script {
+                    echo "Using Config Path: ${env.CONFIG_PATH}"
+                    // Add more steps to use the CONFIG_PATH variable
+                }
+            }
+        }
+    }
+}
