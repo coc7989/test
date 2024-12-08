@@ -1,32 +1,131 @@
-pipeline {
-    agent any
+import React, { useState, useMemo } from 'react';
+import { Button } from '@mui/material';
+import MaterialReactTable from 'material-react-table';
+import { ThemeProvider } from '@mui/material/styles';
+import Grid2 from '@mui/material/Unstable_Grid2';
+import apiInstance from './apiInstance'; // Adjust the import path
+import tableTheme from './tableTheme'; // Adjust the import path
 
-    parameters {
-        string(name: 'CLUSTER_NAME', defaultValue: 'tii-shared', description: 'Enter the cluster')
+const SlotAccessRequest = () => {
+  const [loadingRows, setLoadingRows] = useState({});
+
+  const extendClick = async (row) => {
+    const { REQUEST_ID, USER_AID, SUBMISSION_DATE } = row.original;
+
+    // Mark row as loading
+    setLoadingRows((prev) => ({ ...prev, [REQUEST_ID]: true }));
+
+    const today = new Date().toISOString();
+    const rowData = {
+      REQUEST_ID,
+      USER_AID,
+      EXTENSION_SUBMISSION_DATE: today,
+      EXTENSION_FLAG: 1,
+    };
+
+    try {
+      const response = await apiInstance.put('/slot_request', [rowData]);
+      console.log('Update Successful:', response);
+
+      // Simulate table data reload (replace this with actual data refresh logic)
+      await fetchTableData();
+    } catch (error) {
+      console.error('Update Failed:', error);
+    } finally {
+      // Stop loading for this row
+      setLoadingRows((prev) => ({ ...prev, [REQUEST_ID]: false }));
     }
+  };
 
-    environment {
-        // Temporary placeholder, to be overwritten dynamically in the script block
-        CONFIG_PATH = ''
-    }
+  const columns = useMemo(
+    () => [
+      {
+        accessorKey: 'SUBMISSION_DATE',
+        header: 'Submission Date',
+        size: 210,
+        Cell: ({ cell }) => <span>{formatter.format(new Date(cell.getValue()))}</span>,
+      },
+      {
+        accessorKey: 'REQUEST_ID',
+        header: 'Request ID',
+        size: 170,
+      },
+      {
+        accessorKey: 'SLOT_TYPE',
+        header: 'Slot Type',
+        size: 170,
+      },
+      {
+        accessorKey: 'REQUESTED_SLOT',
+        header: 'Requested Slot',
+        size: 210,
+      },
+      {
+        accessorKey: 'REQUEST_STATUS',
+        header: 'Request Status',
+        size: 220,
+      },
+      {
+        accessorKey: 'ACCESS_END_DATE',
+        header: 'Access End Date',
+        size: 220,
+        Cell: ({ cell }) => <span>{formatter.format(new Date(cell.getValue()))}</span>,
+      },
+    ],
+    []
+  );
 
-    stages {
-        stage('Set Config Path') {
-            steps {
-                script {
-                    env.CONFIG_PATH = "/user/${params.CLUSTER_NAME}/lsfadmin/tmp"
-                    echo "Config Path set to: ${env.CONFIG_PATH}"
-                }
-            }
-        }
+  return (
+    <ThemeProvider theme={tableTheme}>
+      <MaterialReactTable
+        columns={columns}
+        data={data || []}
+        enableRowSelection
+        state={{
+          showProgressBars: isLoading,
+        }}
+        positionToolbarAlertBanner="top"
+        positionActionsColumn="last"
+        enableColumnResizing
+        enableGrouping
+        enableStickyHeader
+        enableStickyFooter
+        enableColumnOrdering
+        enableEditing
+        editingMode="modal"
+        displayColumnDefOptions={{
+          'mrt-row-actions': {
+            header: 'Actions',
+            size: 150,
+            muiTableHeadCellProps: {
+              align: 'center',
+            },
+            muiTableBodyCellProps: {
+              align: 'right',
+            },
+          },
+        }}
+        renderRowActions={({ row }) => (
+          <Grid2 textAlign={'center'} justifyContent="center" alignItems="center">
+            <Button
+              size="large"
+              sx={{ mx: 1 }}
+              color="success"
+              disabled={
+                loadingRows[row.original.REQUEST_ID] ||
+                isOlderThanTenDays(row.original.SUBMISSION_DATE) ||
+                row.original.EXTENSION_FLAG
+              }
+              onClick={() => extendClick(row)}
+              variant="contained"
+            >
+              {loadingRows[row.original.REQUEST_ID] ? 'Loading...' : 'Extend'}
+            </Button>
+          </Grid2>
+        )}
+      />
+    </ThemeProvider>
+  );
+};
 
-        stage('Using Config Path') {
-            steps {
-                script {
-                    echo "Using Config Path: ${env.CONFIG_PATH}"
-                    // Add more steps to use the CONFIG_PATH variable
-                }
-            }
-        }
-    }
-}
+export default SlotAccessRequest;
