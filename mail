@@ -1,98 +1,35 @@
-Here’s how you can address each of the team's concerns while advocating for the direct connection to the master server with the on-demand option:
+def admin_queue_request():
+    if request.method == 'GET':
+        REQUEST_STATUS = request.args.get('REQUEST_STATUS')
+        site_name = user_sites_mapping.get(userID)
+        if REQUEST_STATUS not in ['PENDING', 'COMPLETED']:
+            return jsonify({"error": "Invalid Status"}), 400
 
+        # Define table names
+        tables = [dbCfg['QUEUE_ACCESS'], dbCfg['SLOT_REQUEST']]
 
----
+        results = []
 
-1. Multiple Services on the Same Host Complicate Management
+        try:
+            db = get_db()
+            cursor = db.cursor()
 
-Concern:
+            for table_name in tables:
+                # Build the query
+                if REQUEST_STATUS == 'PENDING':
+                    query = f"SELECT * FROM {table_name} WHERE CLUSTER_NAME = :site_name AND REQUEST_STATUS = 'PENDING'"
+                else:  # COMPLETED
+                    query = f"SELECT * FROM {table_name} WHERE CLUSTER_NAME = :site_name AND REQUEST_STATUS != 'PENDING'"
 
-Upgrades (e.g., to RHEL 8) require auditing all services running on the host for compatibility.
+                cursor.execute(query, {"site_name": site_name})
 
-Memory limits, performance, and kernel settings affect all services.
+                # Fetch column names and data
+                columns = [f"{table_name}.{col[0]}" for col in cursor.description]  # Prefix with table name
+                for row in cursor.fetchall():
+                    row_dict = dict(zip(columns, row))
+                    results.append(row_dict)
 
-
-Counterpoints/Solutions:
-
-Jenkins Agent Minimal Impact:
-
-The Jenkins agent in on-demand mode is lightweight and only runs when builds are triggered. It does not consume significant resources when idle and does not require kernel-level customizations.
-
-Auditing its compatibility during an OS upgrade is straightforward as it is a standard Java application and highly portable. Jenkins agents work seamlessly on RHEL 7/8 without significant changes.
-
-
-Isolation via Resource Limits:
-
-The Jenkins agent can be containerized (e.g., using Docker) or run under a limited user account with strict resource allocations, ensuring it does not interfere with other services.
-
-Systemd can manage the agent process, restricting its CPU, memory, or I/O usage to prevent conflicts with LSF or other critical services.
-
-
-
-
----
-
-2. Administrative Errors Could Impact the Environment
-
-Concern:
-
-Root commands or accidental actions for one service could disrupt LSF or even disable the entire host.
-
-
-Counterpoints/Solutions:
-
-User Isolation:
-
-Run the Jenkins agent under a dedicated non-root user with limited permissions. This ensures the agent cannot affect other services on the host, even in the event of a misconfiguration.
-
-Root privileges would not be required for the agent, reducing risk significantly.
-
-
-Process Separation:
-
-The Jenkins agent does not modify host-level configurations or require access to LSF internals. Running the agent in a segregated environment (e.g., its own directory) ensures it remains isolated.
-
-
-Monitoring and Auditing:
-
-Set up logging and monitoring for actions performed by the Jenkins agent user. If an error occurs, it can be traced and resolved without affecting the broader system.
-
-
-
-
----
-
-3. Maintenance Becomes Harder to Coordinate
-
-Concern:
-
-OS upgrades, rack movements, and LSF patching require coordination across multiple services.
-
-
-Counterpoints/Solutions:
-
-Maintenance Alignment:
-
-Since the Jenkins agent operates in on-demand mode, it does not require persistent uptime. You can stop the agent service during any maintenance window without affecting Jenkins pipelines. The master server's build queue will handle pending jobs.
-
-
-Independent Agent Deployment:
-
-If needed, the Jenkins agent can temporarily run on an alternate server during maintenance of dbdmaster.com. This provides flexibility without requiring a permanent hop host.
-
-
-Simplified Setup:
-
-Introducing a hop host adds another server to maintain, patch, and monitor, increasing overall complexity rather than reducing it. With direct connection and on-demand setup, there’s only one system to manage during maintenance.
-
-
-
-
----
-
-Conclusion
-
-By running the Jenkins agent in on-demand mode with strict isolation (non-root user, resource limits), the risks of interference or complexity are mitigated. The lightweight nature of the Jenkins agent ensures it does not impose significant load or conflict with LSF or other services. Additionally, avoiding the hop host reduces infrastructure overhead, aligns maintenance efforts, and simplifies the overall architecture.
-
-Would love to hear further thoughts or discuss specific concerns in more detail.
-
+            cursor.close()
+            return jsonify(results), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
