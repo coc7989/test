@@ -1,48 +1,22 @@
-def admin_queue_request():
-    if request.method == 'GET':
-        REQUEST_STATUS = request.args.get('REQUEST_STATUS')
-        site_name = user_sites_mapping.get(userID)
-        if REQUEST_STATUS not in ['PENDING', 'COMPLETED']:
-            return jsonify({"error": "Invalid Status"}), 400
+Subject: Proposal to Create a Dedicated Master Server for Jenkins Agent
 
-        # Define table names and mapping for REQUEST_TYPE
-        tables = [
-            {"table_name": dbCfg['QUEUE_ACCESS'], "request_type_column": "QUEUE"},
-            {"table_name": dbCfg['SLOT_REQUEST'], "request_type_column": "SLOT_TYPE"},
-        ]
+Dear Team,
 
-        results = []
+Thank you for sharing your concerns regarding the use of the direct Jenkins agent setup on the existing master server. Considering the feedback, I propose an alternative solution: instead of introducing a hop host, we can create a new, separate master server dedicated to running the Jenkins agent.
 
-        try:
-            db = get_db()
-            cursor = db.cursor()
+This approach offers several benefits:
 
-            for table in tables:
-                table_name = table["table_name"]
-                request_type_column = table["request_type_column"]
+1. Complete Isolation: The Jenkins agent will run on its own master server, ensuring no impact on the existing environment. This eliminates concerns about OS upgrades, memory limits, performance issues, or kernel setting changes affecting LSF or other services.
 
-                # Build the query
-                if REQUEST_STATUS == 'PENDING':
-                    query = f"SELECT * FROM {table_name} WHERE CLUSTER_NAME = :site_name AND REQUEST_STATUS = 'PENDING'"
-                else:  # COMPLETED
-                    query = f"SELECT * FROM {table_name} WHERE CLUSTER_NAME = :site_name AND REQUEST_STATUS != 'PENDING'"
 
-                cursor.execute(query, {"site_name": site_name})
+2. Simplified Maintenance: Maintenance tasks like OS upgrades, LSF patching, or rack movements can be independently scheduled without the need to coordinate across multiple services on the same server.
 
-                # Fetch column names and data
-                columns = [col[0] for col in cursor.description]
-                for row in cursor.fetchall():
-                    row_dict = dict(zip(columns, row))
 
-                    # Map the specific column to REQUEST_TYPE
-                    row_dict["REQUEST_TYPE"] = row_dict.get(request_type_column, None)
+3. Improved Security and Reliability: By running the Jenkins agent on a separate server, we avoid risks of admin errors or accidental disruptions to critical services.
 
-                    # Remove the original column for REQUEST_TYPE
-                    row_dict.pop(request_type_column, None)
 
-                    results.append(row_dict)
 
-            cursor.close()
-            return jsonify(results), 200
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+This solution balances the need for simplicity (avoiding the complexity of a hop host) with the operational safety and isolation required for our environment. Please let me know your thoughts on this approach, and we can discuss the next steps to implement it.
+
+Best regards,
+[Your Name]
