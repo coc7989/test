@@ -5,8 +5,11 @@ def admin_queue_request():
         if REQUEST_STATUS not in ['PENDING', 'COMPLETED']:
             return jsonify({"error": "Invalid Status"}), 400
 
-        # Define table names
-        tables = [dbCfg['QUEUE_ACCESS'], dbCfg['SLOT_REQUEST']]
+        # Define table names and mapping for REQUEST_TYPE
+        tables = [
+            {"table_name": dbCfg['QUEUE_ACCESS'], "request_type_column": "QUEUE"},
+            {"table_name": dbCfg['SLOT_REQUEST'], "request_type_column": "SLOT_TYPE"},
+        ]
 
         results = []
 
@@ -14,7 +17,10 @@ def admin_queue_request():
             db = get_db()
             cursor = db.cursor()
 
-            for table_name in tables:
+            for table in tables:
+                table_name = table["table_name"]
+                request_type_column = table["request_type_column"]
+
                 # Build the query
                 if REQUEST_STATUS == 'PENDING':
                     query = f"SELECT * FROM {table_name} WHERE CLUSTER_NAME = :site_name AND REQUEST_STATUS = 'PENDING'"
@@ -24,9 +30,16 @@ def admin_queue_request():
                 cursor.execute(query, {"site_name": site_name})
 
                 # Fetch column names and data
-                columns = [f"{table_name}.{col[0]}" for col in cursor.description]  # Prefix with table name
+                columns = [col[0] for col in cursor.description]
                 for row in cursor.fetchall():
                     row_dict = dict(zip(columns, row))
+
+                    # Map the specific column to REQUEST_TYPE
+                    row_dict["REQUEST_TYPE"] = row_dict.get(request_type_column, None)
+
+                    # Remove the original column for REQUEST_TYPE
+                    row_dict.pop(request_type_column, None)
+
                     results.append(row_dict)
 
             cursor.close()
