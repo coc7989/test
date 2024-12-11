@@ -1,33 +1,32 @@
-pipeline {
-    agent none
-    parameters {
-        string(name: 'cluster_name', defaultValue: 'ind-shared', description: 'Provide the cluster name (e.g., ind-shared, dal-edt)')
-    }
-    environment {
-        NODE_LABEL = '' // Placeholder for the dynamically assigned agent label
-    }
-    stages {
-        stage('Determine Agent') {
-            steps {
-                script {
-                    // Map cluster_name to agent labels
-                    if (params.cluster_name == 'ind-shared') {
-                        env.NODE_LABEL = 'India'
-                    } else if (params.cluster_name == 'dal-edt') {
-                        env.NODE_LABEL = 'USA'
-                    } else {
-                        error "Unknown cluster_name: ${params.cluster_name}"
-                    }
-                    echo "Selected agent label: ${env.NODE_LABEL}"
+stage('Re Config') {
+    steps {
+        script {
+            echo "----------------Re Config----------------"
+            try {
+                // Select master server dynamically
+                def clusterName = "India" // Replace this dynamically
+                def masterServer = clusterName == "India" ? "masterindia.com" : 
+                                   clusterName == "Canada" ? "mastercanada.com" : 
+                                   error("Unknown cluster name: ${clusterName}")
+
+                echo "Selected master server: ${masterServer}"
+
+                // Execute commands remotely in one inline SSH session
+                def remoteOutput = sh(script: """
+                    ssh -o LogLevel=ERROR -o BatchMode=yes -o StrictHostKeyChecking=no ${masterServer} \
+                    'echo Running on remote server: \$(hostname) && pwd && whoami'
+                """, returnStdout: true).trim()
+
+                echo "Remote Output: ${remoteOutput}"
+
+                // Ensure output is valid
+                if (remoteOutput.isEmpty()) {
+                    error "SSH session failed or returned no output."
                 }
-            }
-        }
-        stage('Run on Selected Agent') {
-            agent {
-                label env.NODE_LABEL
-            }
-            steps {
-                echo "Running pipeline on agent: ${env.NODE_LABEL}"
+                echo "SSH session executed successfully."
+            } catch (Exception e) {
+                currentBuild.result = 'FAILURE'
+                error "Re Config failed: ${e.message}"
             }
         }
     }
