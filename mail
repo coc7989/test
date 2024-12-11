@@ -1,22 +1,26 @@
-Subject: Proposal to Create a Dedicated Master Server for Jenkins Agent
-
-Dear Team,
-
-Thank you for sharing your concerns regarding the use of the direct Jenkins agent setup on the existing master server. Considering the feedback, I propose an alternative solution: instead of introducing a hop host, we can create a new, separate master server dedicated to running the Jenkins agent.
-
-This approach offers several benefits:
-
-1. Complete Isolation: The Jenkins agent will run on its own master server, ensuring no impact on the existing environment. This eliminates concerns about OS upgrades, memory limits, performance issues, or kernel setting changes affecting LSF or other services.
-
-
-2. Simplified Maintenance: Maintenance tasks like OS upgrades, LSF patching, or rack movements can be independently scheduled without the need to coordinate across multiple services on the same server.
-
-
-3. Improved Security and Reliability: By running the Jenkins agent on a separate server, we avoid risks of admin errors or accidental disruptions to critical services.
-
-
-
-This solution balances the need for simplicity (avoiding the complexity of a hop host) with the operational safety and isolation required for our environment. Please let me know your thoughts on this approach, and we can discuss the next steps to implement it.
-
-Best regards,
-[Your Name]
+pipeline {
+    agent none // Start without an agent
+    parameters {
+        string(name: 'cluster_name', defaultValue: 'cluster1', description: 'Select the cluster name')
+    }
+    stages {
+        stage('Choose Agent') {
+            agent {
+                label params.cluster_name
+            }
+            steps {
+                script {
+                    echo "Running on agent with label: ${params.cluster_name}"
+                }
+            }
+        }
+        stage('Build') {
+            agent {
+                label params.cluster_name
+            }
+            steps {
+                echo "Performing build on ${params.cluster_name}"
+            }
+        }
+    }
+}
