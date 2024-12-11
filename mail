@@ -1,32 +1,21 @@
-stage('Re Config') {
-    steps {
-        script {
-            echo "----------------Re Config----------------"
-            try {
-                // Select master server dynamically
-                def clusterName = "India" // Replace this dynamically
-                def masterServer = clusterName == "India" ? "masterindia.com" : 
-                                   clusterName == "Canada" ? "mastercanada.com" : 
-                                   error("Unknown cluster name: ${clusterName}")
+pipeline {
+    agent any
+    environment {
+        // Replace with your logic to dynamically determine the master server
+        MASTER_SERVER = "master.com" 
+    }
+    stages {
+        stage('Run Remote Commands') {
+            steps {
+                script {
+                    echo "Executing commands on ${MASTER_SERVER}"
+                    def remoteOutput = sh(script: """
+                        ssh -o LogLevel=ERROR -o BatchMode=yes -o StrictHostKeyChecking=no ${MASTER_SERVER} \
+                        'echo Running on remote server: \$(hostname) && pwd && whoami' 2>/dev/null
+                    """, returnStdout: true).trim()
 
-                echo "Selected master server: ${masterServer}"
-
-                // Execute commands remotely in one inline SSH session
-                def remoteOutput = sh(script: """
-                    ssh -o LogLevel=ERROR -o BatchMode=yes -o StrictHostKeyChecking=no ${masterServer} \
-                    'echo Running on remote server: \$(hostname) && pwd && whoami'
-                """, returnStdout: true).trim()
-
-                echo "Remote Output: ${remoteOutput}"
-
-                // Ensure output is valid
-                if (remoteOutput.isEmpty()) {
-                    error "SSH session failed or returned no output."
+                    echo "Remote Output: ${remoteOutput}"
                 }
-                echo "SSH session executed successfully."
-            } catch (Exception e) {
-                currentBuild.result = 'FAILURE'
-                error "Re Config failed: ${e.message}"
             }
         }
     }
