@@ -1,25 +1,33 @@
 pipeline {
-    agent none // Start without an agent
+    agent none
     parameters {
-        string(name: 'cluster_name', defaultValue: 'cluster1', description: 'Select the cluster name')
+        string(name: 'cluster_name', defaultValue: 'ind-shared', description: 'Provide the cluster name (e.g., ind-shared, dal-edt)')
+    }
+    environment {
+        NODE_LABEL = '' // Placeholder for the dynamically assigned agent label
     }
     stages {
-        stage('Choose Agent') {
-            agent {
-                label params.cluster_name
-            }
+        stage('Determine Agent') {
             steps {
                 script {
-                    echo "Running on agent with label: ${params.cluster_name}"
+                    // Map cluster_name to agent labels
+                    if (params.cluster_name == 'ind-shared') {
+                        env.NODE_LABEL = 'India'
+                    } else if (params.cluster_name == 'dal-edt') {
+                        env.NODE_LABEL = 'USA'
+                    } else {
+                        error "Unknown cluster_name: ${params.cluster_name}"
+                    }
+                    echo "Selected agent label: ${env.NODE_LABEL}"
                 }
             }
         }
-        stage('Build') {
+        stage('Run on Selected Agent') {
             agent {
-                label params.cluster_name
+                label env.NODE_LABEL
             }
             steps {
-                echo "Performing build on ${params.cluster_name}"
+                echo "Running pipeline on agent: ${env.NODE_LABEL}"
             }
         }
     }
