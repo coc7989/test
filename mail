@@ -1,22 +1,10 @@
-pipeline {
-    agent any
-    stages {
-        stage('Run Remote Command') {
-            steps {
-                script {
-                    def clusterName = "India" // Replace with dynamic cluster name logic
-                    def masterName = clusterName == "India" ? "masterindia.com" : 
-                                     clusterName == "Canada" ? "mastercanada.com" : 
-                                     error("Unknown cluster name: ${clusterName}")
+def remoteOutput = sh(script: """
+    ssh -o LogLevel=ERROR -o BatchMode=yes -o StrictHostKeyChecking=no ${MASTER_NAME} '
+        hostname;
+        pwd;
+        echo "===BADMIN_OUTPUT===";
+        badmin reconfig 2>/dev/null
+    ' | awk '/===BADMIN_OUTPUT===/{flag=1;next}flag'
+""", returnStdout: true).trim()
 
-                    echo "Connecting to ${masterName} and running remote command"
-                    def remoteOutput = sh(script: """
-                        ssh -o LogLevel=ERROR -o BatchMode=yes -o StrictHostKeyChecking=no ${masterName} 'hostname'
-                    """, returnStdout: true).trim()
-
-                    echo "Remote Hostname: ${remoteOutput}"
-                }
-            }
-        }
-    }
-}
+echo "Output of badmin reconfig: ${remoteOutput}"
