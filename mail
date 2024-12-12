@@ -8,18 +8,36 @@ pipeline {
             steps {
                 script {
                     echo "Connecting to ${MASTER_NAME} and running remote commands"
-                    
-                    // Run commands on the remote server
-                    def remoteOutput = sh(script: """
+
+                    // Run commands and capture outputs using markers
+                    def output = sh(script: """
                         ssh -o LogLevel=ERROR -o BatchMode=yes -o StrictHostKeyChecking=no ${MASTER_NAME} '
-                            hostname; 
-                            pwd; 
+                            echo "===HOSTNAME===";
+                            hostname;
+                            echo "===PWD===";
+                            pwd;
+                            echo "===BADMIN_OUTPUT===";
                             badmin reconfig 2>/dev/null
-                        ' | tail -n 1
+                        '
+                    """, returnStdout: true).trim()
+
+                    // Extract specific outputs using awk
+                    def hostname = sh(script: """
+                        echo "${output}" | awk '/===HOSTNAME===/{flag=1;next}/===PWD===/{flag=0}flag'
                     """, returnStdout: true).trim()
                     
-                    // Log the captured output
-                    echo "Output of badmin reconfig: ${remoteOutput}"
+                    def pwd = sh(script: """
+                        echo "${output}" | awk '/===PWD===/{flag=1;next}/===BADMIN_OUTPUT===/{flag=0}flag'
+                    """, returnStdout: true).trim()
+                    
+                    def badminOutput = sh(script: """
+                        echo "${output}" | awk '/===BADMIN_OUTPUT===/{flag=1;next}flag'
+                    """, returnStdout: true).trim()
+
+                    // Print the extracted outputs
+                    echo "Hostname: ${hostname}"
+                    echo "Working Directory: ${pwd}"
+                    echo "Output of badmin reconfig: ${badminOutput}"
                 }
             }
         }
