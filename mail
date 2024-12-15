@@ -1,67 +1,36 @@
-Got it! Here's the revised version with unchanged questions but rephrased answers:
+renderRowActions={({ table, row }) => (
+  <Grid2 textAlign={'center'} justifyContent="center" alignItems="center">
+    <Button
+      size="large"
+      sx={{ mx: 1 }}
+      color="success"
+      disabled={
+        table.getSelectedRowModel().flatRows.length > 1 ||
+        loadingRows[row.original.REQUEST_ID] ||
+        row.original.EXTENSION_FLAG ||
+        !(
+          row.original.REQUEST_STATUS === 'COMPLETED' &&
+          isAccessEndDateInTwoDays(row.original.ACCESS_END_DATE)
+        )
+      }
+      onClick={() => extendClick(row)}
+      variant="contained"
+    >
+      {loadingRows[row.original.REQUEST_ID]
+        ? 'Extending...'
+        : row.original.EXTENSION_FLAG
+        ? 'Extended'
+        : 'Extend'}
+    </Button>
+  </Grid2>
+)}
 
+// Utility function to check if the ACCESS_END_DATE is within the next 2 days
+function isAccessEndDateInTwoDays(accessEndDate) {
+  const today = new Date();
+  const accessEnd = new Date(accessEndDate);
+  const diffInTime = accessEnd - today;
+  const diffInDays = diffInTime / (1000 * 60 * 60 * 24);
 
----
-
-1. What version control tool do we use to manage LSF configuration files?
--> We utilize the RCS tool for managing these configuration files.
-
-
-2. What are the files updated in /data/lsf/conf and /data/lsf/conf/lsbatch/tii-shared/configdir/groups?
--> In the /data/lsf/conf/lsbatch/tii-shared/configdir/groups directory, the linux_mthread_srv_nodes file is updated, while in /data/lsf/conf, the lsf.cluster.tii-shared file is modified.
-
-
-3. What do we mean when we say exclusive resource for a particular host?
--> It refers to hosts that are designated to execute jobs specifically requiring the "exclusive" resource, as defined in the job’s resource selection criteria.
-
-
-4. What Unix account should you use to check in/out files?
--> You should use your personal Unix account instead of privileged accounts like root or lsfadmin.
-
-
-5. Can you provide the Unix commands you would use to check out a file for step 2?
--> The command is: co -l lsf.cluster.tii-shared.
-
-
-6. What is the command to look up revision logs of these files?
--> To view revision logs, you can use: rlog file_name.
-
-
-7. What is the command to see the updates of the files you edited versus previous committed version?
--> Use the command rcsdiff file_name to compare your changes with the previously committed version.
-
-
-8. What did we change on these 2 files to move this host lincasj01 from sawshark to mthread?
-
-The host was removed from the linux_768G40C_batch_nodes file.
-
-In the lsf.cluster.tii-shared file, the line:
-ws80 !sawshark mthread
-was updated to:
-ws80 !mthread.
-
-
-
-9. What hosts do you need to login to reconfigure LSF?
--> You need to log in to the LSF master servers, which are currently master05.com and master06.com.
-
-
-
-Bonus Question
-
-1. What commands do we use to reconfigure LSF after the config file updates?
-
-First, validate the configuration with:
-/data/sudo/bin/sudo -E -u lsfadmin badmin ckconfig.
-
-If no errors are detected, apply the configuration using:
-/data/sudo/bin/sudo -E -u lsfadmin badmin reconfig.
-
-
-
-
-
----
-
-Let me know if you need further refinements!
-
+  return diffInDays >= 0 && diffInDays <= 2;
+}
