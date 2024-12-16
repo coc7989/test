@@ -1,36 +1,173 @@
-renderRowActions={({ table, row }) => (
-  <Grid2 textAlign={'center'} justifyContent="center" alignItems="center">
-    <Button
-      size="large"
-      sx={{ mx: 1 }}
-      color="success"
-      disabled={
-        table.getSelectedRowModel().flatRows.length > 1 ||
-        loadingRows[row.original.REQUEST_ID] ||
-        row.original.EXTENSION_FLAG ||
-        !(
-          row.original.REQUEST_STATUS === 'COMPLETED' &&
-          isAccessEndDateInTwoDays(row.original.ACCESS_END_DATE)
-        )
-      }
-      onClick={() => extendClick(row)}
-      variant="contained"
-    >
-      {loadingRows[row.original.REQUEST_ID]
-        ? 'Extending...'
-        : row.original.EXTENSION_FLAG
-        ? 'Extended'
-        : 'Extend'}
-    </Button>
-  </Grid2>
-)}
+To accommodate dynamic handling for both QUEUE and SLOT categories, you can implement the following changes in your code:
 
-// Utility function to check if the ACCESS_END_DATE is within the next 2 days
-function isAccessEndDateInTwoDays(accessEndDate) {
-  const today = new Date();
-  const accessEnd = new Date(accessEndDate);
-  const diffInTime = accessEnd - today;
-  const diffInDays = diffInTime / (1000 * 60 * 60 * 24);
 
-  return diffInDays >= 0 && diffInDays <= 2;
-}
+---
+
+Frontend Changes:
+
+1. Pass CATEGORY_NAME and REQUEST_TYPE to Backend: Update handleClick to include CATEGORY_NAME and REQUEST_TYPE from row.original.
+
+const handleClick = async (row, action) => {
+    const { REQUEST_ID, ADMIN_APPROVAL, PROCESSED_DATE, CATEGORY_NAME, REQUEST_TYPE, ...otherProps } = row.original;
+    const rowData = {
+        REQUEST_ID,
+        ADMIN_APPROVAL: userID,
+        PROCESSED_DATE: today,
+        CATEGORY_NAME,
+        REQUEST_TYPE,
+        action,
+    };
+    console.log([rowData], 'rows log');
+    try {
+        const response = await apiInstance.put('/admin_panel_requests', [rowData]);
+        console.log(response, 'handleClickresponse');
+    } catch (error) {
+        console.error('Update Failed:', error);
+    }
+};
+
+
+
+
+---
+
+Backend Changes:
+
+Dynamic Handling of QUEUE and SLOT Categories:
+
+Update the admin_action_request endpoint to handle both QUEUE and SLOT categories dynamically.
+
+1. Modify Input Parsing and Query Selection:
+
+query_queue = f"""
+UPDATE {dbCfg['QUEUE_ACCESS']}
+SET UPDATED_DATE = TO_DATE(:UPDATED_DATE, 'YYYY-MM-DD'),
+    REQUEST_STATUS = :REQUEST_STATUS,
+    APPROVED_BY = :ADMIN_APPROVAL,
+    ACCESS_END_DATE = TO_DATE(:ACCESS_END_DATE, 'YYYY-MM-DD')
+WHERE REQUEST_ID = :REQUEST_ID
+"""
+
+query_slot = f"""
+UPDATE {dbCfg['SLOT_REQUEST']}
+SET UPDATED_DATE = TO_DATE(:UPDATED_DATE, 'YYYY-MM-DD'),
+    REQUEST_STATUS = :REQUEST_STATUS,
+    APPROVED_BY = :ADMIN_APPROVAL
+WHERE REQUEST_ID = :REQUEST_ID
+"""
+
+
+2. Dynamic Data Preparation: Prepare data based on the category (QUEUE or SLOT) and request type (priority, hwsim, gui, or regress).
+
+params = []
+for item in data:
+    category = item.get('CATEGORY_NAME')
+    if category == 'QUEUE':
+        if item['REQUEST_TYPE'] in ['priority', 'hwsim']:
+            access_end_date = calculate_access_end_date(item['PROCESSED_DATE'], item['action'])
+        else:
+            raise ValueError("Invalid REQUEST_TYPE for QUEUE category")
+
+        params.append({
+            "REQUEST_ID": item['REQUEST_ID'],
+            "ADMIN_APPROVAL": item['ADMIN_APPROVAL'],
+            "UPDATED_DATE": item['PROCESSED_DATE'],
+            "REQUEST_STATUS": item['action'],
+            "ACCESS_END_DATE": access_end_date,
+        })
+
+    elif category == 'SLOT':
+        if item['REQUEST_TYPE'] in ['gui', 'regress']:
+            params.append({
+                "REQUEST_ID": item['REQUEST_ID'],
+                "ADMIN_APPROVAL": item['ADMIN_APPROVAL'],
+                "UPDATED_DATE": item['PROCESSED_DATE'],
+                "REQUEST_STATUS": item['action'],
+            })
+        else:
+            raise ValueError("Invalid REQUEST_TYPE for SLOT category")
+
+
+3. Execute Queries Dynamically: Execute the appropriate query based on the category.
+
+if category == 'QUEUE':
+    cursor.executemany(query_queue, params)
+elif category == 'SLOT':
+    cursor.executemany(query_slot, params)
+
+
+4. Jenkins Job Trigger and Build Status Check: After triggering a Jenkins job, fetch the build status and update the database accordingly.
+
+for request_data in data:
+    if request_data.get('action') == 'APPROVED':
+        additional_data = fetch_additional_data(request_data['REQUEST_ID'])
+        result, status_code = trigger_jenkins_job(additional_data)
+
+        # Check build status
+        build_status = check_jenkins_build_status(request_data['REQUEST_ID'])
+        request_status = "SUCCESS" if build_status else "FAILURE"
+
+        # Update the request status in the database
+        update_status_query = f"""
+        UPDATE {dbCfg['QUEUE_ACCESS'] if request_data['CATEGORY_NAME'] == 'QUEUE' else dbCfg['SLOT_REQUEST']}
+        SET REQUEST_STATUS = :REQUEST_STATUS
+        WHERE REQUEST_ID = :REQUEST_ID
+        """
+        cursor.execute(update_status_query, {
+            "REQUEST_STATUS": request_status,
+            "REQUEST_ID": request_data['REQUEST_ID'],
+        })
+
+
+5. Function to Check Jenkins Build Status: Create a function to check whether the Jenkins build succeeded or failed.
+
+def check_jenkins_build_status(build_display_name):
+    try:
+        server1 = jenkins.Jenkins('https://jenkins-test.com', username='j028232', password='adda8d9adaha')
+        last_build_info = server1.get_job_info("myLSF/PriorityAccess")['lastCompletedBuild']
+        return last_build_info['result'] == 'SUCCESS'
+    except Exception as e:
+        print(f"Error checking Jenkins build status: {str(e)}")
+        return False
+
+
+
+
+---
+
+Database Adjustments:
+
+Ensure that the database tables UED_QUEUE_ACCESS and UED_SLOT_REQUEST are properly set up to store the updated REQUEST_STATUS based on the build result.
+
+
+---
+
+Summary of Changes:
+
+1. Frontend:
+
+Send CATEGORY_NAME and REQUEST_TYPE to the backend.
+
+
+
+2. Backend:
+
+Dynamically handle QUEUE and SLOT categories.
+
+Use separate queries and data preparation for each category.
+
+For QUEUE, calculate ACCESS_END_DATE only for priority and hwsim.
+
+For SLOT, no ACCESS_END_DATE calculation is needed.
+
+Trigger Jenkins jobs and update the database based on the Jenkins build status.
+
+
+
+3. Database:
+
+Update REQUEST_STATUS to "SUCCESS" or "FAILURE" based on the Jenkins build result.
+
+
+
+
