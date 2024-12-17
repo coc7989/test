@@ -1,80 +1,53 @@
-To handle fetching additional data dynamically based on the chosen CATEGORY_NAME (QUEUE or SLOT), we need to update the fetch_additional_data function to work with the appropriate database table and columns. Here's how you can do it:
+If you want to use requests.get and requests.post to trigger Jenkins builds and fetch the job's result status instead of using the Jenkins Python library, you can interact directly with the Jenkins REST API.
 
 
 ---
 
-Updated fetch_additional_data Function
+Steps to Trigger Build and Fetch Result
 
-1. Dynamic Query Based on Category: Modify the function to check the CATEGORY_NAME and use the corresponding table and column set (QUEUE_ACCESS or SLOT_REQUEST).
+1. Trigger a Jenkins Build: Use a POST request to the Jenkins build URL with parameters.
 
 
-2. Implementation:
-
-def fetch_additional_data(REQUEST_ID, CATEGORY_NAME):
-    try:
-        # Determine the table and columns based on CATEGORY_NAME
-        if CATEGORY_NAME == 'QUEUE':
-            table_name = dbCfg['QUEUE_ACCESS']
-            columns = [
-                "REQUEST_ID", "CLUSTER_NAME", "GROUP_AID", "TO_CHAR(ACCESS_END_DATE, 'DD/MM/YYYY') AS ACCESS_END_DATE",
-                "APPROVED_BY", "PROJECT_NAME", "USER_AID", "QUEUE", "CPU", "JOBS", "MEMORY", "RUN_TIME", "LSB_OPTION"
-            ]
-        elif CATEGORY_NAME == 'SLOT':
-            table_name = dbCfg['SLOT_REQUEST']
-            columns = [
-                "REQUEST_ID", "PROJECT_NAME", "SLOT_TYPE", "CURRENT_SLOT_LIMIT",
-                "CLUSTER_NAME", "REQUESTED_SLOT", "ACCESS_END_DATE", "APPROVED_BY", "USER_AID"
-            ]
-        else:
-            raise ValueError("Invalid CATEGORY_NAME")
-
-        # Create the query dynamically
-        query = f"SELECT {', '.join(columns)} FROM {table_name} WHERE REQUEST_ID = :REQUEST_ID"
-
-        # Execute the query
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute(query, REQUEST_ID=REQUEST_ID)
-        row = cursor.fetchone()
-        cursor.close()
-
-        # Map the fetched data to a dictionary
-        if row:
-            column_names = [col.split(" AS ")[-1] for col in columns]  # Get final column names after aliasing
-            additional_data = {column_names[i]: row[i] for i in range(len(column_names))}
-            print(additional_data, 'Fetched Additional Data')
-            return additional_data
-        else:
-            return {}
-
-    except Exception as e:
-        print(f"Error fetching additional data for REQUEST_ID: {REQUEST_ID}. Error: {str(e)}")
-        return {}
+2. Poll for Build Status: Use a GET request to check the status of the triggered build.
 
 
 
 
 ---
 
-Changes in Jenkins Job Trigger:
+Updated Code for Triggering Jenkins Build
 
-Update the trigger_jenkins_job function to dynamically fetch additional data based on the category.
+1. Trigger Build: Jenkins job URL typically follows this format:
 
-1. Updated Call to fetch_additional_data: Use CATEGORY_NAME from the request to fetch additional data dynamically.
+Trigger build: POST http://<jenkins-url>/job/<job-name>/buildWithParameters
 
-for request_data in data:
-    if request_data.get('action') == 'APPROVED':
-        additional_data = fetch_additional_data(request_data['REQUEST_ID'], request_data['CATEGORY_NAME'])
-        result, status_code = trigger_jenkins_job(additional_data, request_data['CATEGORY_NAME'])
+Add parameters and credentials for authentication.
 
 
-2. Pass CATEGORY_NAME to Jenkins Parameters: Include the category in the Jenkins job parameters to handle specific logic.
+
+2. Fetch Build Status:
+
+Use Jenkins's API to poll the status of the last build: GET http://<jenkins-url>/job/<job-name>/lastBuild/api/json
+
+
+
+
+
+---
+
+Code Implementation
+
+import requests
+from time import sleep
+
+JENKINS_URL = 'https://jenkins-test.com'
+JOB_NAME = 'myLSF/PriorityAccess'
+USERNAME = 'j028232'
+API_TOKEN = 'YOUR_JENKINS_API_TOKEN'
 
 def trigger_jenkins_job(approved_requests, category):
     try:
-        print(approved_requests, 'Approved Requests')
-
-        # Prepare Jenkins parameters dynamically
+        # Prepare Jenkins parameters dynamically based on category
         if category == 'QUEUE':
             jenkins_params = {
                 'REQUEST_ID': approved_requests.get("REQUEST_ID"),
@@ -84,12 +57,6 @@ def trigger_jenkins_job(approved_requests, category):
                 'APPROVED_BY': approved_requests.get('APPROVED_BY'),
                 'REQUESTOR_AID': approved_requests.get('USER_AID'),
                 'PROJECT_NAME': approved_requests.get('PROJECT_NAME'),
-                'QUEUE': approved_requests.get('QUEUE'),
-                'CPU': approved_requests.get('CPU'),
-                'JOBS': approved_requests.get('JOBS'),
-                'MEMORY': approved_requests.get('MEMORY'),
-                'RUN_TIME': approved_requests.get('RUN_TIME'),
-                'LSB_OPTION': approved_requests.get('LSB_OPTION'),
             }
         elif category == 'SLOT':
             jenkins_params = {
@@ -104,37 +71,143 @@ def trigger_jenkins_job(approved_requests, category):
                 'REQUESTOR_AID': approved_requests.get('USER_AID'),
             }
         else:
-            raise ValueError("Invalid category for Jenkins trigger")
+            raise ValueError("Invalid CATEGORY_NAME for Jenkins trigger")
 
-        print(jenkins_params, 'Jenkins Parameters')
+        # Trigger Jenkins Build
+        trigger_url = f"{JENKINS_URL}/job/{JOB_NAME}/buildWithParameters"
+        response = requests.post(
+            trigger_url,
+            params=jenkins_params,
+            auth=(USERNAME, API_TOKEN)
+        )
 
-        # Trigger Jenkins job
-        server1 = jenkins.Jenkins('https://jenkins-test.com', username='j028232', password='adda8d9adaha')
-        jobname = 'myLSF/PriorityAccess'
-        build_info = server1.build_job(jobname, parameters=jenkins_params)
+        if response.status_code != 201:
+            raise Exception(f"Failed to trigger Jenkins job. Status Code: {response.status_code}, Response: {response.text}")
 
-        return {'message': 'Jenkins job triggered successfully'}, 200
-    except JenkinsException as je:
-        return {'error': f"Jenkins error: {str(je)}"}, 500
+        print(f"Jenkins build triggered successfully for REQUEST_ID {approved_requests.get('REQUEST_ID')}")
+
+        # Poll for build status
+        build_status = poll_jenkins_build_status()
+        return build_status
+
     except Exception as e:
-        return {'error': f"Unexpected error: {str(e)}"}, 500
+        print(f"Error triggering Jenkins job: {str(e)}")
+        return {"error": str(e)}
+
+def poll_jenkins_build_status():
+    """Polls the status of the last Jenkins build."""
+    try:
+        last_build_url = f"{JENKINS_URL}/job/{JOB_NAME}/lastBuild/api/json"
+
+        print("Polling for Jenkins build status...")
+        while True:
+            response = requests.get(last_build_url, auth=(USERNAME, API_TOKEN))
+            if response.status_code != 200:
+                raise Exception(f"Failed to fetch build status. Status Code: {response.status_code}, Response: {response.text}")
+
+            build_data = response.json()
+            build_result = build_data.get('result')
+            if build_result:  # Build is completed
+                print(f"Build completed with status: {build_result}")
+                return {"status": build_result}
+            else:
+                print("Build still running... Checking again in 5 seconds.")
+                sleep(5)
+
+    except Exception as e:
+        print(f"Error polling Jenkins build status: {str(e)}")
+        return {"error": str(e)}
+
+
+---
+
+How It Works
+
+1. Trigger Build:
+
+Sends a POST request to Jenkins using the buildWithParameters endpoint.
+
+Authenticates with Basic Authentication (username + API token).
+
+
+
+2. Poll Build Status:
+
+Periodically sends a GET request to lastBuild/api/json to check the build status.
+
+Polls every 5 seconds until the build result is available (SUCCESS, FAILURE, etc.).
+
+
+
+3. Build Results:
+
+If the build succeeds, it returns SUCCESS.
+
+If the build fails, it returns FAILURE.
+
 
 
 
 
 ---
 
-Benefits of the Approach:
+Integration into admin_action_request
 
-1. Dynamic Query Selection: Adjusts based on the category to fetch relevant data.
+After triggering the Jenkins job, you can use the returned build result to update the database:
+
+for request_data in data:
+    if request_data.get('action') == 'APPROVED':
+        additional_data = fetch_additional_data(request_data['REQUEST_ID'], request_data['CATEGORY_NAME'])
+        build_result = trigger_jenkins_job(additional_data, request_data['CATEGORY_NAME'])
+
+        # Update database with build result
+        request_status = "SUCCESS" if build_result['status'] == 'SUCCESS' else "FAILURE"
+        update_status_query = f"""
+        UPDATE {dbCfg['QUEUE_ACCESS'] if request_data['CATEGORY_NAME'] == 'QUEUE' else dbCfg['SLOT_REQUEST']}
+        SET REQUEST_STATUS = :REQUEST_STATUS
+        WHERE REQUEST_ID = :REQUEST_ID
+        """
+        cursor.execute(update_status_query, {
+            "REQUEST_STATUS": request_status,
+            "REQUEST_ID": request_data['REQUEST_ID'],
+        })
 
 
-2. Category-Specific Jenkins Parameters: Ensures only valid parameters for QUEUE or SLOT categories are sent to Jenkins.
+---
+
+Jenkins API Notes
+
+1. Authentication:
+
+Use a username and API token instead of passwords for secure access.
+
+You can generate an API token in Jenkins under:
+User > Configure > API Token.
 
 
-3. Scalable: Easily extendable if more categories are added in the future.
+
+2. Build Status Check:
+
+Use /job/<job-name>/lastBuild/api/json to get the details of the last build.
 
 
 
-This structure cleanly separates the logic for different categories, minimizing duplication and making the code maintainable.
+
+
+---
+
+Benefits of This Approach
+
+1. No dependency on external libraries like the Jenkins Python API.
+
+
+2. Simple REST-based interaction using requests.
+
+
+3. Continuous polling ensures the build status is captured accurately.
+
+
+4. Dynamic handling for different categories ensures clean integration.
+
+
 
