@@ -1,35 +1,26 @@
-To implement the requirement where the Approve and Reject buttons are disabled immediately after the database update (regardless of whether Jenkins finishes the build), you need to:
+To achieve this behavior, you need to:
 
-1. Track the row state: Add a state to track whether a row is approved or rejected.
-
-
-2. Update the UI immediately after the API call: As soon as the database update API call succeeds, update the local state to reflect the status (APPROVED or REJECTED).
+1. Update the REQUEST_STATUS column in the table: After the database update API call succeeds, update the table's data source for the row to reflect the new status (APPROVED or REJECTED).
 
 
-3. Disable the buttons based on the row state.
+2. Disable the buttons: Once the status is updated, disable the Approve and Reject buttons for the respective row.
 
 
 
-Here's the updated approach:
+Here’s how you can implement this:
 
 
 ---
 
 Updated Frontend Code
 
-import React, { useState } from 'react';
-import { Button } from '@mui/material';
-import Grid2 from '@mui/material/Unstable_Grid2';
-
-const YourComponent = ({ table, row }) => {
-  const [rowStatus, setRowStatus] = useState({}); // Track status for each row by REQUEST_ID
-
+const renderRowButtons = ({ table, row }) => {
   const handleClick = async (row, action) => {
     const { REQUEST_ID, ADMIN_APPROVAL, PROCESSED_DATE, ...otherProps } = row.original;
     const rowData = {
       REQUEST_ID,
-      ADMIN_APPROVAL: userID, // Assume userID is defined in your scope
-      PROCESSED_DATE: today,  // Assume today is today's date
+      ADMIN_APPROVAL: userID, // Assume `userID` is defined
+      PROCESSED_DATE: today,  // Assume `today` is today's date
       action,
     };
 
@@ -40,88 +31,69 @@ const YourComponent = ({ table, row }) => {
       const response = await apiInstance.put('/admin_panel_requests', [rowData]);
       console.log(response, 'handleClickresponse');
 
-      // Immediately update the rowStatus state to disable buttons and update the status
-      setRowStatus((prevStatus) => ({
-        ...prevStatus,
-        [REQUEST_ID]: action, // Store the action as status for this REQUEST_ID
-      }));
+      // Immediately update the REQUEST_STATUS and disable buttons
+      table.options.meta.updateData(row.index, {
+        ...row.original,
+        REQUEST_STATUS: action, // Update status to APPROVED or REJECTED
+      });
 
-      // Optionally display a toast/snackbar message
+      // Optionally show a success notification
       console.log(`Request ${REQUEST_ID} has been ${action}`);
     } catch (error) {
       console.error('Update Failed:', error);
     }
   };
 
-  const renderRowButtons = ({ table, row }) => {
-    const { REQUEST_ID } = row.original;
+  // Buttons are disabled if the REQUEST_STATUS is not 'PENDING'
+  const isDisabled = row.original.REQUEST_STATUS !== 'PENDING';
 
-    // Determine if the row has already been approved or rejected
-    const isDisabled = !!rowStatus[REQUEST_ID]; // Button is disabled if status exists
-    const currentStatus = rowStatus[REQUEST_ID]; // Get current status (APPROVED/REJECTED)
-
-    return (
-      <Grid2 textAlign={'center'} justifyContent="center" alignItems="center">
-        <Button
-          size="large"
-          sx={{ mx: 1 }}
-          color="success"
-          disabled={isDisabled || table.getSelectedRowModel().flatRows.length > 1}
-          onClick={() => handleClick(row, 'APPROVED')}
-          variant="contained"
-        >
-          Approve
-        </Button>
-        <Button
-          size="large"
-          color="error"
-          disabled={isDisabled || table.getSelectedRowModel().flatRows.length > 1}
-          onClick={() => handleClick(row, 'REJECTED')}
-          variant="contained"
-        >
-          Reject
-        </Button>
-        {/* Display current status */}
-        {isDisabled && <span style={{ marginLeft: '10px' }}>Status: {currentStatus}</span>}
-      </Grid2>
-    );
-  };
-
-  return renderRowButtons({ table, row });
+  return (
+    <Grid2 textAlign={'center'} justifyContent="center" alignItems="center">
+      <Button
+        size="large"
+        sx={{ mx: 1 }}
+        color="success"
+        disabled={isDisabled || table.getSelectedRowModel().flatRows.length > 1}
+        onClick={() => handleClick(row, 'APPROVED')}
+        variant="contained"
+      >
+        Approve
+      </Button>
+      <Button
+        size="large"
+        color="error"
+        disabled={isDisabled || table.getSelectedRowModel().flatRows.length > 1}
+        onClick={() => handleClick(row, 'REJECTED')}
+        variant="contained"
+      >
+        Reject
+      </Button>
+    </Grid2>
+  );
 };
 
-export default YourComponent;
-
 
 ---
 
-Explanation
+Changes Made
 
-1. Row State Management (rowStatus):
+1. Update REQUEST_STATUS in the table:
 
-Added a state variable rowStatus to track the approval/rejection status of each row.
+The handleClick function now uses table.options.meta.updateData(row.index, ...) to update the table's data source after the API call succeeds.
 
-It uses the REQUEST_ID as the key and stores the status (APPROVED or REJECTED) as the value.
-
-
-
-2. Immediate Button Disable:
-
-After the API call to update the database completes, the rowStatus state is updated.
-
-Buttons are conditionally disabled based on whether a status exists for the row (isDisabled).
+This ensures the REQUEST_STATUS column is updated to APPROVED or REJECTED based on the action.
 
 
 
-3. Display Current Status:
+2. Disable Buttons Based on REQUEST_STATUS:
 
-A small status message ("Status: APPROVED/REJECTED") is shown beside the buttons after the row is approved/rejected.
+Buttons are conditionally disabled if row.original.REQUEST_STATUS is not PENDING.
 
 
 
-4. No Wait for Jenkins:
+3. Responsiveness:
 
-The UI updates immediately after the database API call succeeds. The Jenkins build process can continue in the background without blocking the UI.
+Buttons are disabled immediately after the API call succeeds.
 
 
 
@@ -129,27 +101,43 @@ The UI updates immediately after the database API call succeeds. The Jenkins bui
 
 ---
 
-Behavior Summary
+How It Works
 
-1. When the user clicks the Approve button:
+1. Before User Action:
 
-The handleClick function sends the API call to update the database.
-
-On a successful API response, the rowStatus is updated, and the Approve and Reject buttons are disabled.
-
-The status (APPROVED) is displayed immediately beside the buttons.
+The Approve and Reject buttons are enabled if the REQUEST_STATUS is PENDING.
 
 
 
-2. The user does not need to wait for Jenkins to finish, as the buttons are disabled and the row's state is updated instantly.
+2. User Clicks Approve/Reject:
+
+The handleClick function sends the API request.
+
+Once the API call is successful:
+
+The REQUEST_STATUS is updated in the table to APPROVED or REJECTED.
+
+The buttons are disabled because the status is no longer PENDING.
 
 
-3. If a Reject action is taken, the same flow applies with the status REJECTED.
+
+
+3. After User Action:
+
+The buttons are grayed out, and the REQUEST_STATUS column reflects the updated status.
+
 
 
 
 
 ---
 
-This approach keeps the UI responsive and ensures a smooth user experience while allowing Jenkins operations to happen asynchronously.
+Benefits of This Approach
+
+No extra status messages are shown, as the REQUEST_STATUS column in the table directly reflects the updated state.
+
+Ensures immediate UI feedback after the database update, while Jenkins operations happen asynchronously.
+
+Keeps the UI consistent and intuitive, matching the user's expectation.
+
 
