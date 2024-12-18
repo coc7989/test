@@ -1,149 +1,127 @@
-If you want to use requests.get and requests.post to trigger Jenkins builds and fetch the job's result status instead of using the Jenkins Python library, you can interact directly with the Jenkins REST API.
+To implement the requirement where the Approve and Reject buttons are disabled immediately after the database update (regardless of whether Jenkins finishes the build), you need to:
+
+1. Track the row state: Add a state to track whether a row is approved or rejected.
+
+
+2. Update the UI immediately after the API call: As soon as the database update API call succeeds, update the local state to reflect the status (APPROVED or REJECTED).
+
+
+3. Disable the buttons based on the row state.
+
+
+
+Here's the updated approach:
 
 
 ---
 
-Steps to Trigger Build and Fetch Result
+Updated Frontend Code
 
-1. Trigger a Jenkins Build: Use a POST request to the Jenkins build URL with parameters.
+import React, { useState } from 'react';
+import { Button } from '@mui/material';
+import Grid2 from '@mui/material/Unstable_Grid2';
 
+const YourComponent = ({ table, row }) => {
+  const [rowStatus, setRowStatus] = useState({}); // Track status for each row by REQUEST_ID
 
-2. Poll for Build Status: Use a GET request to check the status of the triggered build.
+  const handleClick = async (row, action) => {
+    const { REQUEST_ID, ADMIN_APPROVAL, PROCESSED_DATE, ...otherProps } = row.original;
+    const rowData = {
+      REQUEST_ID,
+      ADMIN_APPROVAL: userID, // Assume userID is defined in your scope
+      PROCESSED_DATE: today,  // Assume today is today's date
+      action,
+    };
 
+    console.log([rowData], 'rows log');
 
+    try {
+      // Send the API call to update the database
+      const response = await apiInstance.put('/admin_panel_requests', [rowData]);
+      console.log(response, 'handleClickresponse');
 
+      // Immediately update the rowStatus state to disable buttons and update the status
+      setRowStatus((prevStatus) => ({
+        ...prevStatus,
+        [REQUEST_ID]: action, // Store the action as status for this REQUEST_ID
+      }));
 
----
+      // Optionally display a toast/snackbar message
+      console.log(`Request ${REQUEST_ID} has been ${action}`);
+    } catch (error) {
+      console.error('Update Failed:', error);
+    }
+  };
 
-Updated Code for Triggering Jenkins Build
+  const renderRowButtons = ({ table, row }) => {
+    const { REQUEST_ID } = row.original;
 
-1. Trigger Build: Jenkins job URL typically follows this format:
+    // Determine if the row has already been approved or rejected
+    const isDisabled = !!rowStatus[REQUEST_ID]; // Button is disabled if status exists
+    const currentStatus = rowStatus[REQUEST_ID]; // Get current status (APPROVED/REJECTED)
 
-Trigger build: POST http://<jenkins-url>/job/<job-name>/buildWithParameters
+    return (
+      <Grid2 textAlign={'center'} justifyContent="center" alignItems="center">
+        <Button
+          size="large"
+          sx={{ mx: 1 }}
+          color="success"
+          disabled={isDisabled || table.getSelectedRowModel().flatRows.length > 1}
+          onClick={() => handleClick(row, 'APPROVED')}
+          variant="contained"
+        >
+          Approve
+        </Button>
+        <Button
+          size="large"
+          color="error"
+          disabled={isDisabled || table.getSelectedRowModel().flatRows.length > 1}
+          onClick={() => handleClick(row, 'REJECTED')}
+          variant="contained"
+        >
+          Reject
+        </Button>
+        {/* Display current status */}
+        {isDisabled && <span style={{ marginLeft: '10px' }}>Status: {currentStatus}</span>}
+      </Grid2>
+    );
+  };
 
-Add parameters and credentials for authentication.
+  return renderRowButtons({ table, row });
+};
 
-
-
-2. Fetch Build Status:
-
-Use Jenkins's API to poll the status of the last build: GET http://<jenkins-url>/job/<job-name>/lastBuild/api/json
-
-
-
-
-
----
-
-Code Implementation
-
-import requests
-from time import sleep
-
-JENKINS_URL = 'https://jenkins-test.com'
-JOB_NAME = 'myLSF/PriorityAccess'
-USERNAME = 'j028232'
-API_TOKEN = 'YOUR_JENKINS_API_TOKEN'
-
-def trigger_jenkins_job(approved_requests, category):
-    try:
-        # Prepare Jenkins parameters dynamically based on category
-        if category == 'QUEUE':
-            jenkins_params = {
-                'REQUEST_ID': approved_requests.get("REQUEST_ID"),
-                'CLUSTER_NAME': approved_requests.get('CLUSTER_NAME'),
-                'GROUP_AID': approved_requests.get('GROUP_AID'),
-                'ACCESS_END_DATE': approved_requests.get('ACCESS_END_DATE'),
-                'APPROVED_BY': approved_requests.get('APPROVED_BY'),
-                'REQUESTOR_AID': approved_requests.get('USER_AID'),
-                'PROJECT_NAME': approved_requests.get('PROJECT_NAME'),
-            }
-        elif category == 'SLOT':
-            jenkins_params = {
-                'REQUEST_ID': approved_requests.get("REQUEST_ID"),
-                'PROJECT_NAME': approved_requests.get('PROJECT_NAME'),
-                'SLOT_TYPE': approved_requests.get('SLOT_TYPE'),
-                'CURRENT_SLOT_LIMIT': approved_requests.get('CURRENT_SLOT_LIMIT'),
-                'CLUSTER_NAME': approved_requests.get('CLUSTER_NAME'),
-                'REQUESTED_SLOT': approved_requests.get('REQUESTED_SLOT'),
-                'ACCESS_END_DATE': approved_requests.get('ACCESS_END_DATE'),
-                'APPROVED_BY': approved_requests.get('APPROVED_BY'),
-                'REQUESTOR_AID': approved_requests.get('USER_AID'),
-            }
-        else:
-            raise ValueError("Invalid CATEGORY_NAME for Jenkins trigger")
-
-        # Trigger Jenkins Build
-        trigger_url = f"{JENKINS_URL}/job/{JOB_NAME}/buildWithParameters"
-        response = requests.post(
-            trigger_url,
-            params=jenkins_params,
-            auth=(USERNAME, API_TOKEN)
-        )
-
-        if response.status_code != 201:
-            raise Exception(f"Failed to trigger Jenkins job. Status Code: {response.status_code}, Response: {response.text}")
-
-        print(f"Jenkins build triggered successfully for REQUEST_ID {approved_requests.get('REQUEST_ID')}")
-
-        # Poll for build status
-        build_status = poll_jenkins_build_status()
-        return build_status
-
-    except Exception as e:
-        print(f"Error triggering Jenkins job: {str(e)}")
-        return {"error": str(e)}
-
-def poll_jenkins_build_status():
-    """Polls the status of the last Jenkins build."""
-    try:
-        last_build_url = f"{JENKINS_URL}/job/{JOB_NAME}/lastBuild/api/json"
-
-        print("Polling for Jenkins build status...")
-        while True:
-            response = requests.get(last_build_url, auth=(USERNAME, API_TOKEN))
-            if response.status_code != 200:
-                raise Exception(f"Failed to fetch build status. Status Code: {response.status_code}, Response: {response.text}")
-
-            build_data = response.json()
-            build_result = build_data.get('result')
-            if build_result:  # Build is completed
-                print(f"Build completed with status: {build_result}")
-                return {"status": build_result}
-            else:
-                print("Build still running... Checking again in 5 seconds.")
-                sleep(5)
-
-    except Exception as e:
-        print(f"Error polling Jenkins build status: {str(e)}")
-        return {"error": str(e)}
+export default YourComponent;
 
 
 ---
 
-How It Works
+Explanation
 
-1. Trigger Build:
+1. Row State Management (rowStatus):
 
-Sends a POST request to Jenkins using the buildWithParameters endpoint.
+Added a state variable rowStatus to track the approval/rejection status of each row.
 
-Authenticates with Basic Authentication (username + API token).
-
-
-
-2. Poll Build Status:
-
-Periodically sends a GET request to lastBuild/api/json to check the build status.
-
-Polls every 5 seconds until the build result is available (SUCCESS, FAILURE, etc.).
+It uses the REQUEST_ID as the key and stores the status (APPROVED or REJECTED) as the value.
 
 
 
-3. Build Results:
+2. Immediate Button Disable:
 
-If the build succeeds, it returns SUCCESS.
+After the API call to update the database completes, the rowStatus state is updated.
 
-If the build fails, it returns FAILURE.
+Buttons are conditionally disabled based on whether a status exists for the row (isDisabled).
+
+
+
+3. Display Current Status:
+
+A small status message ("Status: APPROVED/REJECTED") is shown beside the buttons after the row is approved/rejected.
+
+
+
+4. No Wait for Jenkins:
+
+The UI updates immediately after the database API call succeeds. The Jenkins build process can continue in the background without blocking the UI.
 
 
 
@@ -151,63 +129,27 @@ If the build fails, it returns FAILURE.
 
 ---
 
-Integration into admin_action_request
+Behavior Summary
 
-After triggering the Jenkins job, you can use the returned build result to update the database:
+1. When the user clicks the Approve button:
 
-for request_data in data:
-    if request_data.get('action') == 'APPROVED':
-        additional_data = fetch_additional_data(request_data['REQUEST_ID'], request_data['CATEGORY_NAME'])
-        build_result = trigger_jenkins_job(additional_data, request_data['CATEGORY_NAME'])
+The handleClick function sends the API call to update the database.
 
-        # Update database with build result
-        request_status = "SUCCESS" if build_result['status'] == 'SUCCESS' else "FAILURE"
-        update_status_query = f"""
-        UPDATE {dbCfg['QUEUE_ACCESS'] if request_data['CATEGORY_NAME'] == 'QUEUE' else dbCfg['SLOT_REQUEST']}
-        SET REQUEST_STATUS = :REQUEST_STATUS
-        WHERE REQUEST_ID = :REQUEST_ID
-        """
-        cursor.execute(update_status_query, {
-            "REQUEST_STATUS": request_status,
-            "REQUEST_ID": request_data['REQUEST_ID'],
-        })
+On a successful API response, the rowStatus is updated, and the Approve and Reject buttons are disabled.
 
-
----
-
-Jenkins API Notes
-
-1. Authentication:
-
-Use a username and API token instead of passwords for secure access.
-
-You can generate an API token in Jenkins under:
-User > Configure > API Token.
+The status (APPROVED) is displayed immediately beside the buttons.
 
 
 
-2. Build Status Check:
+2. The user does not need to wait for Jenkins to finish, as the buttons are disabled and the row's state is updated instantly.
 
-Use /job/<job-name>/lastBuild/api/json to get the details of the last build.
 
+3. If a Reject action is taken, the same flow applies with the status REJECTED.
 
 
 
 
 ---
 
-Benefits of This Approach
-
-1. No dependency on external libraries like the Jenkins Python API.
-
-
-2. Simple REST-based interaction using requests.
-
-
-3. Continuous polling ensures the build status is captured accurately.
-
-
-4. Dynamic handling for different categories ensures clean integration.
-
-
+This approach keeps the UI responsive and ensures a smooth user experience while allowing Jenkins operations to happen asynchronously.
 
