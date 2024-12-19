@@ -1,143 +1,202 @@
-To achieve this behavior, you need to:
+Yes, separating the database approval update and the Jenkins trigger into two API calls is a good approach. This method decouples the database update logic from Jenkins triggering, providing these benefits:
 
-1. Update the REQUEST_STATUS column in the table: After the database update API call succeeds, update the table's data source for the row to reflect the new status (APPROVED or REJECTED).
+1. Improved Responsiveness:
 
-
-2. Disable the buttons: Once the status is updated, disable the Approve and Reject buttons for the respective row.
-
+Users see immediate updates (e.g., buttons disabled, status updated) after the database approval, without waiting for Jenkins.
 
 
-Here’s how you can implement this:
+
+2. Error Handling:
+
+Any errors in Jenkins triggering do not block the database update or impact the user experience.
+
+
+
+3. Flexibility:
+
+You can retry Jenkins triggering separately if needed without impacting the database update.
+
+
+
 
 
 ---
 
-Updated Frontend Code
+Updated Approach
 
-const renderRowButtons = ({ table, row }) => {
-  const handleClick = async (row, action) => {
-    const { REQUEST_ID, ADMIN_APPROVAL, PROCESSED_DATE, ...otherProps } = row.original;
-    const rowData = {
-      REQUEST_ID,
-      ADMIN_APPROVAL: userID, // Assume `userID` is defined
-      PROCESSED_DATE: today,  // Assume `today` is today's date
-      action,
-    };
+Frontend Code
 
-    console.log([rowData], 'rows log');
+Here’s the updated frontend logic:
 
-    try {
-      // Send the API call to update the database
-      const response = await apiInstance.put('/admin_panel_requests', [rowData]);
-      console.log(response, 'handleClickresponse');
-
-      // Immediately update the REQUEST_STATUS and disable buttons
-      table.options.meta.updateData(row.index, {
-        ...row.original,
-        REQUEST_STATUS: action, // Update status to APPROVED or REJECTED
-      });
-
-      // Optionally show a success notification
-      console.log(`Request ${REQUEST_ID} has been ${action}`);
-    } catch (error) {
-      console.error('Update Failed:', error);
-    }
+const handleApproval = async (table, row, action) => {
+  const { REQUEST_ID, ADMIN_APPROVAL, PROCESSED_DATE, CATEGORY_NAME, REQUEST_TYPE, ...otherProps } = row.original;
+  const rowData = { 
+    REQUEST_ID, 
+    ADMIN_APPROVAL: userID, // Assume `userID` is available 
+    PROCESSED_DATE: today,  // Assume `today` is today's date 
+    CATEGORY_NAME, 
+    REQUEST_TYPE, 
+    action 
   };
 
-  // Buttons are disabled if the REQUEST_STATUS is not 'PENDING'
-  const isDisabled = row.original.REQUEST_STATUS !== 'PENDING';
+  console.log([rowData], 'rows log');
 
-  return (
-    <Grid2 textAlign={'center'} justifyContent="center" alignItems="center">
-      <Button
-        size="large"
-        sx={{ mx: 1 }}
-        color="success"
-        disabled={isDisabled || table.getSelectedRowModel().flatRows.length > 1}
-        onClick={() => handleClick(row, 'APPROVED')}
-        variant="contained"
-      >
-        Approve
-      </Button>
-      <Button
-        size="large"
-        color="error"
-        disabled={isDisabled || table.getSelectedRowModel().flatRows.length > 1}
-        onClick={() => handleClick(row, 'REJECTED')}
-        variant="contained"
-      >
-        Reject
-      </Button>
-    </Grid2>
-  );
+  try {
+    // Step 1: Update approval status in the database
+    const response = await apiInstance.put('/update_approval_status', [rowData]);
+    console.log(response, 'Approval Status Updated');
+
+    // Step 2: Refetch data to update the table
+    table.options.meta.refetch();
+
+    // Step 3: Trigger Jenkins (optional, non-blocking)
+    if (action === 'APPROVED') {
+      await apiInstance.post('/trigger_jenkins', { REQUEST_ID, CATEGORY_NAME });
+      console.log('Jenkins triggered for request', REQUEST_ID);
+    }
+  } catch (error) {
+    console.error('Approval or Jenkins Trigger Failed:', error);
+  }
 };
 
+Backend Code
 
----
+API 1: Update Approval Status
 
-Changes Made
+This API updates the database with the approval status.
 
-1. Update REQUEST_STATUS in the table:
+@app.route(f"{API_URL_PREFIX}/update_approval_status", methods=['PUT'])
+@cross_origin()
+def update_approval_status():
+    try:
+        data = request.json
+        query = """
+            UPDATE {table_name}
+            SET UPDATED_DATE = TO_DATE(:UPDATED_DATE, 'YYYY-MM-DD'),
+                REQUEST_STATUS = :REQUEST_STATUS,
+                APPROVED_BY = :ADMIN_APPROVAL,
+                ACCESS_END_DATE = :ACCESS_END_DATE
+            WHERE REQUEST_ID = :REQUEST_ID
+        """
 
-The handleClick function now uses table.options.meta.updateData(row.index, ...) to update the table's data source after the API call succeeds.
+        for item in data:
+            table_name = (
+                dbCfg['QUEUE_ACCESS'] if item['CATEGORY_NAME'] == 'QUEUE'
+                else dbCfg['SLOT_REQUEST']
+            )
+            item['ACCESS_END_DATE'] = (
+                calculate_access_end_date(item['PROCESSED_DATE'], item['REQUEST_TYPE'])
+                if item['CATEGORY_NAME'] == 'QUEUE'
+                else item['ACCESS_END_DATE']
+            )
+            db.execute(query.format(table_name=table_name), item)
 
-This ensures the REQUEST_STATUS column is updated to APPROVED or REJECTED based on the action.
-
-
-
-2. Disable Buttons Based on REQUEST_STATUS:
-
-Buttons are conditionally disabled if row.original.REQUEST_STATUS is not PENDING.
-
-
-
-3. Responsiveness:
-
-Buttons are disabled immediately after the API call succeeds.
-
-
-
-
-
----
-
-How It Works
-
-1. Before User Action:
-
-The Approve and Reject buttons are enabled if the REQUEST_STATUS is PENDING.
-
-
-
-2. User Clicks Approve/Reject:
-
-The handleClick function sends the API request.
-
-Once the API call is successful:
-
-The REQUEST_STATUS is updated in the table to APPROVED or REJECTED.
-
-The buttons are disabled because the status is no longer PENDING.
-
-
-
-
-3. After User Action:
-
-The buttons are grayed out, and the REQUEST_STATUS column reflects the updated status.
-
-
-
+        db.commit()
+        return jsonify({'message': 'Approval status updated successfully'}), 200
+    except Exception as e:
+        print(f"Error updating approval status: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 
 ---
 
-Benefits of This Approach
+API 2: Trigger Jenkins
 
-No extra status messages are shown, as the REQUEST_STATUS column in the table directly reflects the updated state.
+This API triggers Jenkins for approved requests.
 
-Ensures immediate UI feedback after the database update, while Jenkins operations happen asynchronously.
+@app.route(f"{API_URL_PREFIX}/trigger_jenkins", methods=['POST'])
+@cross_origin()
+def trigger_jenkins():
+    try:
+        data = request.json
+        request_id = data['REQUEST_ID']
+        category_name = data['CATEGORY_NAME']
 
-Keeps the UI consistent and intuitive, matching the user's expectation.
+        # Fetch additional data based on category
+        if category_name == 'QUEUE':
+            additional_data = fetch_additional_data_queue(request_id)
+        elif category_name == 'SLOT':
+            additional_data = fetch_additional_data_slot(request_id)
+        else:
+            return jsonify({'error': 'Invalid category name'}), 400
 
+        # Prepare Jenkins parameters
+        jenkins_params = {
+            'REQUEST_ID': additional_data['REQUEST_ID'],
+            'CATEGORY_NAME': category_name,
+            'USER_AID': additional_data.get('USER_AID'),
+            # Add other params as needed
+        }
+
+        # Trigger Jenkins using requests.get
+        jenkins_url = "https://jenkins-test.com/job/myLSF/PriorityAccess/buildWithParameters"
+        response = requests.get(jenkins_url, params=jenkins_params, auth=('jenkins_user', 'jenkins_password'))
+        
+        if response.status_code == 201:
+            return jsonify({'message': 'Jenkins job triggered successfully'}), 200
+        else:
+            return jsonify({'error': f"Jenkins trigger failed: {response.text}"}), 500
+    except Exception as e:
+        print(f"Error triggering Jenkins: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+---
+
+Helper Functions
+
+Fetch data based on category:
+
+def fetch_additional_data_queue(request_id):
+    query = f"SELECT * FROM {dbCfg['QUEUE_ACCESS']} WHERE REQUEST_ID = :REQUEST_ID"
+    return fetch_single_row(query, {'REQUEST_ID': request_id})
+
+def fetch_additional_data_slot(request_id):
+    query = f"SELECT * FROM {dbCfg['SLOT_REQUEST']} WHERE REQUEST_ID = :REQUEST_ID"
+    return fetch_single_row(query, {'REQUEST_ID': request_id})
+
+def fetch_single_row(query, params):
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute(query, params)
+        columns = [col[0] for col in cursor.description]
+        row = cursor.fetchone()
+        cursor.close()
+        return {columns[i]: row[i] for i in range(len(columns))} if row else {}
+    except Exception as e:
+        print(f"Error fetching data: {str(e)}")
+        return {}
+
+
+---
+
+Key Points
+
+1. Frontend Behavior:
+
+After clicking Approve/Reject, the database update API is called.
+
+On success, refetch() updates the table, disabling buttons and showing the updated status.
+
+Jenkins API is triggered in the background for approved requests.
+
+
+
+2. Backend APIs:
+
+The first API updates the database approval status.
+
+The second API triggers Jenkins with the necessary data.
+
+
+
+3. Separation of Concerns:
+
+Database updates and Jenkins operations are independent, ensuring the frontend remains responsive.
+
+
+
+
+This approach ensures clear separation and maintains a good user experience.
 
