@@ -1,202 +1,110 @@
-Yes, separating the database approval update and the Jenkins trigger into two API calls is a good approach. This method decouples the database update logic from Jenkins triggering, providing these benefits:
+import navConfig from './config';
+import logo from './texas.png';
+import { ClusterContext } from '../../../NotificationContext';
 
-1. Improved Responsiveness:
+const StyledAccount = styled('div')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: theme.spacing(1, 1.5),
+  borderRadius: Number(theme.shape.borderRadius) * 1.5,
+  backgroundColor: alpha(theme.palette.grey[500], 0.12),
+}));
 
-Users see immediate updates (e.g., buttons disabled, status updated) after the database approval, without waiting for Jenkins.
-
-
-
-2. Error Handling:
-
-Any errors in Jenkins triggering do not block the database update or impact the user experience.
-
-
-
-3. Flexibility:
-
-You can retry Jenkins triggering separately if needed without impacting the database update.
-
-
-
-
-
----
-
-Updated Approach
-
-Frontend Code
-
-Here’s the updated frontend logic:
-
-const handleApproval = async (table, row, action) => {
-  const { REQUEST_ID, ADMIN_APPROVAL, PROCESSED_DATE, CATEGORY_NAME, REQUEST_TYPE, ...otherProps } = row.original;
-  const rowData = { 
-    REQUEST_ID, 
-    ADMIN_APPROVAL: userID, // Assume `userID` is available 
-    PROCESSED_DATE: today,  // Assume `today` is today's date 
-    CATEGORY_NAME, 
-    REQUEST_TYPE, 
-    action 
-  };
-
-  console.log([rowData], 'rows log');
-
-  try {
-    // Step 1: Update approval status in the database
-    const response = await apiInstance.put('/update_approval_status', [rowData]);
-    console.log(response, 'Approval Status Updated');
-
-    // Step 2: Refetch data to update the table
-    table.options.meta.refetch();
-
-    // Step 3: Trigger Jenkins (optional, non-blocking)
-    if (action === 'APPROVED') {
-      await apiInstance.post('/trigger_jenkins', { REQUEST_ID, CATEGORY_NAME });
-      console.log('Jenkins triggered for request', REQUEST_ID);
-    }
-  } catch (error) {
-    console.error('Approval or Jenkins Trigger Failed:', error);
-  }
+Nav.propTypes = {
+  openNav: PropTypes.bool,
+  onCloseNav: PropTypes.func,
 };
 
-Backend Code
+export default function Nav({ openNav, onCloseNav }) {
+  const { userName, isAdmin } = useContext(ClusterContext); // Get isAdmin from context
 
-API 1: Update Approval Status
+  const { pathname } = useLocation();
 
-This API updates the database with the approval status.
+  const isDesktop = useResponsive('up', 'lg');
 
-@app.route(f"{API_URL_PREFIX}/update_approval_status", methods=['PUT'])
-@cross_origin()
-def update_approval_status():
-    try:
-        data = request.json
-        query = """
-            UPDATE {table_name}
-            SET UPDATED_DATE = TO_DATE(:UPDATED_DATE, 'YYYY-MM-DD'),
-                REQUEST_STATUS = :REQUEST_STATUS,
-                APPROVED_BY = :ADMIN_APPROVAL,
-                ACCESS_END_DATE = :ACCESS_END_DATE
-            WHERE REQUEST_ID = :REQUEST_ID
-        """
+  useEffect(() => {
+    if (openNav) {
+      onCloseNav();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
-        for item in data:
-            table_name = (
-                dbCfg['QUEUE_ACCESS'] if item['CATEGORY_NAME'] == 'QUEUE'
-                else dbCfg['SLOT_REQUEST']
-            )
-            item['ACCESS_END_DATE'] = (
-                calculate_access_end_date(item['PROCESSED_DATE'], item['REQUEST_TYPE'])
-                if item['CATEGORY_NAME'] == 'QUEUE'
-                else item['ACCESS_END_DATE']
-            )
-            db.execute(query.format(table_name=table_name), item)
+  // Filter navigation items based on isAdmin
+  const filteredNavConfig = navConfig.filter((item) => {
+    if (item.title === 'Admin Panel' || item.title === 'Super Admin Panel') {
+      return isAdmin; // Only include these items if the user is an admin
+    }
+    return true; // Include all other items
+  });
 
-        db.commit()
-        return jsonify({'message': 'Approval status updated successfully'}), 200
-    except Exception as e:
-        print(f"Error updating approval status: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+  const renderContent = (
+    <Scrollbar
+      sx={{
+        height: 1,
+        '& .simplebar-content': { height: 1, display: 'flex', flexDirection: 'column' },
+      }}
+    >
+      <Logo label="logoo" />
+      <img src={logo} alt="log" />
+      <Box sx={{ m: 1 }}>
+        <Link underline="none">
+          <StyledAccount>
+            <Box>
+              <Typography variant="subtitle1" sx={{ color: 'text.primary' }} textAlign={'center'}>
+                {userName}
+              </Typography>
+            </Box>
+          </StyledAccount>
+        </Link>
+      </Box>
+      <Divider variant="middle" />
 
+      {/* Pass the filtered config to NavSection */}
+      <NavSection data={filteredNavConfig} />
 
----
+      <Divider variant="middle" />
+    </Scrollbar>
+  );
 
-API 2: Trigger Jenkins
-
-This API triggers Jenkins for approved requests.
-
-@app.route(f"{API_URL_PREFIX}/trigger_jenkins", methods=['POST'])
-@cross_origin()
-def trigger_jenkins():
-    try:
-        data = request.json
-        request_id = data['REQUEST_ID']
-        category_name = data['CATEGORY_NAME']
-
-        # Fetch additional data based on category
-        if category_name == 'QUEUE':
-            additional_data = fetch_additional_data_queue(request_id)
-        elif category_name == 'SLOT':
-            additional_data = fetch_additional_data_slot(request_id)
-        else:
-            return jsonify({'error': 'Invalid category name'}), 400
-
-        # Prepare Jenkins parameters
-        jenkins_params = {
-            'REQUEST_ID': additional_data['REQUEST_ID'],
-            'CATEGORY_NAME': category_name,
-            'USER_AID': additional_data.get('USER_AID'),
-            # Add other params as needed
-        }
-
-        # Trigger Jenkins using requests.get
-        jenkins_url = "https://jenkins-test.com/job/myLSF/PriorityAccess/buildWithParameters"
-        response = requests.get(jenkins_url, params=jenkins_params, auth=('jenkins_user', 'jenkins_password'))
-        
-        if response.status_code == 201:
-            return jsonify({'message': 'Jenkins job triggered successfully'}), 200
-        else:
-            return jsonify({'error': f"Jenkins trigger failed: {response.text}"}), 500
-    except Exception as e:
-        print(f"Error triggering Jenkins: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-
----
-
-Helper Functions
-
-Fetch data based on category:
-
-def fetch_additional_data_queue(request_id):
-    query = f"SELECT * FROM {dbCfg['QUEUE_ACCESS']} WHERE REQUEST_ID = :REQUEST_ID"
-    return fetch_single_row(query, {'REQUEST_ID': request_id})
-
-def fetch_additional_data_slot(request_id):
-    query = f"SELECT * FROM {dbCfg['SLOT_REQUEST']} WHERE REQUEST_ID = :REQUEST_ID"
-    return fetch_single_row(query, {'REQUEST_ID': request_id})
-
-def fetch_single_row(query, params):
-    try:
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute(query, params)
-        columns = [col[0] for col in cursor.description]
-        row = cursor.fetchone()
-        cursor.close()
-        return {columns[i]: row[i] for i in range(len(columns))} if row else {}
-    except Exception as e:
-        print(f"Error fetching data: {str(e)}")
-        return {}
-
-
----
-
-Key Points
-
-1. Frontend Behavior:
-
-After clicking Approve/Reject, the database update API is called.
-
-On success, refetch() updates the table, disabling buttons and showing the updated status.
-
-Jenkins API is triggered in the background for approved requests.
-
-
-
-2. Backend APIs:
-
-The first API updates the database approval status.
-
-The second API triggers Jenkins with the necessary data.
-
-
-
-3. Separation of Concerns:
-
-Database updates and Jenkins operations are independent, ensuring the frontend remains responsive.
-
-
-
-
-This approach ensures clear separation and maintains a good user experience.
-
+  return (
+    <Box
+      component="nav"
+      sx={{
+        flexShrink: { lg: 0 },
+        width: { lg: NAV_WIDTH },
+      }}
+    >
+      {isDesktop ? (
+        <Drawer
+          open
+          variant="permanent"
+          PaperProps={{
+            sx: {
+              width: NAV_WIDTH,
+              bgcolor: 'background.default',
+              borderRightStyle: 'dashed',
+            },
+          }}
+        >
+          {renderContent}
+        </Drawer>
+      ) : (
+        <Drawer
+          open={openNav}
+          onClose={onCloseNav}
+          ModalProps={{
+            keepMounted: true,
+          }}
+          PaperProps={{
+            sx: {
+              width: NAV_WIDTH,
+            },
+          }}
+        >
+          {renderContent}
+        </Drawer>
+      )}
+    </Box>
+  );
+}
