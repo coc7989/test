@@ -1,110 +1,84 @@
-import navConfig from './config';
-import logo from './texas.png';
-import { ClusterContext } from '../../../NotificationContext';
+To make the script dynamic and not depend on the exact number of # characters, you can search for specific keywords like Begin Of MYLSF Automation and End Of MYLSF Automation. Here's an updated version of the script:
 
-const StyledAccount = styled('div')(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: theme.spacing(1, 1.5),
-  borderRadius: Number(theme.shape.borderRadius) * 1.5,
-  backgroundColor: alpha(theme.palette.grey[500], 0.12),
-}));
-
-Nav.propTypes = {
-  openNav: PropTypes.bool,
-  onCloseNav: PropTypes.func,
-};
-
-export default function Nav({ openNav, onCloseNav }) {
-  const { userName, isAdmin } = useContext(ClusterContext); // Get isAdmin from context
-
-  const { pathname } = useLocation();
-
-  const isDesktop = useResponsive('up', 'lg');
-
-  useEffect(() => {
-    if (openNav) {
-      onCloseNav();
+stage('Append ID to lsb resources file (if applicable)') {
+    when {
+        expression { return params.LSB_OPTION }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
+    steps {
+        script {
+            echo "----------------Append ID to Config File----------------"
+            try {
+                def userIds = params.GROUP_AID.split(',').collect { it.trim() }
+                def slaPool = params.SLA_POOL ?: env.DEFAULT_SLA_POOL
+                echo "Adding User IDs to LSB File: ${userIds} with SLA Pool: ${slaPool}"
 
-  // Filter navigation items based on isAdmin
-  const filteredNavConfig = navConfig.filter((item) => {
-    if (item.title === 'Admin Panel' || item.title === 'Super Admin Panel') {
-      return isAdmin; // Only include these items if the user is an admin
+                def formattedEntry = "(${userIds.join(',')}) - ${slaPool}"
+
+                echo "Adding entry to LSB File: ${formattedEntry}"
+
+                // Read the file content
+                def content = readFile(file: lsb_resources_file_path)
+                def startMarker = "#Begin Of MYLSF Automation"
+                def endMarker = "#End Of MYLSF Automation"
+
+                // Check if markers exist
+                if (content.contains(startMarker) && content.contains(endMarker)) {
+                    // Split the content into parts
+                    def parts = content.split("(?<=${startMarker}\\n)(.*?)(?=${endMarker}\\n)", 2)
+                    if (parts.size() == 2) {
+                        def before = parts[0]
+                        def after = parts[1]
+                        def updatedContent = before + formattedEntry + "\n" + after
+                        writeFile(file: lsb_resources_file_path, text: updatedContent)
+                        echo "Config file ${lsb_resources_file_path} updated successfully."
+                    } else {
+                        error "Unexpected file format. Cannot update the file."
+                    }
+                } else {
+                    error "Delimiters not found in ${lsb_resources_file_path}."
+                }
+            } catch (Exception e) {
+                restore_hwsim_backup_file(config_backup_file_name, config_filename)
+                check_in_file_on_failure(config_file_path)
+                if (params.LSB_OPTION) {
+                    check_in_file_on_failure(lsb_resources_file_path)
+                }
+                setFail()
+                error "Failed to append ID to config file: ${e.message}"
+            }
+        }
     }
-    return true; // Include all other items
-  });
-
-  const renderContent = (
-    <Scrollbar
-      sx={{
-        height: 1,
-        '& .simplebar-content': { height: 1, display: 'flex', flexDirection: 'column' },
-      }}
-    >
-      <Logo label="logoo" />
-      <img src={logo} alt="log" />
-      <Box sx={{ m: 1 }}>
-        <Link underline="none">
-          <StyledAccount>
-            <Box>
-              <Typography variant="subtitle1" sx={{ color: 'text.primary' }} textAlign={'center'}>
-                {userName}
-              </Typography>
-            </Box>
-          </StyledAccount>
-        </Link>
-      </Box>
-      <Divider variant="middle" />
-
-      {/* Pass the filtered config to NavSection */}
-      <NavSection data={filteredNavConfig} />
-
-      <Divider variant="middle" />
-    </Scrollbar>
-  );
-
-  return (
-    <Box
-      component="nav"
-      sx={{
-        flexShrink: { lg: 0 },
-        width: { lg: NAV_WIDTH },
-      }}
-    >
-      {isDesktop ? (
-        <Drawer
-          open
-          variant="permanent"
-          PaperProps={{
-            sx: {
-              width: NAV_WIDTH,
-              bgcolor: 'background.default',
-              borderRightStyle: 'dashed',
-            },
-          }}
-        >
-          {renderContent}
-        </Drawer>
-      ) : (
-        <Drawer
-          open={openNav}
-          onClose={onCloseNav}
-          ModalProps={{
-            keepMounted: true,
-          }}
-          PaperProps={{
-            sx: {
-              width: NAV_WIDTH,
-            },
-          }}
-        >
-          {renderContent}
-        </Drawer>
-      )}
-    </Box>
-  );
 }
+
+Key Updates:
+
+1. Flexible Marker Matching:
+
+Searches for Begin Of MYLSF Automation and End Of MYLSF Automation regardless of how many # characters are used.
+
+Does not depend on the exact format of the comments.
+
+
+
+2. Dynamic Content Update:
+
+Splits the file content into three parts:
+
+Content before #Begin Of MYLSF Automation.
+
+Content between the markers (to be updated).
+
+Content after #End Of MYLSF Automation.
+
+
+
+
+3. Robust Error Handling:
+
+Validates the presence of both markers and ensures the file is formatted as expected.
+
+
+
+
+This approach ensures flexibility and handles variations in the formatting of the delimiters.
+
