@@ -1,5 +1,3 @@
-To make the script dynamic and not depend on the exact number of # characters, you can search for specific keywords like Begin Of MYLSF Automation and End Of MYLSF Automation. Here's an updated version of the script:
-
 stage('Append ID to lsb resources file (if applicable)') {
     when {
         expression { return params.LSB_OPTION }
@@ -21,19 +19,24 @@ stage('Append ID to lsb resources file (if applicable)') {
                 def startMarker = "#Begin Of MYLSF Automation"
                 def endMarker = "#End Of MYLSF Automation"
 
-                // Check if markers exist
+                // Ensure markers exist in the file
                 if (content.contains(startMarker) && content.contains(endMarker)) {
-                    // Split the content into parts
-                    def parts = content.split("(?<=${startMarker}\\n)(.*?)(?=${endMarker}\\n)", 2)
-                    if (parts.size() == 2) {
-                        def before = parts[0]
-                        def after = parts[1]
-                        def updatedContent = before + formattedEntry + "\n" + after
-                        writeFile(file: lsb_resources_file_path, text: updatedContent)
-                        echo "Config file ${lsb_resources_file_path} updated successfully."
-                    } else {
-                        error "Unexpected file format. Cannot update the file."
-                    }
+                    // Extract parts
+                    def beforeBegin = content.substring(0, content.indexOf(startMarker) + startMarker.length() + 1)
+                    def afterEnd = content.substring(content.indexOf(endMarker))
+                    def middleSectionStart = content.indexOf(startMarker) + startMarker.length()
+                    def middleSectionEnd = content.indexOf(endMarker)
+                    def middleSection = content.substring(middleSectionStart, middleSectionEnd).trim()
+
+                    // Append the new entry to the middle section
+                    def updatedMiddleSection = middleSection + "\n" + formattedEntry
+
+                    // Combine all parts
+                    def updatedContent = beforeBegin + updatedMiddleSection + "\n" + afterEnd
+
+                    // Write back to the file
+                    writeFile(file: lsb_resources_file_path, text: updatedContent)
+                    echo "Config file ${lsb_resources_file_path} updated successfully."
                 } else {
                     error "Delimiters not found in ${lsb_resources_file_path}."
                 }
@@ -49,36 +52,3 @@ stage('Append ID to lsb resources file (if applicable)') {
         }
     }
 }
-
-Key Updates:
-
-1. Flexible Marker Matching:
-
-Searches for Begin Of MYLSF Automation and End Of MYLSF Automation regardless of how many # characters are used.
-
-Does not depend on the exact format of the comments.
-
-
-
-2. Dynamic Content Update:
-
-Splits the file content into three parts:
-
-Content before #Begin Of MYLSF Automation.
-
-Content between the markers (to be updated).
-
-Content after #End Of MYLSF Automation.
-
-
-
-
-3. Robust Error Handling:
-
-Validates the presence of both markers and ensures the file is formatted as expected.
-
-
-
-
-This approach ensures flexibility and handles variations in the formatting of the delimiters.
-
