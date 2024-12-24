@@ -1,124 +1,166 @@
-To implement the described functionality, you can follow these steps:
+To make PLM_AID follow similar logic as GROUP_AID but restrict selection to only one value, you can use the Autocomplete component without the multiple prop. Below is the updated implementation:
 
-Backend (Flask)
+Updated Code
 
-1. Endpoint to Handle Email: Create an endpoint in Flask to receive to, cc, subject, and row data. Use an email-sending library like smtplib or a package like Flask-Mail.
+const [selectedPLMItem, setSelectedPLMItem] = useState(null); // For single selection
+const [selectedGroupItems, setSelectedGroupItems] = useState([]); // For multiple selections
+const [inputValue, setInputValue] = useState('');
+const [debouncedInputValue, setDebouncedInputValue] = useDebounce(inputValue, 1000);
 
-
-2. Email Content Formatting: Convert the row data to an HTML table format for inclusion in the email body.
-
-
-
-Here's an example Flask route for sending emails:
-
-from flask import Flask, request, jsonify
-from flask_mail import Mail, Message
-import json
-
-app = Flask(__name__)
-
-# Configure Flask-Mail
-app.config['MAIL_SERVER'] = 'smtp.example.com'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USERNAME'] = 'your-email@example.com'
-app.config['MAIL_PASSWORD'] = 'your-password'
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USE_SSL'] = False
-mail = Mail(app)
-
-@app.route('/send_email', methods=['POST'])
-def send_email():
-    data = request.json
-    to_email = data.get('to')
-    cc_email = data.get('cc')
-    subject = data.get('subject')
-    row_data = data.get('row_data')
-
-    # Convert row data to HTML table
-    table_rows = ''.join(f"<tr><td>{key}</td><td>{value}</td></tr>" for key, value in row_data.items())
-    email_body = f"""
-    <p>As per user request, the following request has been extended to 15 days:</p>
-    <table border="1">
-        <tr>
-            <th>Field</th>
-            <th>Value</th>
-        </tr>
-        {table_rows}
-    </table>
-    """
-
-    try:
-        msg = Message(subject, sender='your-email@example.com', recipients=[to_email], cc=[cc_email])
-        msg.html = email_body
-        mail.send(msg)
-        return jsonify({'message': 'Email sent successfully'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-Frontend (React)
-
-1. Send Email API Call: Update the sendEmail function to include the to and cc email IDs, the subject, and the row data to send to the backend.
-
-
-2. Modify extendClick: Ensure the sendEmail function is called with the required arguments.
-
-
-
-Updated sendEmail function:
-
-const sendEmail = async (inputValue, row) => {
-  try {
-    const ldapResponse = await apiInstance.get(`/ldap?userInput=${inputValue}`);
-    const supervisorEmail = ldapResponse.data[0].supervisor;
-
-    const emailPayload = {
-      to: row.original.USER_AID,
-      cc: supervisorEmail,
-      subject: "As per user request, the following request has been extended to 15 days",
-      row_data: row.original,
-    };
-
-    await apiInstance.post('/send_email', emailPayload);
-    console.log('Email sent successfully');
-  } catch (error) {
-    console.error('Error sending email:', error);
-  }
+const handlePLMSelectionChange = (e, value) => {
+  setSelectedPLMItem(value); // Single value for PLM_AID
+  setValue('PLM_AID', value); // Update the form value
+  console.log(value, 'PLM_AID onChange');
 };
 
-Complete Workflow
-
-The extendClick function will call sendEmail with the row.original data after successfully updating the queue request:
-
-const extendClick = async (row) => {
-  const action = 'EXTEND';
-  console.log('EXTEND row.original', row.original);
-  setLoadingRows((prev) => ({ ...prev, [REQUEST_ID]: true }));
-  const { REQUEST_ID, USER_AID, QUEUE, EXTENSION_FLAG, CLUSTER_NAME, ADMIN_APPROVAL, PROCESSED_DATE, ...otherProps } =
-    row.original;
-  const rowData = { REQUEST_ID, USER_AID, EXTENSION_SUBMISSION_DATE: today, EXTENSION_FLAG: 1 };
-  console.log(rowData, 'rows log');
-  try {
-    const response = await apiInstance.put('/queue_request', [rowData]);
-    if (response.status === 200) {
-      await refetch();
-      sendEmail(USER_AID, row);
-    }
-  } catch (error) {
-    console.error('Update Failed:', error);
-  } finally {
-    setLoadingRows((prev) => ({ ...prev, [REQUEST_ID]: false }));
-  }
+const handleGroupSelectionChange = (e, value) => {
+  setSelectedGroupItems(value); // Multiple values for GROUP_AID
+  setValue('GROUP_AID', value); // Update the form value
+  console.log(value, 'GROUP_AID onChange');
 };
 
-Key Points
+const fetchLDAP = async (inputValue) => {
+  const res = await apiInstance.get(`/ldap?userInput=${inputValue}`);
+  return res.data || {};
+};
 
-1. Replace placeholders like smtp.example.com, your-email@example.com, and your-password with real values.
+const isQueryEnabled = !!debouncedInputValue.trim();
+const { data: ldapData = [], isLoading: queryLoading } = useQuery(
+  ['ldap', debouncedInputValue],
+  () => fetchLDAP(debouncedInputValue),
+  {
+    enabled: isQueryEnabled,
+  }
+);
+
+const isLoading = isQueryEnabled && queryLoading;
+
+return (
+  <>
+    {/* PLM_AID Field (Single Selection) */}
+    <Grid item md={6}>
+      <FormControl fullWidth variant="outlined">
+        <Controller
+          name="PLM_AID"
+          control={control}
+          rules={{
+            required: 'PLM AID is required',
+            pattern: {
+              value: /^[aA]\d{7}$/, // Regex pattern for AID only
+              message: 'Please enter a valid AID.',
+            },
+          }}
+          defaultValue={null}
+          render={({ field }) => (
+            <Autocomplete
+              {...field}
+              id="PLM_AID"
+              loading={isLoading}
+              loadingText={'Searching ...'}
+              options={ldapData || []}
+              getOptionLabel={(option) => `${option.cn} (${option.uid})`}
+              onChange={(e, value) => {
+                handlePLMSelectionChange(e, value);
+              }}
+              value={selectedPLMItem}
+              isOptionEqualToValue={(option, value) => option.uid === value?.uid}
+              filterOptions={(x) => x}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  label="Enter PLM AID"
+                  placeholder="Enter PLM AID"
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {isLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                  error={!!errors.PLM_AID}
+                  helperText={errors?.PLM_AID?.message}
+                />
+              )}
+            />
+          )}
+        />
+      </FormControl>
+    </Grid>
+
+    {/* GROUP_AID Field (Multiple Selection) */}
+    <Grid item md={12}>
+      <FormControl fullWidth variant="outlined">
+        <Controller
+          name="GROUP_AID"
+          control={control}
+          render={({ field }) => (
+            <Autocomplete
+              {...field}
+              multiple
+              id="GROUP_AID"
+              disableCloseOnSelect
+              loading={isLoading}
+              loadingText={'Searching ...'}
+              options={ldapData || []}
+              getOptionLabel={(option) => `${option.cn} (${option.uid})`}
+              onChange={(e, value) => {
+                handleGroupSelectionChange(e, value);
+              }}
+              value={selectedGroupItems}
+              isOptionEqualToValue={(option, value) => option.uid === value?.uid}
+              filterOptions={(x) => x}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  label="Enter Other AIDs"
+                  placeholder="Group AIDs"
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {isLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+            />
+          )}
+        />
+      </FormControl>
+    </Grid>
+  </>
+);
+
+Key Changes
+
+1. PLM_AID:
+
+Removed multiple prop from Autocomplete.
+
+Managed selection with selectedPLMItem state.
+
+Handled single selection in handlePLMSelectionChange.
 
 
-2. Ensure the Flask server is configured to allow CORS if needed for React.
+
+2. GROUP_AID:
+
+Kept multiple prop for allowing multiple selections.
+
+Used selectedGroupItems state to manage the array of selected values.
 
 
-3. Secure email credentials using environment variables or a secret manager.
+
+3. Common:
+
+Both fields use the same fetchLDAP logic to retrieve LDAP data based on user input.
+
 
 
 
