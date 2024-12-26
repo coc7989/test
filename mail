@@ -1,184 +1,54 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
-import MaterialReactTable from 'material-react-table';
-import {
-  Box,
-  Typography,
-  TextField,
-  Button,
-  Backdrop,
-  CircularProgress,
-} from '@mui/material';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import dayjs from 'dayjs';
-import apiInstance from '../../../api';
-import { ClusterContext } from '../../../NotificationContext';
+import cx_Oracle
+from flask import Flask, request, jsonify
 
-const SuperAdminRequestPanel = ({ REQUEST }) => {
-  const { userID } = useContext(ClusterContext);
-  const [open, setOpen] = useState(false);
-  const [editData, setEditData] = useState({}); // Keeps track of edits
-  const [originalData, setOriginalData] = useState({}); // Stores original data for canceling changes
+app = Flask(__name__)
 
-  const fetchAccessRequests = async (userID, REQUEST) => {
-    const res = await apiInstance.get(
-      `/super_admin_panel_requests?userID=${userID}&REQUEST=${REQUEST}`
-    );
-    return res.data || {};
-  };
+# Oracle database connection configuration
+DB_USERNAME = 'your_username'
+DB_PASSWORD = 'your_password'
+DB_DSN = 'your_host:your_port/your_service_name'
 
-  const { data, isLoading, refetch } = useQuery(
-    ['accessRequests', userID, REQUEST],
-    () => fetchAccessRequests(userID, REQUEST)
-  );
+@app.route('/update_access_end_date', methods=['POST'])
+def update_access_end_date():
+    try:
+        # Parse JSON data from the request
+        data = request.get_json()
+        request_id = data.get('REQUEST_ID')
+        access_end_date = data.get('ACCESS_END_DATE')
 
-  useEffect(() => {
-    refetch();
-  }, []);
+        # Validate inputs
+        if not request_id or not access_end_date:
+            return jsonify({'error': 'REQUEST_ID and ACCESS_END_DATE are required'}), 400
 
-  useEffect(() => {
-    if (data) {
-      // Store original data for cancel functionality
-      const original = data.reduce((acc, row) => {
-        acc[row.REQUEST_ID] = row.ACCESS_END_DATE;
-        return acc;
-      }, {});
-      setOriginalData(original);
-    }
-  }, [data]);
+        # Connect to the Oracle database
+        connection = cx_Oracle.connect(DB_USERNAME, DB_PASSWORD, DB_DSN)
+        cursor = connection.cursor()
 
-  const mutation = useMutation(
-    async ({ REQUEST_ID, ACCESS_END_DATE }) => {
-      return apiInstance.post('/update_access_end_date', {
-        REQUEST_ID,
-        ACCESS_END_DATE,
-      });
-    },
-    {
-      onSuccess: () => {
-        setOpen(false);
-        alert('Data updated successfully!');
-        refetch();
-      },
-      onError: () => {
-        setOpen(false);
-        alert('Error updating data!');
-      },
-    }
-  );
+        # Define the UPDATE query
+        update_query = """
+            UPDATE UED_QUEUE_ACCESS
+            SET ACCESS_END_DATE = TO_DATE(:access_end_date, 'YYYY-MM-DD')
+            WHERE REQUEST_ID = :request_id
+        """
 
-  const handleDateChange = (REQUEST_ID, newDate) => {
-    setEditData((prev) => ({ ...prev, [REQUEST_ID]: newDate }));
-  };
+        # Execute the query
+        cursor.execute(update_query, {'access_end_date': access_end_date, 'request_id': request_id})
+        
+        # Commit the transaction
+        connection.commit()
 
-  const handleSave = (REQUEST_ID) => {
-    const ACCESS_END_DATE = editData[REQUEST_ID];
-    if (ACCESS_END_DATE) {
-      setOpen(true);
-      mutation.mutate({ REQUEST_ID, ACCESS_END_DATE });
-    }
-  };
+        # Close the cursor and connection
+        cursor.close()
+        connection.close()
 
-  const handleCancel = (REQUEST_ID) => {
-    setEditData((prev) => {
-      const updated = { ...prev };
-      delete updated[REQUEST_ID];
-      return updated;
-    });
-  };
+        return jsonify({'message': 'Access End Date updated successfully'}), 200
 
-  const COLUMNS = useMemo(
-    () => [
-      {
-        accessorKey: 'REQUEST_ID',
-        header: 'REQUEST ID',
-        size: 90,
-      },
-      {
-        accessorKey: 'USER_AID',
-        header: 'AID',
-        size: 140,
-      },
-      {
-        accessorKey: 'QUEUE',
-        header: 'QUEUE',
-        size: 150,
-        Cell: ({ cell }) => (
-          <Typography>
-            {cell.getValue().charAt(0).toUpperCase() +
-              cell.getValue().slice(1)}
-          </Typography>
-        ),
-      },
-      {
-        accessorKey: 'REQUEST_STATUS',
-        header: 'REQUEST STATUS',
-        size: 150,
-      },
-      {
-        accessorKey: 'ACCESS_END_DATE',
-        header: 'Access End Date',
-        size: 150,
-        Cell: ({ cell }) => {
-          const REQUEST_ID = cell.row.original.REQUEST_ID;
-          const originalValue = originalData[REQUEST_ID];
-          const value = cell.getValue();
-          const currentEdit = editData[REQUEST_ID];
-          return REQUEST === 'EDITABLE' ? (
-            <>
-              <TextField
-                type="date"
-                value={currentEdit || dayjs(value).format('YYYY-MM-DD')}
-                onChange={(e) =>
-                  handleDateChange(REQUEST_ID, e.target.value)
-                }
-                size="small"
-              />
-              {currentEdit && currentEdit !== dayjs(originalValue).format('YYYY-MM-DD') && (
-                <Box display="flex" gap="10px" marginTop="5px">
-                  <Button
-                    variant="contained"
-                    size="small"
-                    onClick={() => handleSave(REQUEST_ID)}
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => handleCancel(REQUEST_ID)}
-                  >
-                    Cancel
-                  </Button>
-                </Box>
-              )}
-            </>
-          ) : (
-            <span>{dayjs(value).format('DD-MMM-YYYY')}</span>
-          );
-        },
-      },
-    ],
-    [REQUEST, editData, originalData]
-  );
+    except cx_Oracle.DatabaseError as e:
+        error, = e.args
+        return jsonify({'error': f"Database error: {error.message}"}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-  return (
-    <>
-      <Backdrop open={open}>
-        <CircularProgress />
-      </Backdrop>
-      <MaterialReactTable
-        columns={COLUMNS}
-        data={data || []}
-        state={{
-          showProgressBars: isLoading,
-        }}
-        positionToolbarAlertBanner="top"
-        enableColumnResizing
-        enableStickyHeader
-        enableStickyFooter
-      />
-    </>
-  );
-};
 
-export default SuperAdminRequestPanel;
+if __name__ == '__main__':
+    app.run(debug=True)
