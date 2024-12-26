@@ -1,166 +1,155 @@
-To make PLM_AID follow similar logic as GROUP_AID but restrict selection to only one value, you can use the Autocomplete component without the multiple prop. Below is the updated implementation:
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import MaterialReactTable from 'material-react-table';
+import {
+  Box,
+  Typography,
+  TextField,
+  Button,
+  Backdrop,
+  CircularProgress,
+} from '@mui/material';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import dayjs from 'dayjs';
+import apiInstance from '../../../api';
+import { ClusterContext } from '../../../NotificationContext';
 
-Updated Code
+const SuperAdminRequestPanel = ({ REQUEST }) => {
+  const { userID } = useContext(ClusterContext);
+  const [open, setOpen] = useState(false);
+  const [editData, setEditData] = useState({});
 
-const [selectedPLMItem, setSelectedPLMItem] = useState(null); // For single selection
-const [selectedGroupItems, setSelectedGroupItems] = useState([]); // For multiple selections
-const [inputValue, setInputValue] = useState('');
-const [debouncedInputValue, setDebouncedInputValue] = useDebounce(inputValue, 1000);
+  const fetchAccessRequests = async (userID, REQUEST) => {
+    const res = await apiInstance.get(
+      `/super_admin_panel_requests?userID=${userID}&REQUEST=${REQUEST}`
+    );
+    return res.data || {};
+  };
 
-const handlePLMSelectionChange = (e, value) => {
-  setSelectedPLMItem(value); // Single value for PLM_AID
-  setValue('PLM_AID', value); // Update the form value
-  console.log(value, 'PLM_AID onChange');
+  const {
+    data,
+    isLoading,
+    refetch,
+  } = useQuery(['accessRequests', userID, REQUEST], () =>
+    fetchAccessRequests(userID, REQUEST)
+  );
+
+  useEffect(() => {
+    refetch();
+  }, []);
+
+  const mutation = useMutation(
+    async ({ REQUEST_ID, ACCESS_END_DATE }) => {
+      return apiInstance.post('/update_access_end_date', {
+        REQUEST_ID,
+        ACCESS_END_DATE,
+      });
+    },
+    {
+      onSuccess: () => {
+        setOpen(false);
+        alert('Data updated successfully!');
+        refetch();
+      },
+      onError: () => {
+        setOpen(false);
+        alert('Error updating data!');
+      },
+    }
+  );
+
+  const handleDateChange = (REQUEST_ID, newDate) => {
+    setEditData((prev) => ({ ...prev, [REQUEST_ID]: newDate }));
+  };
+
+  const handleSave = (REQUEST_ID) => {
+    const ACCESS_END_DATE = editData[REQUEST_ID];
+    if (ACCESS_END_DATE) {
+      setOpen(true);
+      mutation.mutate({ REQUEST_ID, ACCESS_END_DATE });
+    }
+  };
+
+  const COLUMNS = useMemo(
+    () => [
+      {
+        accessorKey: 'REQUEST_ID',
+        header: 'REQUEST ID',
+        size: 90,
+      },
+      {
+        accessorKey: 'USER_AID',
+        header: 'AID',
+        size: 140,
+      },
+      {
+        accessorKey: 'QUEUE',
+        header: 'QUEUE',
+        size: 150,
+        Cell: ({ cell }) => (
+          <Typography>
+            {cell.getValue().charAt(0).toUpperCase() +
+              cell.getValue().slice(1)}
+          </Typography>
+        ),
+      },
+      {
+        accessorKey: 'REQUEST_STATUS',
+        header: 'REQUEST STATUS',
+        size: 150,
+      },
+      {
+        accessorKey: 'ACCESS_END_DATE',
+        header: 'Access End Date',
+        size: 150,
+        Cell: ({ cell }) => {
+          const REQUEST_ID = cell.row.original.REQUEST_ID;
+          const value = cell.getValue();
+          return REQUEST === 'EDITABLE' ? (
+            <>
+              <TextField
+                type="date"
+                value={editData[REQUEST_ID] || dayjs(value).format('YYYY-MM-DD')}
+                onChange={(e) =>
+                  handleDateChange(REQUEST_ID, e.target.value)
+                }
+                size="small"
+              />
+              <Button
+                variant="contained"
+                size="small"
+                onClick={() => handleSave(REQUEST_ID)}
+                style={{ marginLeft: '10px' }}
+              >
+                Save
+              </Button>
+            </>
+          ) : (
+            <span>{dayjs(value).format('DD-MMM-YYYY')}</span>
+          );
+        },
+      },
+    ],
+    [REQUEST, editData]
+  );
+
+  return (
+    <>
+      <Backdrop open={open}>
+        <CircularProgress />
+      </Backdrop>
+      <MaterialReactTable
+        columns={COLUMNS}
+        data={data || []}
+        state={{
+          showProgressBars: isLoading,
+        }}
+        positionToolbarAlertBanner="top"
+        enableColumnResizing
+        enableStickyHeader
+        enableStickyFooter
+      />
+    </>
+  );
 };
 
-const handleGroupSelectionChange = (e, value) => {
-  setSelectedGroupItems(value); // Multiple values for GROUP_AID
-  setValue('GROUP_AID', value); // Update the form value
-  console.log(value, 'GROUP_AID onChange');
-};
-
-const fetchLDAP = async (inputValue) => {
-  const res = await apiInstance.get(`/ldap?userInput=${inputValue}`);
-  return res.data || {};
-};
-
-const isQueryEnabled = !!debouncedInputValue.trim();
-const { data: ldapData = [], isLoading: queryLoading } = useQuery(
-  ['ldap', debouncedInputValue],
-  () => fetchLDAP(debouncedInputValue),
-  {
-    enabled: isQueryEnabled,
-  }
-);
-
-const isLoading = isQueryEnabled && queryLoading;
-
-return (
-  <>
-    {/* PLM_AID Field (Single Selection) */}
-    <Grid item md={6}>
-      <FormControl fullWidth variant="outlined">
-        <Controller
-          name="PLM_AID"
-          control={control}
-          rules={{
-            required: 'PLM AID is required',
-            pattern: {
-              value: /^[aA]\d{7}$/, // Regex pattern for AID only
-              message: 'Please enter a valid AID.',
-            },
-          }}
-          defaultValue={null}
-          render={({ field }) => (
-            <Autocomplete
-              {...field}
-              id="PLM_AID"
-              loading={isLoading}
-              loadingText={'Searching ...'}
-              options={ldapData || []}
-              getOptionLabel={(option) => `${option.cn} (${option.uid})`}
-              onChange={(e, value) => {
-                handlePLMSelectionChange(e, value);
-              }}
-              value={selectedPLMItem}
-              isOptionEqualToValue={(option, value) => option.uid === value?.uid}
-              filterOptions={(x) => x}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  label="Enter PLM AID"
-                  placeholder="Enter PLM AID"
-                  InputProps={{
-                    ...params.InputProps,
-                    endAdornment: (
-                      <>
-                        {isLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                        {params.InputProps.endAdornment}
-                      </>
-                    ),
-                  }}
-                  error={!!errors.PLM_AID}
-                  helperText={errors?.PLM_AID?.message}
-                />
-              )}
-            />
-          )}
-        />
-      </FormControl>
-    </Grid>
-
-    {/* GROUP_AID Field (Multiple Selection) */}
-    <Grid item md={12}>
-      <FormControl fullWidth variant="outlined">
-        <Controller
-          name="GROUP_AID"
-          control={control}
-          render={({ field }) => (
-            <Autocomplete
-              {...field}
-              multiple
-              id="GROUP_AID"
-              disableCloseOnSelect
-              loading={isLoading}
-              loadingText={'Searching ...'}
-              options={ldapData || []}
-              getOptionLabel={(option) => `${option.cn} (${option.uid})`}
-              onChange={(e, value) => {
-                handleGroupSelectionChange(e, value);
-              }}
-              value={selectedGroupItems}
-              isOptionEqualToValue={(option, value) => option.uid === value?.uid}
-              filterOptions={(x) => x}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  label="Enter Other AIDs"
-                  placeholder="Group AIDs"
-                  InputProps={{
-                    ...params.InputProps,
-                    endAdornment: (
-                      <>
-                        {isLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                        {params.InputProps.endAdornment}
-                      </>
-                    ),
-                  }}
-                />
-              )}
-            />
-          )}
-        />
-      </FormControl>
-    </Grid>
-  </>
-);
-
-Key Changes
-
-1. PLM_AID:
-
-Removed multiple prop from Autocomplete.
-
-Managed selection with selectedPLMItem state.
-
-Handled single selection in handlePLMSelectionChange.
-
-
-
-2. GROUP_AID:
-
-Kept multiple prop for allowing multiple selections.
-
-Used selectedGroupItems state to manage the array of selected values.
-
-
-
-3. Common:
-
-Both fields use the same fetchLDAP logic to retrieve LDAP data based on user input.
-
-
-
-
+export default SuperAdminRequestPanel;
