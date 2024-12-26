@@ -16,7 +16,8 @@ import { ClusterContext } from '../../../NotificationContext';
 const SuperAdminRequestPanel = ({ REQUEST }) => {
   const { userID } = useContext(ClusterContext);
   const [open, setOpen] = useState(false);
-  const [editData, setEditData] = useState({});
+  const [editData, setEditData] = useState({}); // Keeps track of edits
+  const [originalData, setOriginalData] = useState({}); // Stores original data for canceling changes
 
   const fetchAccessRequests = async (userID, REQUEST) => {
     const res = await apiInstance.get(
@@ -25,17 +26,25 @@ const SuperAdminRequestPanel = ({ REQUEST }) => {
     return res.data || {};
   };
 
-  const {
-    data,
-    isLoading,
-    refetch,
-  } = useQuery(['accessRequests', userID, REQUEST], () =>
-    fetchAccessRequests(userID, REQUEST)
+  const { data, isLoading, refetch } = useQuery(
+    ['accessRequests', userID, REQUEST],
+    () => fetchAccessRequests(userID, REQUEST)
   );
 
   useEffect(() => {
     refetch();
   }, []);
+
+  useEffect(() => {
+    if (data) {
+      // Store original data for cancel functionality
+      const original = data.reduce((acc, row) => {
+        acc[row.REQUEST_ID] = row.ACCESS_END_DATE;
+        return acc;
+      }, {});
+      setOriginalData(original);
+    }
+  }, [data]);
 
   const mutation = useMutation(
     async ({ REQUEST_ID, ACCESS_END_DATE }) => {
@@ -67,6 +76,14 @@ const SuperAdminRequestPanel = ({ REQUEST }) => {
       setOpen(true);
       mutation.mutate({ REQUEST_ID, ACCESS_END_DATE });
     }
+  };
+
+  const handleCancel = (REQUEST_ID) => {
+    setEditData((prev) => {
+      const updated = { ...prev };
+      delete updated[REQUEST_ID];
+      return updated;
+    });
   };
 
   const COLUMNS = useMemo(
@@ -103,25 +120,37 @@ const SuperAdminRequestPanel = ({ REQUEST }) => {
         size: 150,
         Cell: ({ cell }) => {
           const REQUEST_ID = cell.row.original.REQUEST_ID;
+          const originalValue = originalData[REQUEST_ID];
           const value = cell.getValue();
+          const currentEdit = editData[REQUEST_ID];
           return REQUEST === 'EDITABLE' ? (
             <>
               <TextField
                 type="date"
-                value={editData[REQUEST_ID] || dayjs(value).format('YYYY-MM-DD')}
+                value={currentEdit || dayjs(value).format('YYYY-MM-DD')}
                 onChange={(e) =>
                   handleDateChange(REQUEST_ID, e.target.value)
                 }
                 size="small"
               />
-              <Button
-                variant="contained"
-                size="small"
-                onClick={() => handleSave(REQUEST_ID)}
-                style={{ marginLeft: '10px' }}
-              >
-                Save
-              </Button>
+              {currentEdit && currentEdit !== dayjs(originalValue).format('YYYY-MM-DD') && (
+                <Box display="flex" gap="10px" marginTop="5px">
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={() => handleSave(REQUEST_ID)}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => handleCancel(REQUEST_ID)}
+                  >
+                    Cancel
+                  </Button>
+                </Box>
+              )}
             </>
           ) : (
             <span>{dayjs(value).format('DD-MMM-YYYY')}</span>
@@ -129,7 +158,7 @@ const SuperAdminRequestPanel = ({ REQUEST }) => {
         },
       },
     ],
-    [REQUEST, editData]
+    [REQUEST, editData, originalData]
   );
 
   return (
