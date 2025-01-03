@@ -1,59 +1,11 @@
 Revolutionizing License Management with Automation
 
 Prior Art Challenges:
-
-Traditional processes relied on manual license manipulation, requiring an average of 20 minutes per request.
-
-The workflow involved ITSM-based ticketing, vendor-specific article consultations, and feedback loops lasting 2-3 days.
-
-Lacked proactive features, error mitigation, and rollback mechanisms, making the process time-consuming, error-prone, and non-scalable.
-
+Traditional license management was a manual, time-intensive process involving the ITSM platform, where users logged requests for license merges or replacements. Flames L2 admins manually manipulated license files, referencing vendor-specific articles and engaging in feedback loops that spanned 2-3 days. The process was error-prone, lacked transparency, and did not include proactive features or rollback mechanisms, making it unsuitable for scalable and efficient operations.
 
 Limitations of Prior Methods:
-
-Time-Intensive: Manual handling slowed down the process significantly.
-
-Error-Prone: Human errors during file editing and validations caused delays.
-
-Lack of Transparency: Users had minimal visibility into the status of their requests.
-
-No Scalability: Increasing license requests overwhelmed the manual system.
-
-System Stability Risks: Failures during license updates had no rollback option.
-
+The manual nature of the process resulted in significant time delays, with each request taking an average of 20 minutes of manual effort, further prolonged by discrepancies and human errors. Users had minimal visibility into request progress, leading to dependency on admin communication, and there were no mechanisms for automated error handling or rollback, exposing the system to potential instability. Additionally, the system struggled to scale as license demands increased, compounding inefficiencies.
 
 How This Work is Better:
-
-End-to-End Automation:
-
-A self-service portal allows users to initiate and track requests without admin intervention.
-
-Flask backend processing automates file manipulation, eliminating manual efforts.
-
-Jenkins pipelines handle validation, synchronization, and automatic rollbacks for failures.
-
-
-Efficiency Gains:
-
-Turnaround time reduced from days to minutes.
-
-Eliminated manual errors through automated file comparisons and validations.
-
-Frees admins for higher-value tasks.
-
-
-Proactive and Scalable Features:
-
-Alerts for critical/expiring licenses prevent disruptions.
-
-Master List dashboard and visualizations provide centralized tracking and actionable insights.
-
-
-Improved Transparency: Users can view request history, track status, and confirm updates in real time.
-
-Error Handling and Stability: Automatic rollback ensures system stability and prevents prolonged downtimes.
-
-
-
-By combining automation, transparency, and scalability, this solution eliminates inefficiencies of prior methods, ensures accuracy and reliability, and provides a robust framework for modern license management.
+The new solution offers end-to-end automation and scalability by introducing a self-service portal that eliminates the need for admin intervention. Users can log in to initiate requests, upload license files, and view real-time status. Backend processing using Flask automates file manipulation, while Jenkins pipelines validate changes, compare old and new files for user confirmation, and handle synchronization with the production server. In the event of a failure, an automatic rollback mechanism ensures system stability. The solution also incorporates proactive alerts for critical or expiring licenses, a Master List dashboard for centralized tracking, and visual tools for actionable insights. By reducing turnaround time from days to minutes, eliminating manual errors, and providing real-time transparency, this approach not only addresses prior inefficiencies but also introduces a robust, scalable framework for modern license management.
 
