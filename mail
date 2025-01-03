@@ -1,87 +1,59 @@
-Prior Art
+Revolutionizing License Management with Automation
 
-Prior to this solution, license installation was heavily reliant on manual processes. The workflow involved:
+Prior Art Challenges:
 
-1. ITSM-based Ticketing System: Users would log a request for license merge or replacement, initiating a manual intervention process.
+Traditional processes relied on manual license manipulation, requiring an average of 20 minutes per request.
 
+The workflow involved ITSM-based ticketing, vendor-specific article consultations, and feedback loops lasting 2-3 days.
 
-2. Manual License Manipulation: Flames L2 admins handled ticket resolutions, consulting vendor-specific articles to merge or replace licenses manually.
-
-
-3. Extended Feedback Loops: Communication between admins and users spanned 2-3 days on average, with errors or discrepancies often delaying resolution further.
+Lacked proactive features, error mitigation, and rollback mechanisms, making the process time-consuming, error-prone, and non-scalable.
 
 
-4. No Proactive Features: The existing setup lacked features for proactive alerts or centralized license tracking.
+Limitations of Prior Methods:
+
+Time-Intensive: Manual handling slowed down the process significantly.
+
+Error-Prone: Human errors during file editing and validations caused delays.
+
+Lack of Transparency: Users had minimal visibility into the status of their requests.
+
+No Scalability: Increasing license requests overwhelmed the manual system.
+
+System Stability Risks: Failures during license updates had no rollback option.
 
 
+How This Work is Better:
 
-This approach was labor-intensive, error-prone, and inefficient, significantly hindering productivity and user satisfaction.
+End-to-End Automation:
 
+A self-service portal allows users to initiate and track requests without admin intervention.
 
----
+Flask backend processing automates file manipulation, eliminating manual efforts.
 
-Limitations of Prior Art
-
-1. Time-Consuming: Manual manipulation of license files consumed an average of 20 minutes per request.
-
-
-2. Error-Prone: Human errors during file editing and validation often led to discrepancies, requiring additional time for corrections.
+Jenkins pipelines handle validation, synchronization, and automatic rollbacks for failures.
 
 
-3. Lack of Transparency: Users had minimal visibility into request status, leading to frequent inquiries and dependency on admin responses.
+Efficiency Gains:
+
+Turnaround time reduced from days to minutes.
+
+Eliminated manual errors through automated file comparisons and validations.
+
+Frees admins for higher-value tasks.
 
 
-4. No Automation or Rollback: The absence of automated validation or rollback mechanisms increased the risk of system instability during failures.
+Proactive and Scalable Features:
+
+Alerts for critical/expiring licenses prevent disruptions.
+
+Master List dashboard and visualizations provide centralized tracking and actionable insights.
 
 
-5. Scalability Issues: As license demands increased, the manual process became a bottleneck, failing to scale efficiently.
+Improved Transparency: Users can view request history, track status, and confirm updates in real time.
 
-
-
-
----
-
-How is This Work Different and / or Better?
-
-1. End-to-End Automation: The solution automates the entire license management workflow:
-
-Self-Service Portal: Users initiate and monitor requests without admin intervention.
-
-Backend Flask Processing: Automates file manipulation, eliminating manual handling.
-
-Jenkins Pipeline Integration: Ensures automated validation, synchronization, and rollback for error handling.
-
-
-
-2. Error Mitigation: The use of automated pipelines ensures:
-
-Accurate File Comparisons: Differences between old and new license files are displayed for user confirmation.
-
-Rollback Mechanism: Automatic restoration of the last known good configuration in case of failure.
+Error Handling and Stability: Automatic rollback ensures system stability and prevents prolonged downtimes.
 
 
 
-3. Proactive and Scalable:
-
-Alerts: Proactive notifications for critical or expiring licenses prevent lapses.
-
-Search and Visualization: Features like historical request access, searchable details, and chart visualizations provide users and admins with actionable insights.
-
-Master List Dashboard: Centralized repository for comprehensive license tracking.
-
-
-
-4. Efficiency Gains:
-
-Reduced Turnaround Time: The average time to process requests has dropped from days to minutes.
-
-Resource Optimization: Minimal admin involvement allows skilled resources to focus on higher-value tasks.
-
-
-
-5. Improved Transparency: Users have real-time visibility into request status, enhancing trust and reducing dependency on admin responses.
-
-
-
-This solution addresses inefficiencies, enhances scalability, and ensures robust, error-free operations, making it a superior alternative to traditional methods.
+By combining automation, transparency, and scalability, this solution eliminates inefficiencies of prior methods, ensures accuracy and reliability, and provides a robust framework for modern license management.
 
