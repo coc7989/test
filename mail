@@ -1,218 +1,87 @@
-Here’s the updated backend code to handle the scenario where you send only the REQUEST_ID and CATEGORY_NAME from the frontend. The backend will fetch the row data from an Oracle database based on the CATEGORY_NAME (to choose the correct table) and REQUEST_ID.
+Prior Art
+
+Prior to this solution, license installation was heavily reliant on manual processes. The workflow involved:
+
+1. ITSM-based Ticketing System: Users would log a request for license merge or replacement, initiating a manual intervention process.
+
+
+2. Manual License Manipulation: Flames L2 admins handled ticket resolutions, consulting vendor-specific articles to merge or replace licenses manually.
+
+
+3. Extended Feedback Loops: Communication between admins and users spanned 2-3 days on average, with errors or discrepancies often delaying resolution further.
+
+
+4. No Proactive Features: The existing setup lacked features for proactive alerts or centralized license tracking.
+
+
+
+This approach was labor-intensive, error-prone, and inefficient, significantly hindering productivity and user satisfaction.
 
 
 ---
 
-Flask Backend Code
+Limitations of Prior Art
 
-from flask import Flask, request, jsonify
-import cx_Oracle  # Oracle DB module
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-app = Flask(__name__)
-
-# Database connection details
-ORACLE_DSN = cx_Oracle.makedsn("db_host", "db_port", service_name="db_service_name")
-DB_USERNAME = "db_user"
-DB_PASSWORD = "db_password"
-
-def fetch_row_data(category_name, request_id):
-    """
-    Fetch row data from the Oracle database based on CATEGORY_NAME and REQUEST_ID.
-    """
-    table_name = "QUEUE_TABLE" if category_name.lower() == "queue" else "SLOT_TABLE"
-    query = f"""
-        SELECT REQUEST_ID, CATEGORY_NAME, PROJECT, ACCESS_END_DATE, SUBMISSION_DATE
-        FROM {table_name}
-        WHERE REQUEST_ID = :request_id
-    """
-
-    try:
-        with cx_Oracle.connect(DB_USERNAME, DB_PASSWORD, ORACLE_DSN) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(query, request_id=request_id)
-                row = cursor.fetchone()
-
-                if row:
-                    return {
-                        "REQUEST_ID": row[0],
-                        "CATEGORY_NAME": row[1],
-                        "PROJECT": row[2],
-                        "ACCESS_END_DATE": row[3].strftime("%Y-%m-%d") if row[3] else None,
-                        "SUBMISSION_DATE": row[4].strftime("%Y-%m-%d") if row[4] else None,
-                    }
-                else:
-                    return None
-    except Exception as e:
-        raise Exception(f"Database error: {e}")
-
-def send_email_no_auth(to_email, cc_email, subject, row_data):
-    """
-    Sends an email using the system's SMTP relay without authentication.
-    """
-    try:
-        from_email = "noreply@example.com"  # Change this to your desired 'From' address
-        recipients = [to_email] + ([cc_email] if cc_email else [])
-
-        # Convert row data into an HTML table
-        table_rows = ''.join(f"<tr><td>{key}</td><td>{value}</td></tr>" for key, value in row_data.items())
-        email_body = f"""
-        <p>As per user request, the following request has been extended to 15 days:</p>
-        <table border="1">
-            <tr>
-                <th>Field</th>
-                <th>Value</th>
-            </tr>
-            {table_rows}
-        </table>
-        """
-
-        # Construct the email
-        message = MIMEMultipart()
-        message["From"] = from_email
-        message["To"] = to_email
-        if cc_email:
-            message["Cc"] = cc_email
-        message["Subject"] = subject
-        message.attach(MIMEText(email_body, "html"))
-
-        # Send the email via localhost SMTP relay
-        with smtplib.SMTP("localhost", 25) as server:  # Replace 'localhost' with your SMTP server if different
-            server.sendmail(from_email, recipients, message.as_string())
-        return {"message": "Email sent successfully"}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.route('/send_email', methods=['POST'])
-def send_email():
-    """
-    Flask endpoint to handle email sending requests.
-    """
-    try:
-        data = request.json
-        request_id = data.get('request_id')
-        category_name = data.get('category_name')
-        to_email = data.get('to')
-        cc_email = data.get('cc')
-
-        if not request_id or not category_name or not to_email:
-            return jsonify({"error": "Missing required fields (request_id, category_name, to)"}), 400
-
-        # Fetch row data from the database
-        row_data = fetch_row_data(category_name, request_id)
-        if not row_data:
-            return jsonify({"error": "No data found for the given REQUEST_ID"}), 404
-
-        # Send email
-        subject = "As per user request, the following request has been extended to 15 days"
-        result = send_email_no_auth(to_email, cc_email, subject, row_data)
-
-        if "error" in result:
-            return jsonify({"error": result["error"]}), 500
-        return jsonify(result), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(debug=True)
+1. Time-Consuming: Manual manipulation of license files consumed an average of 20 minutes per request.
 
 
----
-
-Explanation
-
-1. Fetch Row Data:
-
-Based on the CATEGORY_NAME, we select the appropriate table (QUEUE_TABLE or SLOT_TABLE).
-
-Query filters the row using REQUEST_ID.
-
-Converts date fields (ACCESS_END_DATE, SUBMISSION_DATE) to string format.
+2. Error-Prone: Human errors during file editing and validation often led to discrepancies, requiring additional time for corrections.
 
 
-
-2. Database Connection:
-
-Use cx_Oracle to connect to the Oracle database.
-
-Update placeholders (db_host, db_port, db_service_name, etc.) with your Oracle database details.
+3. Lack of Transparency: Users had minimal visibility into request status, leading to frequent inquiries and dependency on admin responses.
 
 
-
-3. Send Email:
-
-Converts the fetched row data into an HTML table for inclusion in the email body.
-
-Uses an SMTP relay (localhost) to send the email without credentials.
+4. No Automation or Rollback: The absence of automated validation or rollback mechanisms increased the risk of system instability during failures.
 
 
-
-4. Flask Endpoint:
-
-Accepts request_id, category_name, to, and optional cc from the frontend.
-
-Returns appropriate HTTP status codes for success, missing data, or errors.
-
+5. Scalability Issues: As license demands increased, the manual process became a bottleneck, failing to scale efficiently.
 
 
 
 
 ---
 
-Frontend Example
+How is This Work Different and / or Better?
 
-The React frontend will send only the request_id and category_name:
+1. End-to-End Automation: The solution automates the entire license management workflow:
 
-const sendEmail = async (requestId, categoryName, toEmail, ccEmail) => {
-  try {
-    const emailPayload = {
-      request_id: requestId,
-      category_name: categoryName,
-      to: toEmail,
-      cc: ccEmail,
-    };
+Self-Service Portal: Users initiate and monitor requests without admin intervention.
 
-    const response = await apiInstance.post('/send_email', emailPayload);
-    console.log('Email sent successfully:', response.data);
-  } catch (error) {
-    console.error('Error sending email:', error);
-  }
-};
+Backend Flask Processing: Automates file manipulation, eliminating manual handling.
 
-
----
-
-Testing
-
-1. Run Flask:
-
-python app.py
-
-
-2. Test with curl or Postman:
-
-curl -X POST http://127.0.0.1:5000/send_email \
--H "Content-Type: application/json" \
--d '{
-      "request_id": "12345",
-      "category_name": "queue",
-      "to": "recipient@example.com",
-      "cc": "cc-recipient@example.com"
-    }'
+Jenkins Pipeline Integration: Ensures automated validation, synchronization, and rollback for error handling.
 
 
 
+2. Error Mitigation: The use of automated pipelines ensures:
 
----
+Accurate File Comparisons: Differences between old and new license files are displayed for user confirmation.
 
-Notes
+Rollback Mechanism: Automatic restoration of the last known good configuration in case of failure.
 
-Ensure the Oracle database is accessible from the server running this Flask app.
 
-Replace placeholders in the database connection settings (db_host, db_user, etc.).
 
-If your SMTP relay is not localhost, update the relay settings accordingly.
+3. Proactive and Scalable:
 
+Alerts: Proactive notifications for critical or expiring licenses prevent lapses.
+
+Search and Visualization: Features like historical request access, searchable details, and chart visualizations provide users and admins with actionable insights.
+
+Master List Dashboard: Centralized repository for comprehensive license tracking.
+
+
+
+4. Efficiency Gains:
+
+Reduced Turnaround Time: The average time to process requests has dropped from days to minutes.
+
+Resource Optimization: Minimal admin involvement allows skilled resources to focus on higher-value tasks.
+
+
+
+5. Improved Transparency: Users have real-time visibility into request status, enhancing trust and reducing dependency on admin responses.
+
+
+
+This solution addresses inefficiencies, enhances scalability, and ensures robust, error-free operations, making it a superior alternative to traditional methods.
 
