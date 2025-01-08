@@ -1,31 +1,225 @@
-Here's the revised version incorporating your inputs:
+This code implements a Flask app with an APScheduler for scheduled database queries and a route for manually triggering jobs. Here's a breakdown of each section:
 
 
 ---
 
-Projects
+Initialization and Scheduler Setup
 
-MYLSF Phase II
+scheduler = APScheduler()
+scheduler.init_app(app)
+scheduler.start()
 
-Outcome: Successfully enhanced the application to reduce manual work and streamline processes, leading to a significant reduction in support tickets.
+1. scheduler = APScheduler()
 
-Differentiating Factors: Improved existing features and codebase while adding innovative new functionalities. Proposed and implemented fresh ideas that optimized workflows, making the solution more efficient and adaptable to business needs.
+Creates an instance of APScheduler, a library used for scheduling tasks in Flask applications.
+
+
+
+2. scheduler.init_app(app)
+
+Attaches the Flask app (app) to the scheduler.
+
+
+
+3. scheduler.start()
+
+Starts the scheduler, enabling it to execute jobs at defined intervals.
+
+
 
 
 
 ---
 
-Innovations
+Scheduled Function: scheduled_database_query()
 
-Jenkins
+def scheduled_database_query():
+    try:
+        connection = get_db()
+        cursor = connection.cursor()
 
-Outcome: Streamlined CI/CD workflows, leading to faster, more reliable deployments and improved developer productivity.
+Connect to the database:
 
-Differentiating Factors: Introduced new ideas and approaches to maximize Jenkins' potential, focusing on reducing manual work through automation. Demonstrated innovative integrations with backend systems, paving the way for seamless orchestration and advanced pipeline configurations.
+connection = get_db(): Retrieves a database connection object.
+
+cursor = connection.cursor(): Creates a cursor for executing SQL queries.
+
+
+
+today = date.today().isoformat()
+        specific_date = "23-03-2024"
+        print(specific_date, "date")
+
+Get today's date:
+
+today = date.today().isoformat(): Gets the current date in ISO format (e.g., "2025-01-08").
+
+specific_date = "23-03-2024": Hardcoded date for testing (in DD-MM-YYYY format).
+
+
+
+query = f"""
+        SELECT CLUSTER_NAME, GROUP_AID FROM {dbCfg['QUEUE_ACCESS']}
+        WHERE TRUNC(ACCESS_END_DATE) = TO_DATE(:today, 'DD-MM-YYYY')
+        """
+
+SQL Query:
+
+Retrieves CLUSTER_NAME and GROUP_AID from the table defined in dbCfg['QUEUE_ACCESS'].
+
+Filters rows where ACCESS_END_DATE matches specific_date.
+
+
+
+cursor.execute(query, today=specific_date)
+        results = cursor.fetchall()
+
+Executes the query with the specific_date as a parameter and fetches all results.
+
+
+columnNames = [desc[0] for desc in cursor.description]
+        print(columnNames, 'columnNames')
+
+Extracts and prints column names from the query result metadata.
+
+
+if len(results) > 0:
+            site_dict = {}
+            for row in results:
+                site = row[0]
+                group_aid = row[1].split(',')
+                if site not in site_dict:
+                    site_dict[site] = group_aid
+                else:
+                    site_dict[site].extend(group_aid)
+
+Process results:
+
+Groups GROUP_AID values by CLUSTER_NAME in a dictionary (site_dict).
+
+Splits GROUP_AID strings into lists for easier processing.
+
+
+
+for site, aids in site_dict.items():
+            site_dict[site] = list(set(aids))
+        print(site_dict, "unique group aids")
+
+Removes duplicates in GROUP_AID for each site.
+
+
+except cx_Oracle.Error as error:
+        print(f"Error occurred: {error}")
+
+Handles Oracle database errors during query execution.
+
+
+finally:
+        if cursor:
+            cursor.close()
+        if 'db' in g:
+            g.pop('db', None)
+
+Cleanup:
+
+Closes the cursor and removes the database connection from Flask's global object (g).
+
 
 
 
 ---
 
-These updates now emphasize the value of your contributions and highlight your innovative problem-solving and proactive initiatives.
+Add Job to Scheduler
+
+scheduler.add_job(
+    id='daily_database_query',
+    func=scheduled_database_query,
+    trigger='cron',
+    hour=0,
+    minute=0
+)
+
+Adds a scheduled job (daily_database_query) to the scheduler:
+
+Trigger: cron specifies the job runs daily at 12:00 AM.
+
+
+
+
+---
+
+Manual Job Trigger Route
+
+@app.route('/trigger-job')
+def trigger_job():
+    scheduler.run_job('daily_database_query')
+    return "Job triggered manually"
+
+Defines a Flask route (/trigger-job) to manually trigger the daily_database_query job.
+
+
+
+---
+
+Trigger Jenkins Job Function
+
+def trigger_jenkins_job_remove(site_dict):
+    try:
+        server1 = jenkins.Jenkins('https://jenkins-hp.dal.design.com', username='p005119', password='...')
+
+        jobname = 'myLSF/RemoveAccess'
+        for site, group_aids in site_dict.items():
+            jenkins_params = {
+                'CLUSTER_NAME': site,
+                'GROUP_AID': ','.join(group_aids)
+            }
+            myJob = server1.build_job(jobname, parameters=jenkins_params)
+            print(f"Jenkins job triggered for site {site} with aids {group_aids}")
+
+1. Connect to Jenkins:
+
+Authenticates to a Jenkins server.
+
+
+
+2. Trigger Jenkins Job:
+
+Loops through site_dict and triggers the RemoveAccess Jenkins job with parameters for each CLUSTER_NAME and its associated GROUP_AID.
+
+
+
+
+except JenkinsException as je:
+        return {'error': f"Jenkins error: {str(je)}"}, 500
+    except Exception as e:
+        return {'error': f"Unexpected error: {str(e)}"}, 500
+
+Handles Jenkins-specific or general errors during the job trigger process.
+
+
+
+---
+
+Example Workflow
+
+1. Daily Execution:
+
+At 12:00 AM daily, the scheduler triggers scheduled_database_query.
+
+If results are found, groups (GROUP_AID) are associated with clusters (CLUSTER_NAME) and printed.
+
+
+
+2. Manual Execution:
+
+A user calls /trigger-job to manually trigger the database query.
+
+
+
+3. Jenkins Trigger:
+
+If valid data exists, trigger_jenkins_job_remove triggers the RemoveAccess job for each cluster in Jenkins.
+
+
+
 
