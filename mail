@@ -1,126 +1,200 @@
-To implement the removal logic for both config_file_path and lsb_resources_file_path, you can add stages similar to the append logic, tailored to the described requirements. Below is an updated script with the removal functionality:
+Here's a detailed explanation of the LSB file removal logic with examples:
 
-Removal Logic Script
+Assumptions
 
-stage('Remove ID from Config File') {
-    steps {
-        script {
-            echo "----------------Remove ID from Config File----------------"
-            try {
-                def groupAids = params.GROUP_AID.split(',').collect { it.trim() }
-                def userId = params.USER_ID.trim()
+LSB file contains user/group IDs along with SLA Pool information in a section marked by:
 
-                if (!groupAids.isEmpty() && params.GROUP_AID.trim()) {
-                    // Remove all occurrences of group AIDs
-                    groupAids.each { aid ->
-                        sh "sed -i '/${aid}/d' ${config_file_path}"
-                    }
-                    echo "Group AIDs removed from ${config_file_path}."
-                } else if (userId) {
-                    // Remove all occurrences of the user ID
-                    sh "sed -i '/${userId}/d' ${config_file_path}"
-                    echo "User ID removed from ${config_file_path}."
-                } else {
-                    error "No valid GROUP_AID or USER_ID provided for removal."
-                }
-            } catch (Exception e) {
-                check_in_file_on_failure(config_file_path)
-                if (params.LSB_OPTION) {
-                    check_in_file_on_failure(lsb_resources_file_path)
-                }
-                setFail()
-                error "Failed to remove ID from config file: ${e.message}"
-            }
-        }
-    }
+#Begin Of MYLSF Automation (start marker)
+
+#End Of MYLSF Automation (end marker)
+
+
+We need to:
+
+Identify the section between these markers.
+
+Remove entries matching the format (GROUP_AID) - SLA_POOL within this section.
+
+
+
+
+---
+
+Step-by-Step Explanation
+
+1. Reading the LSB File
+
+def content = readFile(file: lsb_resources_file_path)
+
+Reads the file content into a string variable content.
+
+
+Example File Content:
+
+#Begin Of MYLSF Automation
+(t052444) - slapool1
+(t003222) - slapool2
+(a0499461) - slapool3
+#End Of MYLSF Automation
+
+
+---
+
+2. Defining Markers
+
+def startMarker = "#Begin Of MYLSF Automation"
+def endMarker = "#End Of MYLSF Automation"
+
+Markers define the start and end of the section we are modifying.
+
+
+
+---
+
+3. Validating Markers
+
+if (content.contains(startMarker) && content.contains(endMarker)) {
+
+Ensures the file contains both markers; otherwise, it’s invalid for processing.
+
+
+
+---
+
+4. Extracting File Sections
+
+def beforeBegin = content.substring(0, content.indexOf(startMarker) + startMarker.length() + 1)
+def afterEnd = content.substring(content.indexOf(endMarker))
+def middleSectionStart = content.indexOf(startMarker) + startMarker.length()
+def middleSectionEnd = content.indexOf(endMarker)
+def middleSection = content.substring(middleSectionStart, middleSectionEnd).trim()
+
+beforeBegin: Content before and including the #Begin marker.
+
+afterEnd: Content from the #End marker onward.
+
+middleSection: Content between #Begin and #End (where the removal occurs).
+
+
+Example Breakdown:
+
+beforeBegin:
+
+#Begin Of MYLSF Automation
+
+afterEnd:
+
+#End Of MYLSF Automation
+
+middleSection:
+
+(t052444) - slapool1
+(t003222) - slapool2
+(a0499461) - slapool3
+
+
+
+---
+
+5. Defining Entries to Remove
+
+def entriesToRemove = groupAids.collect { aid -> "(${aid}) - ${slaPool}" }
+
+Creates a list of formatted strings for each GROUP_AID to match entries for removal.
+
+
+Example Input:
+
+GROUP_AID: t052444, t003222
+
+SLA_POOL: slapool1
+
+
+Entries to Remove:
+
+(t052444) - slapool1
+(t003222) - slapool1
+
+
+---
+
+6. Removing Matching Entries
+
+entriesToRemove.each { entry ->
+    updatedMiddleSection = updatedMiddleSection.replaceAll("(?m)^${entry}\\s*\$", "")
 }
 
-stage('Remove ID from lsb resources file (if applicable)') {
-    when {
-        expression { return params.LSB_OPTION }
-    }
-    steps {
-        script {
-            echo "----------------Remove ID from lsb resources file----------------"
-            try {
-                def groupAids = params.GROUP_AID.split(',').collect { it.trim() }
-                def slaPool = params.SLOT_POOL ?: env.DEFAULT_SLOT_POOL
+Iterates through entriesToRemove.
 
-                if (!groupAids.isEmpty() && params.GROUP_AID.trim()) {
-                    // Prepare formatted entries for removal
-                    def entriesToRemove = groupAids.collect { aid -> "(${aid}) - ${slaPool}" }
-                    echo "Entries to remove from LSB file: ${entriesToRemove}"
+Uses a regex pattern to match the exact line and removes it.
 
-                    def content = readFile(file: lsb_resources_file_path)
-                    def startMarker = "#Begin Of MYLSF Automation"
-                    def endMarker = "#End Of MYLSF Automation"
+(?m): Multi-line mode.
 
-                    if (content.contains(startMarker) && content.contains(endMarker)) {
-                        def beforeBegin = content.substring(0, content.indexOf(startMarker) + startMarker.length() + 1)
-                        def afterEnd = content.substring(content.indexOf(endMarker))
-                        def middleSectionStart = content.indexOf(startMarker) + startMarker.length()
-                        def middleSectionEnd = content.indexOf(endMarker)
-                        def middleSection = content.substring(middleSectionStart, middleSectionEnd).trim()
+^${entry}\\s*$: Matches the line starting with entry and removes trailing spaces.
 
-                        // Remove entries from the middle section
-                        def updatedMiddleSection = middleSection
-                        entriesToRemove.each { entry ->
-                            updatedMiddleSection = updatedMiddleSection.replaceAll("(?m)^${entry}\\s*\$", "")
-                        }
 
-                        // Combine all parts
-                        def updatedContent = beforeBegin + updatedMiddleSection.trim() + "\n" + afterEnd
-                        writeFile(file: lsb_resources_file_path, text: updatedContent)
-                        echo "LSB resources file ${lsb_resources_file_path} updated successfully."
-                    } else {
-                        error "Delimiters not found in ${lsb_resources_file_path}."
-                    }
-                } else {
-                    error "No valid GROUP_AID provided for removal in LSB file."
-                }
-            } catch (Exception e) {
-                restore_backup_file(config_backup_file_name, config_filename)
-                check_in_file_on_failure(config_file_path)
-                if (params.LSB_OPTION) {
-                    check_in_file_on_failure(lsb_resources_file_path)
-                }
-                setFail()
-                error "Failed to remove ID from lsb resources file: ${e.message}"
-            }
-        }
-    }
+
+Example:
+
+Before Removal:
+
+(t052444) - slapool1
+(t003222) - slapool2
+(a0499461) - slapool3
+
+After Removing (t052444) - slapool1:
+
+(t003222) - slapool2
+(a0499461) - slapool3
+
+
+
+---
+
+7. Reconstructing the File
+
+def updatedContent = beforeBegin + updatedMiddleSection.trim() + "\n" + afterEnd
+writeFile(file: lsb_resources_file_path, text: updatedContent)
+
+Combines beforeBegin, the cleaned-up middleSection, and afterEnd into the final content.
+
+Writes the updated content back to the file.
+
+
+Final File Content: After removing (t052444) - slapool1 and (t003222) - slapool1:
+
+#Begin Of MYLSF Automation
+(a0499461) - slapool3
+#End Of MYLSF Automation
+
+
+---
+
+8. Error Handling
+
+} else {
+    error "Delimiters not found in ${lsb_resources_file_path}."
 }
 
-Explanation of Changes:
-
-1. Config File Removal:
-
-If GROUP_AID is provided, iterate through its values and remove occurrences from the file using sed.
-
-If GROUP_AID is not provided, use USER_ID to remove its occurrences.
-
-Error handling for missing input values.
+Ensures the file has proper delimiters; otherwise, an error is raised.
 
 
 
-2. LSB File Removal:
+---
 
-Look for the #Begin Of MYLSF Automation and #End Of MYLSF Automation delimiters.
+Summary
 
-Remove entries in the format (${groupAids}) - ${slaPool} from the middle section.
+The logic:
 
-Combine the sections and write back the updated content.
+1. Reads the LSB file and identifies the section between #Begin and #End.
 
 
+2. Removes specific (GROUP_AID) - SLA_POOL entries within the section.
 
-3. General Updates:
 
-Enhanced error handling and validation.
-
-Trimmed inputs to prevent whitespace issues.
+3. Writes the updated content back to the file.
 
 
 
-
-This script ensures that both config_file_path and lsb_resources_file_path are updated correctly based on the removal requirements.
+This ensures the correct and safe removal of entries without affecting other parts of the file.
 
