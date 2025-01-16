@@ -1,200 +1,210 @@
-Here's a detailed explanation of the LSB file removal logic with examples:
-
-Assumptions
-
-LSB file contains user/group IDs along with SLA Pool information in a section marked by:
-
-#Begin Of MYLSF Automation (start marker)
-
-#End Of MYLSF Automation (end marker)
+Got it! To calculate and display average pending time, average run time, and average job efficiency for each AID in GROUP_AID, here’s how you can adjust the code:
 
 
-We need to:
+---
 
-Identify the section between these markers.
+Backend Adjustments:
 
-Remove entries matching the format (GROUP_AID) - SLA_POOL within this section.
+Update the backend to:
+
+1. Process the list of AIDs in GROUP_AID.
+
+
+2. Calculate averages (pending time, run time, and efficiency) for each AID individually.
+
+
+3. Return the data as a list of results where each entry corresponds to one AID.
+
+
+
+Updated Backend Code:
+
+try:
+    data = request.json[0]
+    print("data for details:", data)
+    group_aid = data.get("GROUP_AID", None)
+    user_aid = data.get("USER_AID")
+    cluster_name = data.get('CLUSTER_NAME')
+    category_name = data.get('CATEGORY_NAME')
+    table_name = cluster_name + '-bacct'
+
+    db = get_db()
+    cursor = db.cursor()
+
+    if category_name == 'QUEUE':
+        # Get the list of AIDs
+        aids = [aid.strip() for aid in group_aid.split(',')] if group_aid and group_aid != 'none' else [user_aid]
+        print("AIDs to process:", aids)
+
+        # Prepare a result list
+        aid_results = []
+
+        for aid in aids:
+            # Query to calculate averages for the current AID
+            query = f"""
+                SELECT 
+                    AVG(PEND_TIME) AS average_pending_time,
+                    AVG(RUN_TIME) AS average_run_time,
+                    AVG(JOB_EFF) AS average_efficiency
+                FROM {dbCfg[table_name]}
+                WHERE USERID = :aid
+            """
+            cursor.execute(query, {"aid": aid})
+            result = cursor.fetchone()
+
+            # Extract results or default to 0
+            average_pending_time = result[0] if result and result[0] else 0
+            average_run_time = result[1] if result and result[1] else 0
+            average_efficiency = result[2] if result and result[2] else 0
+
+            # Add results to the list
+            aid_results.append({
+                "AID": aid,
+                "average_pending_time": average_pending_time,
+                "average_run_time": average_run_time,
+                "average_efficiency": average_efficiency,
+            })
+
+        # Close the cursor
+        cursor.close()
+
+        # Return the result list
+        return jsonify({"aid_results": aid_results}), 200
+
+    else:
+        return jsonify({"error": "CATEGORY_NAME not supported"}), 400
+
+except Exception as e:
+    print(f"Error processing request: {e}")
+    return jsonify({"error": str(e)}), 500
+
+
+---
+
+Frontend Adjustments:
+
+1. Fetch the data for all AIDs in GROUP_AID.
+
+
+2. Render the data dynamically for each AID, showing their corresponding averages.
+
+
+
+Updated Frontend Code:
+
+import React, { useState, useEffect } from 'react';
+import { Box, Typography, CircularProgress } from '@mui/material';
+import apiInstance from '../../../api';
+
+const EfficiencyDetailPanel = ({ row }) => {
+  const [efficiencyData, setEfficiencyData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchEfficiency = async () => {
+      setLoading(true);
+      const { REQUEST_ID, USER_AID, GROUP_AID, CATEGORY_NAME, CLUSTER_NAME } = row.original;
+
+      if (CATEGORY_NAME !== 'QUEUE') {
+        setLoading(false);
+        return;
+      }
+
+      const rowData = {
+        REQUEST_ID,
+        USER_AID,
+        GROUP_AID,
+        CATEGORY_NAME,
+        CLUSTER_NAME,
+      };
+
+      try {
+        const response = await apiInstance.post('/admin_panel_requests', [rowData]);
+        if (response.status === 200) {
+          setEfficiencyData(response.data.aid_results || []);
+        }
+      } catch (error) {
+        console.error('Error fetching efficiency data:', error);
+        setEfficiencyData([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEfficiency();
+  }, [row]);
+
+  return (
+    <Box display="flex" flexDirection="column" alignItems="center" p={2}>
+      <Typography variant="h6" fontWeight="bold" mb={1}>
+        Efficiency Details
+      </Typography>
+      {loading ? (
+        <CircularProgress />
+      ) : efficiencyData.length > 0 ? (
+        efficiencyData.map(({ AID, average_pending_time, average_run_time, average_efficiency }) => (
+          <Box
+            key={AID}
+            display="flex"
+            flexDirection="column"
+            alignItems="flex-start"
+            width="100%"
+            mb={2}
+            p={2}
+            border="1px solid lightgray"
+            borderRadius="8px"
+          >
+            <Typography variant="subtitle1" fontWeight="bold">
+              AID: {AID}
+            </Typography>
+            <Typography variant="body2">Average Pending Time: {average_pending_time.toFixed(2)} seconds</Typography>
+            <Typography variant="body2">Average Run Time: {average_run_time.toFixed(2)} seconds</Typography>
+            <Typography variant="body2">
+              Average Efficiency: {average_efficiency.toFixed(2)}%
+            </Typography>
+          </Box>
+        ))
+      ) : (
+        <Typography color="error">No efficiency data available</Typography>
+      )}
+    </Box>
+  );
+};
+
+export default EfficiencyDetailPanel;
+
+
+---
+
+Explanation of Changes:
+
+Backend:
+
+1. Iterate over AIDs in GROUP_AID: Each AID is processed independently.
+
+
+2. Aggregate Averages for Each AID: For every AID, calculate average_pending_time, average_run_time, and average_efficiency.
+
+
+3. Return List of Results: The response includes details for each AID.
+
+
+
+Frontend:
+
+1. Fetch and Render Results for Each AID:
+
+Data from the backend is stored as an array (efficiencyData).
+
+Each AID's details (pending time, run time, efficiency) are rendered dynamically.
+
 
 
 
 
 ---
 
-Step-by-Step Explanation
+Example Output in the UI:
 
-1. Reading the LSB File
-
-def content = readFile(file: lsb_resources_file_path)
-
-Reads the file content into a string variable content.
-
-
-Example File Content:
-
-#Begin Of MYLSF Automation
-(t052444) - slapool1
-(t003222) - slapool2
-(a0499461) - slapool3
-#End Of MYLSF Automation
-
-
----
-
-2. Defining Markers
-
-def startMarker = "#Begin Of MYLSF Automation"
-def endMarker = "#End Of MYLSF Automation"
-
-Markers define the start and end of the section we are modifying.
-
-
-
----
-
-3. Validating Markers
-
-if (content.contains(startMarker) && content.contains(endMarker)) {
-
-Ensures the file contains both markers; otherwise, it’s invalid for processing.
-
-
-
----
-
-4. Extracting File Sections
-
-def beforeBegin = content.substring(0, content.indexOf(startMarker) + startMarker.length() + 1)
-def afterEnd = content.substring(content.indexOf(endMarker))
-def middleSectionStart = content.indexOf(startMarker) + startMarker.length()
-def middleSectionEnd = content.indexOf(endMarker)
-def middleSection = content.substring(middleSectionStart, middleSectionEnd).trim()
-
-beforeBegin: Content before and including the #Begin marker.
-
-afterEnd: Content from the #End marker onward.
-
-middleSection: Content between #Begin and #End (where the removal occurs).
-
-
-Example Breakdown:
-
-beforeBegin:
-
-#Begin Of MYLSF Automation
-
-afterEnd:
-
-#End Of MYLSF Automation
-
-middleSection:
-
-(t052444) - slapool1
-(t003222) - slapool2
-(a0499461) - slapool3
-
-
-
----
-
-5. Defining Entries to Remove
-
-def entriesToRemove = groupAids.collect { aid -> "(${aid}) - ${slaPool}" }
-
-Creates a list of formatted strings for each GROUP_AID to match entries for removal.
-
-
-Example Input:
-
-GROUP_AID: t052444, t003222
-
-SLA_POOL: slapool1
-
-
-Entries to Remove:
-
-(t052444) - slapool1
-(t003222) - slapool1
-
-
----
-
-6. Removing Matching Entries
-
-entriesToRemove.each { entry ->
-    updatedMiddleSection = updatedMiddleSection.replaceAll("(?m)^${entry}\\s*\$", "")
-}
-
-Iterates through entriesToRemove.
-
-Uses a regex pattern to match the exact line and removes it.
-
-(?m): Multi-line mode.
-
-^${entry}\\s*$: Matches the line starting with entry and removes trailing spaces.
-
-
-
-Example:
-
-Before Removal:
-
-(t052444) - slapool1
-(t003222) - slapool2
-(a0499461) - slapool3
-
-After Removing (t052444) - slapool1:
-
-(t003222) - slapool2
-(a0499461) - slapool3
-
-
-
----
-
-7. Reconstructing the File
-
-def updatedContent = beforeBegin + updatedMiddleSection.trim() + "\n" + afterEnd
-writeFile(file: lsb_resources_file_path, text: updatedContent)
-
-Combines beforeBegin, the cleaned-up middleSection, and afterEnd into the final content.
-
-Writes the updated content back to the file.
-
-
-Final File Content: After removing (t052444) - slapool1 and (t003222) - slapool1:
-
-#Begin Of MYLSF Automation
-(a0499461) - slapool3
-#End Of MYLSF Automation
-
-
----
-
-8. Error Handling
-
-} else {
-    error "Delimiters not found in ${lsb_resources_file_path}."
-}
-
-Ensures the file has proper delimiters; otherwise, an error is raised.
-
-
-
----
-
-Summary
-
-The logic:
-
-1. Reads the LSB file and identifies the section between #Begin and #End.
-
-
-2. Removes specific (GROUP_AID) - SLA_POOL entries within the section.
-
-
-3. Writes the updated content back to the file.
-
-
-
-This ensures the correct and safe removal of entries without affecting other parts of the file.
+For a GROUP_AID with `AID1, AID
 
