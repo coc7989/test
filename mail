@@ -1,266 +1,174 @@
-Here’s how we can incorporate the additional requirement for CATEGORY_NAME being SLOT. When CATEGORY_NAME is SLOT, the backend will calculate the total NUM_PROC for the provided USER_AID. The frontend will display this total as "Number of Slots".
+To implement similar functionality for editing the REQUEST_STATUS field with a dropdown that offers options COMPLETED, PENDING, and REJECTED, follow these steps:
 
 
 ---
 
-Backend Adjustments:
+Client-Side Changes
 
-Modify the backend to handle the case where CATEGORY_NAME is SLOT. It will sum the NUM_PROC column for the specified USER_AID.
+1. Modify the ALL_COLUMNS Definition: Update the ALL_COLUMNS to make the REQUEST_STATUS field editable, just like ACCESS_END_DATE.
 
-Updated Backend Code:
 
-try:
-    data = request.json[0]
-    print("data for details:", data)
-    group_aid = data.get("GROUP_AID", None)
-    user_aid = data.get("USER_AID")
-    cluster_name = data.get('CLUSTER_NAME')
-    category_name = data.get('CATEGORY_NAME')
-    table_name = cluster_name + '-bacct'
+2. Dropdown Component for REQUEST_STATUS: Add a dropdown inside the Cell renderer of REQUEST_STATUS column.
 
-    db = get_db()
-    cursor = db.cursor()
 
-    if category_name == 'QUEUE':
-        # Get the list of AIDs
-        aids = [aid.strip() for aid in group_aid.split(',')] if group_aid and group_aid != 'none' else [user_aid]
-        print("AIDs to process:", aids)
+3. Handle Changes in REQUEST_STATUS: Define new handlers to manage changes and save actions for REQUEST_STATUS.
 
-        # Prepare a result list
-        aid_results = []
 
-        for aid in aids:
-            # Query to calculate averages for the current AID
-            query = f"""
-                SELECT 
-                    AVG(PEND_TIME) AS average_pending_time,
-                    AVG(RUN_TIME) AS average_run_time,
-                    AVG(JOB_EFF) AS average_efficiency
-                FROM {dbCfg[table_name]}
-                WHERE USERID = :aid
-            """
-            cursor.execute(query, {"aid": aid})
-            result = cursor.fetchone()
-
-            # Extract results or default to 0
-            average_pending_time = result[0] if result and result[0] else 0
-            average_run_time = result[1] if result and result[1] else 0
-            average_efficiency = result[2] if result and result[2] else 0
-
-            # Add results to the list
-            aid_results.append({
-                "AID": aid,
-                "average_pending_time": average_pending_time,
-                "average_run_time": average_run_time,
-                "average_efficiency": average_efficiency,
-            })
-
-        # Close the cursor
-        cursor.close()
-
-        # Return the result list
-        return jsonify({"aid_results": aid_results}), 200
-
-    elif category_name == 'SLOT':
-        # Query to sum NUM_PROC for the specified USER_AID
-        query = f"""
-            SELECT SUM(NUM_PROC) AS total_slots
-            FROM {dbCfg[table_name]}
-            WHERE USERID = :user_aid
-        """
-        cursor.execute(query, {"user_aid": user_aid})
-        result = cursor.fetchone()
-
-        total_slots = result[0] if result and result[0] else 0
-
-        # Close the cursor
-        cursor.close()
-
-        return jsonify({"total_slots": total_slots}), 200
-
-    else:
-        return jsonify({"error": "CATEGORY_NAME not supported"}), 400
-
-except Exception as e:
-    print(f"Error processing request: {e}")
-    return jsonify({"error": str(e)}), 500
 
 
 ---
 
-Frontend Adjustments:
+Updated ALL_COLUMNS
 
-Update the frontend to handle both cases:
+const ALL_COLUMNS = useMemo(
+  () => [
+    {
+      accessorKey: 'REQUEST_ID',
+      header: 'REQUEST ID',
+      size: 90,
+    },
+    {
+      accessorKey: 'REQUEST_STATUS',
+      header: 'REQUEST STATUS',
+      size: 150,
+      Cell: ({ cell }) => {
+        const REQUEST_ID = cell.row.original.REQUEST_ID;
+        const value = cell.getValue();
+        const currentEdit = editData[REQUEST_ID]?.REQUEST_STATUS;
 
-1. For CATEGORY_NAME = QUEUE, display the details for each AID.
-
-
-2. For CATEGORY_NAME = SLOT, display the total slots used by USER_AID.
-
-
-
-Updated Frontend Code:
-
-import React, { useState, useEffect } from 'react';
-import { Box, Typography, CircularProgress } from '@mui/material';
-import apiInstance from '../../../api';
-
-const EfficiencyDetailPanel = ({ row }) => {
-  const [efficiencyData, setEfficiencyData] = useState([]);
-  const [slotCount, setSlotCount] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchDetails = async () => {
-      setLoading(true);
-      const { REQUEST_ID, USER_AID, GROUP_AID, CATEGORY_NAME, CLUSTER_NAME } = row.original;
-
-      const rowData = {
-        REQUEST_ID,
-        USER_AID,
-        GROUP_AID,
-        CATEGORY_NAME,
-        CLUSTER_NAME,
-      };
-
-      try {
-        const response = await apiInstance.post('/admin_panel_requests', [rowData]);
-        if (response.status === 200) {
-          if (CATEGORY_NAME === 'QUEUE') {
-            setEfficiencyData(response.data.aid_results || []);
-          } else if (CATEGORY_NAME === 'SLOT') {
-            setSlotCount(response.data.total_slots || 0);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching details:', error);
-        setEfficiencyData([]);
-        setSlotCount(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchDetails();
-  }, [row]);
-
-  return (
-    <Box display="flex" flexDirection="column" alignItems="center" p={2}>
-      <Typography variant="h6" fontWeight="bold" mb={1}>
-        {row.original.CATEGORY_NAME === 'QUEUE' ? 'Efficiency Details' : 'Slot Usage'}
-      </Typography>
-      {loading ? (
-        <CircularProgress />
-      ) : row.original.CATEGORY_NAME === 'QUEUE' ? (
-        efficiencyData.length > 0 ? (
-          efficiencyData.map(({ AID, average_pending_time, average_run_time, average_efficiency }) => (
-            <Box
-              key={AID}
-              display="flex"
-              flexDirection="column"
-              alignItems="flex-start"
-              width="100%"
-              mb={2}
-              p={2}
-              border="1px solid lightgray"
-              borderRadius="8px"
+        return REQUEST === 'EDITABLE' ? (
+          <>
+            <Select
+              value={currentEdit || value}
+              onChange={(e) =>
+                setEditData((prev) => ({
+                  ...prev,
+                  [REQUEST_ID]: { ...(prev[REQUEST_ID] || {}), REQUEST_STATUS: e.target.value },
+                }))
+              }
+              size="small"
+              fullWidth
             >
-              <Typography variant="subtitle1" fontWeight="bold">
-                AID: {AID}
-              </Typography>
-              <Typography variant="body2">Average Pending Time: {average_pending_time.toFixed(2)} seconds</Typography>
-              <Typography variant="body2">Average Run Time: {average_run_time.toFixed(2)} seconds</Typography>
-              <Typography variant="body2">
-                Average Efficiency: {average_efficiency.toFixed(2)}%
-              </Typography>
-            </Box>
-          ))
+              <MenuItem value="COMPLETED">Completed</MenuItem>
+              <MenuItem value="PENDING">Pending</MenuItem>
+              <MenuItem value="REJECTED">Rejected</MenuItem>
+            </Select>
+            {currentEdit && currentEdit !== value && (
+              <Box display="flex" gap="10px" marginTop="5px">
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={() => handleSaveStatus(REQUEST_ID)}
+                >
+                  Save
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleCancel(REQUEST_ID)}
+                >
+                  Cancel
+                </Button>
+              </Box>
+            )}
+          </>
         ) : (
-          <Typography color="error">No efficiency data available</Typography>
-        )
-      ) : slotCount !== null ? (
-        <Box
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-          width="100%"
-          height="50px"
-          borderRadius="8px"
-          bgcolor="blue"
-          color="white"
-        >
-          <Typography variant="h6">{`Total Slots: ${slotCount}`}</Typography>
-        </Box>
-      ) : (
-        <Typography color="error">Failed to fetch slot count</Typography>
-      )}
-    </Box>
-  );
+          <Box
+            sx={(theme) => ({
+              backgroundColor:
+                value === 'PENDING'
+                  ? '#FFE97F'
+                  : value === 'COMPLETED'
+                  ? '#85A98F'
+                  : '#FFAAA6',
+              borderRadius: '4px',
+              display: 'inline-block',
+              width: '120px',
+              textAlign: 'center',
+              padding: '4px',
+            })}
+          >
+            <Typography align="center" color="black">
+              {value.charAt(0).toUpperCase() + value.slice(1)}
+            </Typography>
+          </Box>
+        );
+      },
+    },
+  ],
+  [REQUEST, editData]
+);
+
+
+---
+
+New Handlers for REQUEST_STATUS
+
+const handleSaveStatus = (REQUEST_ID) => {
+  const REQUEST_STATUS = editData[REQUEST_ID]?.REQUEST_STATUS;
+  if (REQUEST_STATUS) {
+    setOpen(true);
+    mutationStatus.mutate({ REQUEST_ID, REQUEST_STATUS });
+  }
 };
 
-export default EfficiencyDetailPanel;
+
+---
+
+Server-Side Changes
+
+1. Update Endpoint: Update your server endpoint to accept and process REQUEST_STATUS in addition to ACCESS_END_DATE.
+
+
+
+Backend Endpoint Update
+
+data = request.get_json()
+request_id = data.get('REQUEST_ID')
+access_end_date = data.get('ACCESS_END_DATE')
+request_status = data.get('REQUEST_STATUS')
+
+print("request_id", request_id)
+print("access_end_date", access_end_date)
+print("request_status", request_status)
+
+if not request_id or (not access_end_date and not request_status):
+    return jsonify({'error': 'REQUEST_ID and at least one of ACCESS_END_DATE or REQUEST_STATUS are required'}), 400
+
+db = get_db()
+cursor = db.cursor()
+
+try:
+    if access_end_date:
+        update_query_date = f"""
+            UPDATE {dbCfg['QUEUE_ACCESS']}
+            SET ACCESS_END_DATE = TO_DATE(:access_end_date, 'YYYY-MM-DD')
+            WHERE REQUEST_ID = :request_id
+        """
+        cursor.execute(update_query_date, {'access_end_date': access_end_date, 'request_id': request_id})
+
+    if request_status:
+        update_query_status = f"""
+            UPDATE {dbCfg['QUEUE_ACCESS']}
+            SET REQUEST_STATUS = :request_status
+            WHERE REQUEST_ID = :request_id
+        """
+        cursor.execute(update_query_status, {'request_status': request_status, 'request_id': request_id})
+
+    db.commit()
+    cursor.close()
+    return jsonify({'message': 'Data updated successfully'}), 200
+
+except cx_Oracle.DatabaseError as e:
+    error, = e.args
+    print("error", f"Database error: {error.message}")
+    return jsonify({'error': f"Database error: {error.message}"}), 500
+except Exception as e:
+    print("error", str(e))
+    return jsonify({'error': str(e)}), 500
 
 
 ---
 
-Explanation of Changes:
-
-Backend:
-
-1. CATEGORY_NAME = SLOT:
-
-Added logic to sum NUM_PROC for the given USER_AID.
-
-Returned the total slot count in the response.
-
-
-
-2. CATEGORY_NAME = QUEUE:
-
-Retains logic to calculate averages for each AID in GROUP_AID.
-
-
-
-
-Frontend:
-
-1. Dynamic Rendering Based on CATEGORY_NAME:
-
-For QUEUE, it displays efficiency details for each AID.
-
-For SLOT, it shows the total slots used.
-
-
-
-
-
----
-
-Example UI Outputs:
-
-For CATEGORY_NAME = QUEUE:
-
-AID: AID1
-
-Average Pending Time: 12.5 seconds
-
-Average Run Time: 30.2 seconds
-
-Average Efficiency: 80.5%
-
-
-AID: AID2
-
-Average Pending Time: 10.1 seconds
-
-Average Run Time: 25.0 seconds
-
-Average Efficiency: 85.2%
-
-
-
-For CATEGORY_NAME = SLOT:
-
-Total Slots: 100
-
+With these changes, you will have an editable REQUEST_STATUS field using a dropdown, with updates reflected both on the client and server.
 
