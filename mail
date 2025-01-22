@@ -1,285 +1,92 @@
-Here is the final version of the updated frontend and backend code with the changes necessary to handle CATEGORY_NAME for dynamic table selection and REQUEST_STATUS updates.
+Yes, you can achieve this by using resource allocation limits and user group configurations in IBM LSF. Specifically, you can configure your LSF cluster to restrict the usage of ws70 to specific users, while allowing unrestricted access to ws80 for all users.
 
-Frontend (React)
-
-In this code, we are updating the mutation to include CATEGORY_NAME and modifying the logic to send it when saving the status.
-
-Frontend Code
-
-import React, { useContext, useState, useEffect, useMemo } from 'react';
-import { useMutation, useQuery } from 'react-query';
-import { TextField, Button, Box, Typography, IconButton, Grid, Table, TableBody, TableRow, TableCell, TableContainer } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
-import { apiInstance } from './api'; // Adjust this import based on where your apiInstance is defined
-import dayjs from 'dayjs';
-import { ClusterContext } from './ClusterContext'; // Adjust import if needed
-import MaterialReactTable from 'material-react-table';
-
-const SuperAdminRequestPanel = ({ REQUEST, COLUMNS }) => {
-  const { userID } = useContext(ClusterContext);
-  const [open, setOpen] = useState(false);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [alert, setAlert] = useState('');
-  const [severity, setSeverity] = useState('');
-  const [editData, setEditData] = useState({});
-  const [originalData, setOriginalData] = useState({});
-
-  const fetchAccessRequests = async (userID, REQUEST) => {
-    const res = await apiInstance.get(`/super_admin_panel_requests?userID=${userID}&REQUEST=${REQUEST}`);
-    return res.data || {};
-  };
-
-  const {
-    data,
-    isLoading,
-    refetch,
-  } = useQuery(['accessRequests', userID, REQUEST], () => fetchAccessRequests(userID, REQUEST), {});
-
-  useEffect(() => {
-    refetch();
-  }, []);
-
-  useEffect(() => {
-    if (data) {
-      const original = data.reduce((acc, row) => {
-        acc[row.REQUEST_ID] = row.ACCESS_END_DATE;
-        return acc;
-      }, {});
-      setOriginalData(original);
-    }
-  }, [data]);
-
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-
-  const handleClose = (event, reason) => {
-    if (reason === 'clickaway') {
-      return;
-    }
-
-    setSnackbarOpen(false);
-  };
-
-  const action = (
-    <IconButton size="small" aria-label="close" color="inherit" onClick={handleClose}>
-      <CloseIcon fontSize="small" />
-    </IconButton>
-  );
-
-  const mutationStatus = useMutation(
-    async ({ REQUEST_ID, CATEGORY_NAME, REQUEST_STATUS }) => {
-      return apiInstance.put('/super_admin_panel_requests', {
-        REQUEST_ID,
-        CATEGORY_NAME,
-        REQUEST_STATUS,
-      });
-    },
-    {
-      onSuccess: async () => {
-        try {
-          await refetch();
-          setOpen(false);
-          setSeverity('success');
-          setAlert('Data updated successfully!');
-          setSnackbarOpen(true);
-        } catch (error) {
-          setOpen(false);
-          setSeverity('error');
-          setAlert('Error updating data!');
-          setSnackbarOpen(true);
-        }
-      },
-      onError: () => {
-        setOpen(false);
-        setSeverity('error');
-        setAlert('Error updating data!');
-        setSnackbarOpen(true);
-      },
-    }
-  );
-
-  const handleSaveStatus = (REQUEST_ID, CATEGORY_NAME) => {
-    const REQUEST_STATUS = editData[REQUEST_ID]?.REQUEST_STATUS;
-    if (REQUEST_STATUS) {
-      setOpen(true);
-      mutationStatus.mutate({ REQUEST_ID, CATEGORY_NAME, REQUEST_STATUS });
-    }
-  };
-
-  const ALL_COLUMNS = useMemo(
-    () => [
-      {
-        accessorKey: 'REQUEST_ID',
-        header: 'REQUEST ID',
-        size: 90,
-      },
-      {
-        accessorKey: 'REQUEST_STATUS',
-        header: 'REQUEST STATUS',
-        size: 150,
-        Cell: ({ cell }) => (
-          <Box
-            sx={(theme) => ({
-              backgroundColor:
-                cell.getValue() === 'PENDING'
-                  ? '#FFE97F'
-                  : cell.getValue() === 'APPROVED'
-                  ? '#d8f3dc'
-                  : cell.getValue() === 'REJECTED'
-                  ? '#FFAAA6'
-                  : cell.getValue() === 'COMPLETED'
-                  ? '#85A98F'
-                  : '#F05454',
-              borderRadius: '4px',
-              display: 'inline-block',
-              width: '120px',
-              textAlign: 'center',
-              padding: '4px',
-            })}
-          >
-            <Typography align="center" color="black">
-              {cell.getValue().charAt(0).toUpperCase() + cell.getValue().slice(1)}
-            </Typography>
-          </Box>
-        ),
-      },
-    ],
-    []
-  );
-
-  const handleSave = (REQUEST_ID) => {
-    const ACCESS_END_DATE = editData[REQUEST_ID];
-    if (ACCESS_END_DATE) {
-      setOpen(true);
-      mutation.mutate({ REQUEST_ID, ACCESS_END_DATE });
-    }
-  };
-
-  return (
-    <MaterialReactTable
-      columns={COLUMNS === 'EDITABLE_COLUMNS' ? EDITABLE_COLUMNS : ALL_COLUMNS}
-      data={data || {}}
-      state={{
-        showProgressBars: isLoading,
-      }}
-      positionToolbarAlertBanner="top"
-      positionActionsColumn="last"
-      enableColumnResizing
-      enableGrouping
-      enableStickyHeader
-      enableStickyFooter
-      enableColumnOrdering
-      enableSelectAll
-      selectAllMode="all"
-      displayColumnDefOptions={columnDef}
-      renderDetailPanel={({ row }) => (
-        <Grid container spacing={2}>
-          <Grid item xs={6}>
-            <TableContainer>
-              <Table>
-                <TableBody>
-                  {row.original.REQUEST_STATUS && (
-                    <TableRow>
-                      <TableCell style={{ fontWeight: 'bold' }}>REQUEST STATUS</TableCell>
-                      <TableCell>{row.original.REQUEST_STATUS}</TableCell>
-                    </TableRow>
-                  )}
-                  <TableRow>
-                    <TableCell style={{ fontWeight: 'bold' }}>Change Status</TableCell>
-                    <TableCell>
-                      <Button
-                        variant="contained"
-                        size="small"
-                        onClick={() => handleSaveStatus(row.original.REQUEST_ID, row.original.CATEGORY_NAME)}
-                      >
-                        Save Status
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Grid>
-        </Grid>
-      )}
-    />
-  );
-};
-
-export default SuperAdminRequestPanel;
-
-Backend (Python - Flask)
-
-Here is the updated backend code that handles dynamic table selection based on CATEGORY_NAME.
-
-Backend Code
-
-from flask import request, jsonify
-import cx_Oracle
-
-@app.route('/super_admin_panel_requests', methods=['PUT'])
-def update_request_status():
-    try:
-        data = request.get_json()
-        request_id = data.get('REQUEST_ID')
-        request_status = data.get('REQUEST_STATUS')
-        category_name = data.get('CATEGORY_NAME')
-
-        # Ensure all required fields are provided
-        if not request_id or not request_status or not category_name:
-            return jsonify({'error': 'REQUEST_ID, REQUEST_STATUS, and CATEGORY_NAME are required'}), 400
-
-        # Determine which table to update based on CATEGORY_NAME
-        if category_name == "queue":
-            table_name = dbCfg['QUEUE_ACCESS']
-        elif category_name == "slot":
-            table_name = dbCfg['SLOT_ACCESS']  # Assuming a different table for "slot"
-        else:
-            return jsonify({'error': 'Invalid CATEGORY_NAME'}), 400
-
-        # Prepare the SQL query for updating
-        update_query = f"""
-            UPDATE {table_name}
-            SET REQUEST_STATUS = :request_status
-            WHERE REQUEST_ID = :request_id
-        """
-
-        # Execute the query
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute(update_query, {'request_status': request_status, 'request_id': request_id})
-        db.commit()
-        cursor.close()
-        return jsonify({'message': 'Data updated successfully'}), 200
-
-    except cx_Oracle.DatabaseError as e:
-        error, = e.args
-        print(f"Database error: {error.message}")
-        return jsonify({'error': f"Database error: {error.message}"}), 500
-    except Exception as e:
-        print(str(e))
-        return jsonify({'error': str(e)}), 500
-
-Explanation
-
-Frontend Changes:
-
-The mutationStatus is now updated to include the CATEGORY_NAME, REQUEST_ID, and REQUEST_STATUS when calling the backend.
-
-The handleSaveStatus function triggers the mutation, passing the required parameters to ensure the correct category is updated in the backend.
+Here are the steps to implement this restriction:
 
 
-Backend Changes:
+---
 
-The backend dynamically selects the table (QUEUE_ACCESS or SLOT_ACCESS) based on the CATEGORY_NAME.
+1. Define the Resource (ws70) in lsf.shared
 
-The query updates the correct table by using the CATEGORY_NAME in the request.
+Ensure the resources ws70 and ws80 are defined in the lsf.shared configuration file. For example:
+
+Begin Resource
+RESOURCENAME  TYPE      INTERVAL  INCREASING  DESCRIPTION
+ws70          Boolean   ()        ()          Resource ws70
+ws80          Boolean   ()        ()          Resource ws80
+End Resource
+
+Run lsadmin reconfig after editing the file.
 
 
-Conclusion:
+---
 
-This updated solution allows for dynamic table selection based on the CATEGORY_NAME passed from the frontend, making the system more flexible to update different categories in different tables.
+2. Set Up a Resource Allocation Limit
+
+Edit the lsf.cluster.<cluster_name> configuration file to define an allocation limit for the resource ws70 by user group.
+
+Example Configuration:
+
+Begin ResourceMap
+RESOURCENAME  HOSTS
+ws70          all
+ws80          all
+End ResourceMap
+
+Begin UserGroup
+GROUP_NAME    GROUP_MEMBER
+allow_ws70    user1 user2
+End UserGroup
+
+Begin ResourceLimit
+NAME          USERS         RESOURCES         HOSTS         QUEUES         DURATION
+limit_ws70    all           ws70              all           all            0
+allow_ws70    @allow_ws70   ws70              all           all            0
+End ResourceLimit
+
+The first rule (limit_ws70) blocks all users from using ws70.
+
+The second rule (allow_ws70) allows only users in the allow_ws70 group to use ws70.
+
+
+
+---
+
+3. Reload the Configuration
+
+Run the following commands to apply the new configuration:
+
+lsadmin reconfig
+badmin reconfig
+
+
+---
+
+4. Testing the Configuration
+
+Users not in the allow_ws70 group will receive an error if they try to use ws70:
+
+bsub -R "select[ws70]" my_job
+
+Error: Job not submitted: User does not have permission to use resource ws70.
+
+Users in the allow_ws70 group can submit jobs with ws70:
+
+bsub -R "select[ws70]" my_job
+
+Job is successfully submitted.
+
+
+
+---
+
+Notes
+
+If you need finer control, you can further restrict based on queues or specific hosts by modifying the ResourceLimit section.
+
+Always back up your configuration files before making changes.
+
+Use bresources to verify resource configurations and badmin showlim to check active limits.
+
+
+Let me know if you need further guidance!
 
