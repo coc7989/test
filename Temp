@@ -1,200 +1,253 @@
 pipeline {
-    agent {
-        label 'myLSF_India'
-    }
+  agent {
+    label 'myLSF_India'
+  }
 
-    options {
-        timeout(time: 10, unit: 'MINUTES')
-        timestamps()
-    }
+  options {
+    timeout(time: 10, unit: 'MINUTES')
+  }
 
-    parameters {
-        string(name: 'REQUEST_ID', defaultValue: '2b13829he1be18h29312', description: 'Enter the ID for the build number')
-        choice(name: 'CLUSTER_NAME', choices: ['tii-shared', 'dallas', 'freising'], description: 'Enter the Site where priority is needed')
-        string(name: 'GROUP_AID', defaultValue: 't052444, t003222', description: 'Enter the GROUP IDs for Priority Access')
-        string(name: 'ACCESS_END_DATE', defaultValue: '8-12-24', description: 'Enter the Date till the priority access is needed')
-        string(name: 'APPROVED_BY', defaultValue: 'a0510342', description: 'Enter the ADMIN APPROVAL ID')
-        string(name: 'USER_ID', defaultValue: 'a0499461', description: 'Enter the AID of User')
-        string(name: 'PROJECT_NAME', defaultValue: 'testproject', description: 'Enter the Project Name')
-        string(name: 'QUEUE', defaultValue: 'priority', description: 'Enter the queue Name')
-        booleanParam(name: 'LSB_OPTION', description: 'Enable LSB option')
-        string(name: 'SLOT_POOL', description: 'Slot Pool to allocate (Only if LSB option is checked)')
-    }
+  parameters {
+    string(name: 'REQUEST_ID', defaultValue: '2b13829he1be18h29312', description: 'Enter the ID for the build number')
+    choice(name: 'CLUSTER_NAME', choices: ['tii-shared', 'dallas', 'freising'], description: 'Enter the Site where priority is needed')
+    string(name: 'GROUP_AID', defaultValue: 't052444, t003222', description: 'Enter the GROUP IDs for Priority Access')
+    string(name: 'ACCESS_END_DATE', defaultValue: '8-12-24', description: 'Enter the Date till the priority access is needed')
+    string(name: 'APPROVED_BY', defaultValue: 'a0510342', description: 'Enter the ADMIN APPROVAL ID')
+    string(name: 'USER_ID', defaultValue: 'a0499461', description: 'Enter the AID of User')
+    string(name: 'PROJECT_NAME', defaultValue: 'testproject', description: 'Enter the Project Name')
+    string(name: 'QUEUE', defaultValue: 'priority', description: 'Enter the Queue Name')
+    booleanParam(name: 'LSB_OPTION', description: 'Enable LSB option')
+    string(name: 'SLOT_POOL', description: 'Slot Pool to allocate (Only if LSB option is checked)')
+  }
 
-    environment {
-        error_reason = ''
-        config_file_path = ''
-        lsb_resources_file_path = ''
-    }
+  environment {
+    CONFIG_PATH = '/user/lsfadmin/tmp'
+    BACKUP_PATH = '/user/lsfadmin/tmp/backup/'
+    LSB_PATH = '/user/lsfadmin/tmp'
+    CONFIG_FILE_NAME = ''
+    LSB_FILE_NAME = ''
+    NODE_LABEL = ''
+    error_reason = ''
+  }
 
-    stages {
-
-        stage('Determine Hop Host') {
-            steps {
-                script {
-                    try {
-                        NODE_LABEL = ''
-                        if (params.CLUSTER_NAME == 'tii-shared') {
-                            NODE_LABEL = 'lsfutil_india'
-                        } else if (params.CLUSTER_NAME == 'dal-dallas') {
-                            NODE_LABEL = 'lsfutil_dallas'
-                        } else if (params.CLUSTER_NAME == 'freising') {
-                            NODE_LABEL = 'lsfutil_freising'
-                        } else {
-                            error "Unknown CLUSTER_NAME: ${params.CLUSTER_NAME}"
-                        }
-                        echo "Selected agent label: ${NODE_LABEL}"
-                    } catch (Exception e) {
-                        env.error_reason = "Error in Determine Hop Host: ${e.message}"
-                        error(env.error_reason)
-                    }
-                }
+  stages {
+    stage('Determine Hop Host') {
+      steps {
+        script {
+          try {
+            switch (params.CLUSTER_NAME) {
+              case 'tii-shared':
+                NODE_LABEL = 'lsfutil_india'
+                break
+              case 'dallas':
+                NODE_LABEL = 'lsfutil_dallas'
+                break
+              case 'freising':
+                NODE_LABEL = 'lsfutil_freising'
+                break
+              default:
+                error "Unknown CLUSTER_NAME: ${params.CLUSTER_NAME}"
             }
+            echo "Selected agent label: ${NODE_LABEL}"
+          } catch (Exception e) {
+            error_reason = "Failed in Determine Hop Host: ${e.message}"
+            error error_reason
+          }
         }
-
-        stage('Executing Pipeline') {
-            agent {
-                label "${NODE_LABEL}"
-            }
-            stages {
-
-                stage('Print Parameters and Set Paths') {
-                    steps {
-                        script {
-                            try {
-                                currentBuild.displayName = params.REQUEST_ID
-                                CONFIG_PATH = '/user/lsfadmin/tmp'
-                                BACKUP_PATH = '/user/lsfadmin/tmp/backup/'
-                                LSB_PATH = '/user/lsfadmin/tmp'
-                                CONFIG_FILE_NAME = (params.QUEUE == 'priority') ? 'priority_grp' : 'hwsim_grp'
-                                LSB_FILE_NAME = (params.QUEUE == 'priority') ? 'lsb.resources' : ''
-                                
-                                config_file_path = "${CONFIG_PATH}/${CONFIG_FILE_NAME}"
-                                lsb_resources_file_path = "${LSB_PATH}/${LSB_FILE_NAME}"
-
-                                echo """
-                                --- PARAMETERS ---
-                                CONFIG_PATH: ${CONFIG_PATH}
-                                CONFIG_FILE_NAME: ${CONFIG_FILE_NAME}
-                                BACKUP_PATH: ${BACKUP_PATH}
-                                LSB_PATH: ${LSB_PATH}
-                                REQUEST_ID: ${params.REQUEST_ID}
-                                CLUSTER_NAME: ${params.CLUSTER_NAME}
-                                GROUP_AID: ${params.GROUP_AID}
-                                ACCESS_END_DATE: ${params.ACCESS_END_DATE}
-                                APPROVED_BY: ${params.APPROVED_BY}
-                                USER_ID: ${params.USER_ID}
-                                PROJECT_NAME: ${params.PROJECT_NAME}
-                                LSB_OPTION: ${params.LSB_OPTION}
-                                SLOT_POOL: ${params.SLOT_POOL}
-                                """
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Print Parameters and Set Paths: ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
-
-                stage('Get Revision Number of Config File') {
-                    steps {
-                        script {
-                            try {
-                                echo "Getting revision number for config file..."
-                                revision_number_config_file = sh(script: "rlog -h ${config_file_path} | grep 'head:' | awk '{print \$2}'", returnStdout: true).trim()
-                                echo "Current revision number of config file: ${revision_number_config_file}"
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Get Revision Number of Config File: ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
-
-                stage('Version Control Checkout (Config File)') {
-                    steps {
-                        script {
-                            try {
-                                echo "Performing version control checkout for config file..."
-                                def result = sh(script: "co -l -f ${config_file_path}", returnStatus: true)
-                                if (result != 0) {
-                                    error "Version control checkout failed for config file with exit code: ${result}"
-                                }
-                                echo "Config file checked out successfully."
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Version Control Checkout (Config File): ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
-
-                stage('Backup Config File') {
-                    steps {
-                        script {
-                            try {
-                                echo "Creating backup for config file..."
-                                def formattedDate = new Date().format("dd-MMM-yyyy")
-                                config_backup_file_name = "${CONFIG_FILE_NAME}-${formattedDate}-rev${revision_number_config_file}"
-                                sh "cp -f ${config_file_path} ${BACKUP_PATH}${config_backup_file_name}"
-                                echo "Backup created successfully: ${config_backup_file_name}"
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Backup Config File: ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
-
-                stage('Append IDs to Config File') {
-                    steps {
-                        script {
-                            try {
-                                echo "Appending IDs to config file..."
-                                def groupAids = params.GROUP_AID.split(',')
-                                groupAids.each { aid ->
-                                    def newLine = "${aid.trim()}\t# Request_ID: ${params.REQUEST_ID}"
-                                    sh "echo '${newLine}' >> ${config_file_path}"
-                                }
-                                echo "IDs appended to config file successfully."
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Append IDs to Config File: ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
-
-                stage('Version Control Check-in (Config File)') {
-                    steps {
-                        script {
-                            try {
-                                echo "Performing version control check-in for config file..."
-                                def commitMessage = "${params.USER_ID} Added - Build #${params.REQUEST_ID}"
-                                sh "ci -u -m\"${commitMessage}\" ${config_file_path}"
-                                echo "Config file checked in successfully."
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Version Control Check-in (Config File): ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+      }
     }
 
-    post {
-        success {
-            echo "Pipeline executed successfully."
+    stage('Executing Pipeline') {
+      agent { label "${NODE_LABEL}" }
+      stages {
+        stage('Set Configuration Paths and Validate Inputs') {
+          steps {
+            script {
+              try {
+                CONFIG_FILE_NAME = params.QUEUE == 'priority' ? 'priority_grp' : 'hwsim_grp'
+                LSB_FILE_NAME = 'lsb.resources'
+                if (params.LSB_OPTION && (!params.SLOT_POOL?.isInteger() || Integer.parseInt(params.SLOT_POOL) <= 0)) {
+                  error "Invalid SLOT_POOL value: ${params.SLOT_POOL}. It must be a positive integer."
+                }
+
+                echo """
+                CONFIG_PATH: ${CONFIG_PATH}
+                CONFIG_FILE_NAME: ${CONFIG_FILE_NAME}
+                BACKUP_PATH: ${BACKUP_PATH}
+                LSB_PATH: ${LSB_PATH}
+                REQUEST_ID: ${params.REQUEST_ID}
+                CLUSTER_NAME: ${params.CLUSTER_NAME}
+                GROUP_AID: ${params.GROUP_AID}
+                ACCESS_END_DATE: ${params.ACCESS_END_DATE}
+                APPROVED_BY: ${params.APPROVED_BY}
+                USER_ID: ${params.USER_ID}
+                PROJECT_NAME: ${params.PROJECT_NAME}
+                QUEUE: ${params.QUEUE}
+                LSB_OPTION: ${params.LSB_OPTION}
+                SLOT_POOL: ${params.SLOT_POOL}
+                """
+              } catch (Exception e) {
+                error_reason = "Failed to set configuration paths or validate inputs: ${e.message}"
+                error error_reason
+              }
+            }
+          }
         }
-        failure {
-            echo """
-            **************************************************
-            PIPELINE FAILED
-            Reason: ${env.error_reason}
-            **************************************************
-            """
+
+        stage('Get Revision Numbers') {
+          steps {
+            script {
+              try {
+                def getRevision = { filePath ->
+                  sh(script: "rlog -h ${filePath} | grep 'head:' | awk '{print \$2}'", returnStdout: true).trim()
+                }
+                def configFile = "${CONFIG_PATH}/${CONFIG_FILE_NAME}"
+                env.REVISION_NUMBER_CONFIG = getRevision(configFile)
+
+                if (params.LSB_OPTION) {
+                  def lsbFile = "${LSB_PATH}/${LSB_FILE_NAME}"
+                  env.REVISION_NUMBER_LSB = getRevision(lsbFile)
+                }
+
+                echo "Config File Revision: ${env.REVISION_NUMBER_CONFIG}"
+                if (params.LSB_OPTION) echo "LSB File Revision: ${env.REVISION_NUMBER_LSB}"
+              } catch (Exception e) {
+                error_reason = "Failed to get revision numbers: ${e.message}"
+                error error_reason
+              }
+            }
+          }
         }
+
+        stage('Backup Files') {
+          steps {
+            script {
+              try {
+                def backupFile = { filePath, backupPath, fileName, revision ->
+                  def formattedDate = new Date().format("dd-MMM-yyyy")
+                  def backupFileName = "${fileName}-${formattedDate}-rev${revision}"
+                  sh "cp -f ${filePath} ${backupPath}/${backupFileName}"
+                  echo "Backup created: ${backupFileName}"
+                  return backupFileName
+                }
+
+                env.CONFIG_BACKUP_FILE = backupFile("${CONFIG_PATH}/${CONFIG_FILE_NAME}", BACKUP_PATH, CONFIG_FILE_NAME, env.REVISION_NUMBER_CONFIG)
+
+                if (params.LSB_OPTION) {
+                  env.LSB_BACKUP_FILE = backupFile("${LSB_PATH}/${LSB_FILE_NAME}", BACKUP_PATH, LSB_FILE_NAME, env.REVISION_NUMBER_LSB)
+                }
+              } catch (Exception e) {
+                error_reason = "Failed to backup files: ${e.message}"
+                error error_reason
+              }
+            }
+          }
+        }
+
+        stage('Version Control Checkout') {
+          steps {
+            script {
+              try {
+                def checkoutFile = { filePath ->
+                  def result = sh(script: "co -l -f ${filePath}", returnStatus: true)
+                  if (result != 0) error "Failed to check out file: ${filePath}"
+                }
+
+                checkoutFile("${CONFIG_PATH}/${CONFIG_FILE_NAME}")
+                if (params.LSB_OPTION) checkoutFile("${LSB_PATH}/${LSB_FILE_NAME}")
+              } catch (Exception e) {
+                error_reason = "Failed during version control checkout: ${e.message}"
+                error error_reason
+              }
+            }
+          }
+        }
+
+        stage('Append Data to Files') {
+          steps {
+            script {
+              try {
+                def appendToFile = { filePath, data ->
+                  sh "echo '${data}' >> ${filePath}"
+                }
+
+                def groupAids = params.GROUP_AID.split(',').collect { it.trim() }
+                groupAids.each { aid ->
+                  def data = "${aid}\t# Request_ID: ${params.REQUEST_ID}"
+                  appendToFile("${CONFIG_PATH}/${CONFIG_FILE_NAME}", data)
+                }
+
+                if (params.LSB_OPTION) {
+                  def lsbData = "(${params.GROUP_AID}) - ${params.SLOT_POOL}"
+                  appendToFile("${LSB_PATH}/${LSB_FILE_NAME}", lsbData)
+                }
+              } catch (Exception e) {
+                error_reason = "Failed to append data to files: ${e.message}"
+                error error_reason
+              }
+            }
+          }
+        }
+
+        stage('Validate Configurations') {
+          steps {
+            script {
+              try {
+                def clusterMasters = [
+                  'tii-shared': 'dbdlsfmaster06.india.ti.com',
+                  'dallas': 'dflmaster05.dal.design.ti.com',
+                  'freising': 'dfrlsfadmin02.design.ti.com'
+                ]
+                def masterServer = clusterMasters[params.CLUSTER_NAME] ?: error "Unknown cluster name: ${params.CLUSTER_NAME}"
+
+                def output = sh(script: """
+                  ssh ${masterServer} '
+                    /data/sudo/bin/sudo -u lsfadmin -E /apps/lsf/10.1/linux3.10-glibc2.17-x86_64/bin/badmin ckconfig -v
+                  ' 2>&1
+                """, returnStdout: true)
+
+                if (!output.contains("No errors found")) error "Configuration validation failed"
+                echo "Configuration validated successfully."
+              } catch (Exception e) {
+                error_reason = "Failed during configuration validation: ${e.message}"
+                error error_reason
+              }
+            }
+          }
+        }
+
+        stage('Version Control Check-In') {
+          steps {
+            script {
+              try {
+                def checkInFile = { filePath, message ->
+                  sh "ci -u -m\"${message}\" ${filePath}"
+                }
+
+                checkInFile("${CONFIG_PATH}/${CONFIG_FILE_NAME}", "${params.USER_ID} Added - Build #${params.REQUEST_ID}")
+                if (params.LSB_OPTION) {
+                  checkInFile("${LSB_PATH}/${LSB_FILE_NAME}", "Added entry - Build #${params.REQUEST_ID}")
+                }
+              } catch (Exception e) {
+                error_reason = "Failed during version control check-in: ${e.message}"
+                error error_reason
+              }
+            }
+          }
+        }
+      }
     }
+  }
+
+  post {
+    always {
+      script {
+        if (error_reason) {
+          echo "\033[41mPIPELINE FAILED: ${error_reason}\033[0m"
+        } else {
+          echo "\033[42mPIPELINE COMPLETED SUCCESSFULLY\033[0m"
+        }
+      }
+    }
+  }
 }
