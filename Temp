@@ -1,81 +1,200 @@
-#!/bin/bash
+pipeline {
+    agent {
+        label 'myLSF_India'
+    }
 
-vendor="$1"
-mappedlicense="$2"
-backupFile="$3"
-buildNum="$4"
-ansoftlog="${mappedlicense/.lic/.lmgrd.log}"
-echo "vendor: ${vendor}"
-echo "mappedlicense: ${mappedlicense}"
-echo "backupFile: ${backupFile}"
-echo "buildNum: ${buildNum}"
-echo "Considered when vendor is Ansys then ansoftlog: ${ansoftlog}"
-crontab -l > /data/mycron
-sed -i "/check_daemon_prs/s/^/#/" /data/mycron
-counter=0
-result=""
-error=""
+    options {
+        timeout(time: 10, unit: 'MINUTES')
+        timestamps()
+    }
 
-while [[ $counter -lt 2 ]]; do
-    if [ $(( $(date +%s) - $(stat -c %Y "/data/$mappedlicense") )) -lt 120 ]; then
-        if [[ $vendor == "cds" ]]; then
-            lmreread=$(/vendors/cds/pgms.linux/lmreread -c "/data/$mappedlicense")
-            sleep 5
-            lmstat=$(/vendors/cds/pgms.linux/lmstat -c "/data/$mappedlicense")
-        elif [[ $vendor == "snps" ]]; then
-            lmreread=$(/vendors/snps/pgms.linux/lmreread -c "/data/$mappedlicense")
-            /bin/restart_server $vendor
-            sleep 5
-            lmstat=$(/bin/lmstat -c "/data/$mappedlicense" -a)
-        elif [[ $vendor == "ansoft" ]]; then
-            /vendors/ansys/shared_files/licensing/linx64/ansysli_server -k stop
-            sleep 10
-            /vendors/ansys/shared_files/licensing/linx64/ansysli_server
-            sleep 50
-            tail -n 10 "/annals/$ansoftlog"
-            lmreread="lmreread successful"
-            lmstat=$(/bin/lmstat -c "/data/$mappedlicense")
-        else
-            echo "I am inside Unsuccessful"
-            echo "backup file when issue ${backupFile}"
-            echo "mapped license when issue ${mappedlicense}"
-            rsync -v /tmp/$backupFile /data/$mappedlicense
-            result="${result:-Failure}"
-            error="${error:-Vendor is not known}"
-        fi
+    parameters {
+        string(name: 'REQUEST_ID', defaultValue: '2b13829he1be18h29312', description: 'Enter the ID for the build number')
+        choice(name: 'CLUSTER_NAME', choices: ['tii-shared', 'dallas', 'freising'], description: 'Enter the Site where priority is needed')
+        string(name: 'GROUP_AID', defaultValue: 't052444, t003222', description: 'Enter the GROUP IDs for Priority Access')
+        string(name: 'ACCESS_END_DATE', defaultValue: '8-12-24', description: 'Enter the Date till the priority access is needed')
+        string(name: 'APPROVED_BY', defaultValue: 'a0510342', description: 'Enter the ADMIN APPROVAL ID')
+        string(name: 'USER_ID', defaultValue: 'a0499461', description: 'Enter the AID of User')
+        string(name: 'PROJECT_NAME', defaultValue: 'testproject', description: 'Enter the Project Name')
+        string(name: 'QUEUE', defaultValue: 'priority', description: 'Enter the queue Name')
+        booleanParam(name: 'LSB_OPTION', description: 'Enable LSB option')
+        string(name: 'SLOT_POOL', description: 'Slot Pool to allocate (Only if LSB option is checked)')
+    }
 
-        echo "lmreread: ${lmreread}"
-        reread_status=$(echo "$lmreread" | grep -o "lmreread successful")
-        echo "reread_status: ${reread_status}"
-        vendor_status=$(echo "$lmstat" | grep -o ': UP' | awk '{print $2}' | head -n 1)
-        echo "lmstat: ${lmstat}"
-        echo "vendor_status: ${vendor_status}"
-        
-        if [[ $reread_status == "lmreread successful" && $vendor_status == "UP" ]]; then
-            echo "I am inside Success"
-            result="${result:-Success}"
-            error="${error:-No Error}"
-            break
-        else
-            echo "I am inside Unstable"
-            echo "backup file when issue ${backupFile}"
-            echo "mapped license when issue ${mappedlicense}"
-            rsync -v /tmp/$backupFile /data/$mappedlicense
-            result="${result:-Failure}"
-            error="${error:-lmreread Unsuccessful or vendor is not UP}"
-        fi
-    else
-        echo "I am inside Failure"
-        echo "backup file when issue ${backupFile}"
-        echo "mapped license when issue ${mappedlicense}"
-        rsync -v /tmp/$backupFile /data/$mappedlicense
-        result="${result:-Failure}"
-        error="${error:-License file is not synced properly to the server}"
-    fi
-    ((counter++))
-done
+    environment {
+        error_reason = ''
+        config_file_path = ''
+        lsb_resources_file_path = ''
+    }
 
-echo "$error"  # Print the first error if it exists
-echo "$result"  # Print the first result if it exists
-sed -i "/check_daemon_prs/s/^#//" /data/mycron
-crontab /data/mycron
+    stages {
+
+        stage('Determine Hop Host') {
+            steps {
+                script {
+                    try {
+                        NODE_LABEL = ''
+                        if (params.CLUSTER_NAME == 'tii-shared') {
+                            NODE_LABEL = 'lsfutil_india'
+                        } else if (params.CLUSTER_NAME == 'dal-dallas') {
+                            NODE_LABEL = 'lsfutil_dallas'
+                        } else if (params.CLUSTER_NAME == 'freising') {
+                            NODE_LABEL = 'lsfutil_freising'
+                        } else {
+                            error "Unknown CLUSTER_NAME: ${params.CLUSTER_NAME}"
+                        }
+                        echo "Selected agent label: ${NODE_LABEL}"
+                    } catch (Exception e) {
+                        env.error_reason = "Error in Determine Hop Host: ${e.message}"
+                        error(env.error_reason)
+                    }
+                }
+            }
+        }
+
+        stage('Executing Pipeline') {
+            agent {
+                label "${NODE_LABEL}"
+            }
+            stages {
+
+                stage('Print Parameters and Set Paths') {
+                    steps {
+                        script {
+                            try {
+                                currentBuild.displayName = params.REQUEST_ID
+                                CONFIG_PATH = '/user/lsfadmin/tmp'
+                                BACKUP_PATH = '/user/lsfadmin/tmp/backup/'
+                                LSB_PATH = '/user/lsfadmin/tmp'
+                                CONFIG_FILE_NAME = (params.QUEUE == 'priority') ? 'priority_grp' : 'hwsim_grp'
+                                LSB_FILE_NAME = (params.QUEUE == 'priority') ? 'lsb.resources' : ''
+                                
+                                config_file_path = "${CONFIG_PATH}/${CONFIG_FILE_NAME}"
+                                lsb_resources_file_path = "${LSB_PATH}/${LSB_FILE_NAME}"
+
+                                echo """
+                                --- PARAMETERS ---
+                                CONFIG_PATH: ${CONFIG_PATH}
+                                CONFIG_FILE_NAME: ${CONFIG_FILE_NAME}
+                                BACKUP_PATH: ${BACKUP_PATH}
+                                LSB_PATH: ${LSB_PATH}
+                                REQUEST_ID: ${params.REQUEST_ID}
+                                CLUSTER_NAME: ${params.CLUSTER_NAME}
+                                GROUP_AID: ${params.GROUP_AID}
+                                ACCESS_END_DATE: ${params.ACCESS_END_DATE}
+                                APPROVED_BY: ${params.APPROVED_BY}
+                                USER_ID: ${params.USER_ID}
+                                PROJECT_NAME: ${params.PROJECT_NAME}
+                                LSB_OPTION: ${params.LSB_OPTION}
+                                SLOT_POOL: ${params.SLOT_POOL}
+                                """
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Print Parameters and Set Paths: ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Get Revision Number of Config File') {
+                    steps {
+                        script {
+                            try {
+                                echo "Getting revision number for config file..."
+                                revision_number_config_file = sh(script: "rlog -h ${config_file_path} | grep 'head:' | awk '{print \$2}'", returnStdout: true).trim()
+                                echo "Current revision number of config file: ${revision_number_config_file}"
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Get Revision Number of Config File: ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Version Control Checkout (Config File)') {
+                    steps {
+                        script {
+                            try {
+                                echo "Performing version control checkout for config file..."
+                                def result = sh(script: "co -l -f ${config_file_path}", returnStatus: true)
+                                if (result != 0) {
+                                    error "Version control checkout failed for config file with exit code: ${result}"
+                                }
+                                echo "Config file checked out successfully."
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Version Control Checkout (Config File): ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Backup Config File') {
+                    steps {
+                        script {
+                            try {
+                                echo "Creating backup for config file..."
+                                def formattedDate = new Date().format("dd-MMM-yyyy")
+                                config_backup_file_name = "${CONFIG_FILE_NAME}-${formattedDate}-rev${revision_number_config_file}"
+                                sh "cp -f ${config_file_path} ${BACKUP_PATH}${config_backup_file_name}"
+                                echo "Backup created successfully: ${config_backup_file_name}"
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Backup Config File: ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Append IDs to Config File') {
+                    steps {
+                        script {
+                            try {
+                                echo "Appending IDs to config file..."
+                                def groupAids = params.GROUP_AID.split(',')
+                                groupAids.each { aid ->
+                                    def newLine = "${aid.trim()}\t# Request_ID: ${params.REQUEST_ID}"
+                                    sh "echo '${newLine}' >> ${config_file_path}"
+                                }
+                                echo "IDs appended to config file successfully."
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Append IDs to Config File: ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Version Control Check-in (Config File)') {
+                    steps {
+                        script {
+                            try {
+                                echo "Performing version control check-in for config file..."
+                                def commitMessage = "${params.USER_ID} Added - Build #${params.REQUEST_ID}"
+                                sh "ci -u -m\"${commitMessage}\" ${config_file_path}"
+                                echo "Config file checked in successfully."
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Version Control Check-in (Config File): ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline executed successfully."
+        }
+        failure {
+            echo """
+            **************************************************
+            PIPELINE FAILED
+            Reason: ${env.error_reason}
+            **************************************************
+            """
+        }
+    }
+}
