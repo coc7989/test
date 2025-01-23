@@ -1,236 +1,200 @@
 pipeline {
-    agent any
+    agent {
+        label 'myLSF_India'
+    }
+
+    options {
+        timeout(time: 10, unit: 'MINUTES')
+        timestamps()
+    }
+
+    parameters {
+        string(name: 'REQUEST_ID', defaultValue: '2b13829he1be18h29312', description: 'Enter the ID for the build number')
+        choice(name: 'CLUSTER_NAME', choices: ['tii-shared', 'dallas', 'freising'], description: 'Enter the Site where priority is needed')
+        string(name: 'GROUP_AID', defaultValue: 't052444, t003222', description: 'Enter the GROUP IDs for Priority Access')
+        string(name: 'ACCESS_END_DATE', defaultValue: '8-12-24', description: 'Enter the Date till the priority access is needed')
+        string(name: 'APPROVED_BY', defaultValue: 'a0510342', description: 'Enter the ADMIN APPROVAL ID')
+        string(name: 'USER_ID', defaultValue: 'a0499461', description: 'Enter the AID of User')
+        string(name: 'PROJECT_NAME', defaultValue: 'testproject', description: 'Enter the Project Name')
+        string(name: 'QUEUE', defaultValue: 'priority', description: 'Enter the queue Name')
+        booleanParam(name: 'LSB_OPTION', description: 'Enable LSB option')
+        string(name: 'SLOT_POOL', description: 'Slot Pool to allocate (Only if LSB option is checked)')
+    }
+
+    environment {
+        error_reason = ''
+        config_file_path = ''
+        lsb_resources_file_path = ''
+    }
+
     stages {
-        stage('Process Job Info') {
+
+        stage('Determine Hop Host') {
             steps {
                 script {
-                    // Define sample output
-                    def output = """
-                    689431,GUI,select[ws80&&!vm] rusage[mem=16000],4,77591
-                    313613,gui,select[ws70 && mem>8000] rusage[mem=4000],1,593409
-                    948400,ws,select[ws90] rusage[mem=32000],8,88200
-                    1200,GUI,select[ws70] rusage[mem=8000],2,55678
-                    689431,GUI,select[ws70||ws80] rusage[mem=16000],4,77591
-                    """.trim()
-
-                    // Print the output for debugging
-                    println("Output: ${output}")
-
-                    // Initialize the final result map
-                    def final_results = [:]
-
-                    // Process each line of the output
-                    output.eachLine { line ->
-                        // Split the line into parts
-                        def parts = line.split(',')
-
-                        // Extract and assign values
-                        def job_id = parts[0].toInteger()
-                        def que_name = parts[1].toUpperCase() == "GUI" ? "GUI" : "ws"
-
-                        // Handle os_name extraction and prioritization
-                        def os_name = ""
-                        def os_name_matcher = (parts[2] =~ /ws70|ws80/)
-                        os_name_matcher.each { match ->
-                            if (match == "ws80") {
-                                os_name = "ws80"
-                            } else if (match == "ws70" && os_name != "ws80") {
-                                os_name = "ws70"
-                            }
-                        }
-
-                        def num_of_core = parts[3].toInteger()
-                        def other_info = parts[4].toInteger()
-
-                        // Extract select_memory and rusage_memory
-                        def select_memory = 0
-                        def rusage_memory = 0
-                        def select_mem_matcher = (parts[2] =~ /mem>(\d+)/)
-                        if (select_mem_matcher) {
-                            select_memory = select_mem_matcher[0][1].toInteger()
-                        }
-                        def rusage_mem_matcher = (parts[2] =~ /rusage\[mem=(\d+)\]/)
-                        if (rusage_mem_matcher) {
-                            rusage_memory = rusage_mem_matcher[0][1].toInteger()
-                        }
-
-                        // Calculate required_memory
-                        def required_memory = Math.max(select_memory, rusage_memory) * num_of_core
-
-                        // Create the result object
-                        def result = [
-                            "que_name"       : que_name,
-                            "os_name"        : os_name,
-                            "num_of_core"    : num_of_core,
-                            "other_info"     : other_info,
-                            "select_memory"  : select_memory,
-                            "rusage_memory"  : rusage_memory,
-                            "required_memory": required_memory
-                        ]
-
-                        // Add the result object to the final_results map with the job_id as the key
-                        final_results[job_id] = result
-                    }
-
-                    // Group job IDs by que_name and os_name
-                    def grouped_job_ids = [:]
-                    final_results.each { job_id, result ->
-                        def key = "${result.que_name}-${result.os_name}"
-                        if (!grouped_job_ids.containsKey(key)) {
-                            grouped_job_ids[key] = []
-                        }
-                        grouped_job_ids[key] << job_id
-                    }
-
-                    // Define the commands to run based on que_name and os_name
-                    def commands = [
-                        "GUI-ws70": "bhosts -wR 'ws70 && gui' | grep 'ok\\|closed_Adm'",
-                        "ws-ws70": "bhosts -wR 'ws70 && ws' | grep 'ok\\|closed_Adm'",
-                        "ws-ws80": "bhosts -wR 'ws80 && ws' | grep 'ok\\|closed_Adm'",
-                        "GUI-ws80": "bhosts -wR 'ws80 && gui' | grep 'ok\\|closed_Adm'"
-                    ]
-
-                    // Define the lsload command to check available memory on hosts
-                    def lsload_command = "lsload -R 'ws70 && ws' | grep 'ok'"
-
-                    // Run the lsload command and process the output
-                    def lsload_output = sh(
-                        script: lsload_command,
-                        returnStdout: true
-                    ).trim()
-
-                    // Initialize the available_memory list
-                    def available_memory = []
-
-                    // Process the lsload command output
-                    lsload_output.eachLine { line ->
-                        def parts = line.split(/\s+/) // Split by any whitespace
-                        def server_full_name = parts[0]
-                        def server_name = server_full_name.replace(".google.com", "")
-                        def free_memory = parts[-1].replaceAll(/[^\d]/, '').toInteger() // Extract digits only
-
-                        // Add the extracted values to the available_memory list
-                        available_memory << [
-                            "server_name" : server_name,
-                            "free_memory" : free_memory
-                        ]
-                    }
-
-                    // Run the relevant command for each unique group and process the output
-                    def command_outputs = [:]
-                    grouped_job_ids.each { key, job_ids ->
-                        def command = commands[key]
-                        if (command) {
-                            def command_output = sh(
-                                script: command,
-                                returnStdout: true
-                            ).trim()
-
-                            // Initialize the available_capacity list
-                            def available_capacity = []
-
-                            // Process the command output
-                            command_output.eachLine { line ->
-                                def parts = line.split(/\s+/) // Split by any whitespace
-                                def server_full_name = parts[0]
-                                def server_name = server_full_name.replace(".google.com", "")
-                                def total_cores = parts[3].toInteger()
-                                def used_cores = parts[4].toInteger()
-                                def free_cores = total_cores - used_cores
-
-                                // Add the extracted values to the available_capacity list
-                                available_capacity << [
-                                    "server_name" : server_name,
-                                    "total_cores" : total_cores,
-                                    "used_cores"  : used_cores,
-                                    "free_cores"  : free_cores
-                                ]
-                            }
-
-                            // Store the available_capacity list in the command_outputs map
-                            command_outputs[key] = available_capacity
-                        }
-                    }
-
-                    // Merge available memory and capacity based on server_name
-                    def merged_available_mapping = available_memory.findAll { mem ->
-                        command_outputs.values().flatten().any { cap ->
-                            cap.server_name == mem.server_name
-                        }
-                    }.collect { mem ->
-                        def cap = command_outputs.values().flatten().find { it.server_name == mem.server_name }
-                        [
-                            "server_name" : mem.server_name,
-                            "free_memory" : mem.free_memory,
-                            "free_cores"  : cap.free_cores
-                        ]
-                    }
-
-                    // Add the merged mapping to the final results for each job
-                    final_results.each { job_id, result ->
-                        def key = "${result.que_name}-${result.os_name}"
-                        result["available_mapping"] = merged_available_mapping
-                    }
-
-                    // Associate command outputs with job IDs and determine execution server
-                    final_results.each { job_id, result ->
-                        def available_mapping = result["available_mapping"]
-                        def num_of_core = result.num_of_core
-                        def required_memory = result.required_memory
-                        def optimal_server = null
-                        def smallest_executable_cores = Integer.MAX_VALUE
-
-                        // Find the optimal server
-                        available_mapping.each { mapping ->
-                            def executable_cores = mapping.free_cores - 2
-                            def server_name = mapping.server_name
-                            def free_memory = mapping.free_memory
-
-                            if (executable_cores >= num_of_core && required_memory <= free_memory && executable_cores < smallest_executable_cores) {
-                                optimal_server = server_name
-                                smallest_executable_cores = executable_cores
-                            }
-                        }
-
-                        // If no exact match, find the smallest executable_cores greater than required cores
-                        if (!optimal_server) {
-                            available_mapping.each { mapping ->
-                                def executable_cores = mapping.free_cores - 2
-                                def server_name = mapping.server_name
-                                def free_memory = mapping.free_memory
-
-                                if (executable_cores > num_of_core && required_memory <= free_memory && executable_cores < smallest_executable_cores) {
-                                    optimal_server = server_name
-                                    smallest_executable_cores = executable_cores
-                                }
-                            }
-                        }
-
-                        // Add the optimal server to the result
-                        result["execute_on"] = optimal_server
-
-                        // Reduce free_cores and free_memory on the selected server
-                        if (optimal_server) {
-                            def mapping = available_mapping.find { it.server_name == optimal_server }
-                            mapping.free_cores -= num_of_core
-                            mapping.free_memory -= required_memory
-                        }
-                    }
-
-                    // Print final results for debugging
-                    println("Final Results: ${final_results}")
-
-                    // Execute each job on the designated server
-                    final_results.each { job_id, result ->
-                        def execute_on = result["execute_on"]
-                        if (execute_on) {
-                            sh "brun -m ${execute_on} ${job_id}"
+                    try {
+                        NODE_LABEL = ''
+                        if (params.CLUSTER_NAME == 'tii-shared') {
+                            NODE_LABEL = 'lsfutil_india'
+                        } else if (params.CLUSTER_NAME == 'dal-dallas') {
+                            NODE_LABEL = 'lsfutil_dallas'
+                        } else if (params.CLUSTER_NAME == 'freising') {
+                            NODE_LABEL = 'lsfutil_freising'
                         } else {
-                            println "No optimal server found for job ${job_id}"
+                            error "Unknown CLUSTER_NAME: ${params.CLUSTER_NAME}"
+                        }
+                        echo "Selected agent label: ${NODE_LABEL}"
+                    } catch (Exception e) {
+                        env.error_reason = "Error in Determine Hop Host: ${e.message}"
+                        error(env.error_reason)
+                    }
+                }
+            }
+        }
+
+        stage('Executing Pipeline') {
+            agent {
+                label "${NODE_LABEL}"
+            }
+            stages {
+
+                stage('Print Parameters and Set Paths') {
+                    steps {
+                        script {
+                            try {
+                                currentBuild.displayName = params.REQUEST_ID
+                                CONFIG_PATH = '/user/lsfadmin/tmp'
+                                BACKUP_PATH = '/user/lsfadmin/tmp/backup/'
+                                LSB_PATH = '/user/lsfadmin/tmp'
+                                CONFIG_FILE_NAME = (params.QUEUE == 'priority') ? 'priority_grp' : 'hwsim_grp'
+                                LSB_FILE_NAME = (params.QUEUE == 'priority') ? 'lsb.resources' : ''
+                                
+                                config_file_path = "${CONFIG_PATH}/${CONFIG_FILE_NAME}"
+                                lsb_resources_file_path = "${LSB_PATH}/${LSB_FILE_NAME}"
+
+                                echo """
+                                --- PARAMETERS ---
+                                CONFIG_PATH: ${CONFIG_PATH}
+                                CONFIG_FILE_NAME: ${CONFIG_FILE_NAME}
+                                BACKUP_PATH: ${BACKUP_PATH}
+                                LSB_PATH: ${LSB_PATH}
+                                REQUEST_ID: ${params.REQUEST_ID}
+                                CLUSTER_NAME: ${params.CLUSTER_NAME}
+                                GROUP_AID: ${params.GROUP_AID}
+                                ACCESS_END_DATE: ${params.ACCESS_END_DATE}
+                                APPROVED_BY: ${params.APPROVED_BY}
+                                USER_ID: ${params.USER_ID}
+                                PROJECT_NAME: ${params.PROJECT_NAME}
+                                LSB_OPTION: ${params.LSB_OPTION}
+                                SLOT_POOL: ${params.SLOT_POOL}
+                                """
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Print Parameters and Set Paths: ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Get Revision Number of Config File') {
+                    steps {
+                        script {
+                            try {
+                                echo "Getting revision number for config file..."
+                                revision_number_config_file = sh(script: "rlog -h ${config_file_path} | grep 'head:' | awk '{print \$2}'", returnStdout: true).trim()
+                                echo "Current revision number of config file: ${revision_number_config_file}"
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Get Revision Number of Config File: ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Version Control Checkout (Config File)') {
+                    steps {
+                        script {
+                            try {
+                                echo "Performing version control checkout for config file..."
+                                def result = sh(script: "co -l -f ${config_file_path}", returnStatus: true)
+                                if (result != 0) {
+                                    error "Version control checkout failed for config file with exit code: ${result}"
+                                }
+                                echo "Config file checked out successfully."
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Version Control Checkout (Config File): ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Backup Config File') {
+                    steps {
+                        script {
+                            try {
+                                echo "Creating backup for config file..."
+                                def formattedDate = new Date().format("dd-MMM-yyyy")
+                                config_backup_file_name = "${CONFIG_FILE_NAME}-${formattedDate}-rev${revision_number_config_file}"
+                                sh "cp -f ${config_file_path} ${BACKUP_PATH}${config_backup_file_name}"
+                                echo "Backup created successfully: ${config_backup_file_name}"
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Backup Config File: ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Append IDs to Config File') {
+                    steps {
+                        script {
+                            try {
+                                echo "Appending IDs to config file..."
+                                def groupAids = params.GROUP_AID.split(',')
+                                groupAids.each { aid ->
+                                    def newLine = "${aid.trim()}\t# Request_ID: ${params.REQUEST_ID}"
+                                    sh "echo '${newLine}' >> ${config_file_path}"
+                                }
+                                echo "IDs appended to config file successfully."
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Append IDs to Config File: ${e.message}"
+                                error(env.error_reason)
+                            }
+                        }
+                    }
+                }
+
+                stage('Version Control Check-in (Config File)') {
+                    steps {
+                        script {
+                            try {
+                                echo "Performing version control check-in for config file..."
+                                def commitMessage = "${params.USER_ID} Added - Build #${params.REQUEST_ID}"
+                                sh "ci -u -m\"${commitMessage}\" ${config_file_path}"
+                                echo "Config file checked in successfully."
+                            } catch (Exception e) {
+                                env.error_reason = "Error in Version Control Check-in (Config File): ${e.message}"
+                                error(env.error_reason)
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline executed successfully."
+        }
+        failure {
+            echo """
+            **************************************************
+            PIPELINE FAILED
+            Reason: ${env.error_reason}
+            **************************************************
+            """
         }
     }
 }
