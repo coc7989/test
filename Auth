@@ -1,200 +1,144 @@
-pipeline {
-    agent {
-        label 'myLSF_India'
-    }
+Here's a revised and polished version of your document with enhanced impact and professional tone while keeping it concise and structured:
 
-    options {
-        timeout(time: 10, unit: 'MINUTES')
-        timestamps()
-    }
 
-    parameters {
-        string(name: 'REQUEST_ID', defaultValue: '2b13829he1be18h29312', description: 'Enter the ID for the build number')
-        choice(name: 'CLUSTER_NAME', choices: ['tii-shared', 'dallas', 'freising'], description: 'Enter the Site where priority is needed')
-        string(name: 'GROUP_AID', defaultValue: 't052444, t003222', description: 'Enter the GROUP IDs for Priority Access')
-        string(name: 'ACCESS_END_DATE', defaultValue: '8-12-24', description: 'Enter the Date till the priority access is needed')
-        string(name: 'APPROVED_BY', defaultValue: 'a0510342', description: 'Enter the ADMIN APPROVAL ID')
-        string(name: 'USER_ID', defaultValue: 'a0499461', description: 'Enter the AID of User')
-        string(name: 'PROJECT_NAME', defaultValue: 'testproject', description: 'Enter the Project Name')
-        string(name: 'QUEUE', defaultValue: 'priority', description: 'Enter the queue Name')
-        booleanParam(name: 'LSB_OPTION', description: 'Enable LSB option')
-        string(name: 'SLOT_POOL', description: 'Slot Pool to allocate (Only if LSB option is checked)')
-    }
+---
 
-    environment {
-        error_reason = ''
-        config_file_path = ''
-        lsb_resources_file_path = ''
-    }
+Year-End Performance and Accomplishments
 
-    stages {
 
-        stage('Determine Hop Host') {
-            steps {
-                script {
-                    try {
-                        NODE_LABEL = ''
-                        if (params.CLUSTER_NAME == 'tii-shared') {
-                            NODE_LABEL = 'lsfutil_india'
-                        } else if (params.CLUSTER_NAME == 'dal-dallas') {
-                            NODE_LABEL = 'lsfutil_dallas'
-                        } else if (params.CLUSTER_NAME == 'freising') {
-                            NODE_LABEL = 'lsfutil_freising'
-                        } else {
-                            error "Unknown CLUSTER_NAME: ${params.CLUSTER_NAME}"
-                        }
-                        echo "Selected agent label: ${NODE_LABEL}"
-                    } catch (Exception e) {
-                        env.error_reason = "Error in Determine Hop Host: ${e.message}"
-                        error(env.error_reason)
-                    }
-                }
-            }
-        }
+---
 
-        stage('Executing Pipeline') {
-            agent {
-                label "${NODE_LABEL}"
-            }
-            stages {
+Projects
 
-                stage('Print Parameters and Set Paths') {
-                    steps {
-                        script {
-                            try {
-                                currentBuild.displayName = params.REQUEST_ID
-                                CONFIG_PATH = '/user/lsfadmin/tmp'
-                                BACKUP_PATH = '/user/lsfadmin/tmp/backup/'
-                                LSB_PATH = '/user/lsfadmin/tmp'
-                                CONFIG_FILE_NAME = (params.QUEUE == 'priority') ? 'priority_grp' : 'hwsim_grp'
-                                LSB_FILE_NAME = (params.QUEUE == 'priority') ? 'lsb.resources' : ''
-                                
-                                config_file_path = "${CONFIG_PATH}/${CONFIG_FILE_NAME}"
-                                lsb_resources_file_path = "${LSB_PATH}/${LSB_FILE_NAME}"
+FLAMES
 
-                                echo """
-                                --- PARAMETERS ---
-                                CONFIG_PATH: ${CONFIG_PATH}
-                                CONFIG_FILE_NAME: ${CONFIG_FILE_NAME}
-                                BACKUP_PATH: ${BACKUP_PATH}
-                                LSB_PATH: ${LSB_PATH}
-                                REQUEST_ID: ${params.REQUEST_ID}
-                                CLUSTER_NAME: ${params.CLUSTER_NAME}
-                                GROUP_AID: ${params.GROUP_AID}
-                                ACCESS_END_DATE: ${params.ACCESS_END_DATE}
-                                APPROVED_BY: ${params.APPROVED_BY}
-                                USER_ID: ${params.USER_ID}
-                                PROJECT_NAME: ${params.PROJECT_NAME}
-                                LSB_OPTION: ${params.LSB_OPTION}
-                                SLOT_POOL: ${params.SLOT_POOL}
-                                """
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Print Parameters and Set Paths: ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
+Release Support and Enhancements:
 
-                stage('Get Revision Number of Config File') {
-                    steps {
-                        script {
-                            try {
-                                echo "Getting revision number for config file..."
-                                revision_number_config_file = sh(script: "rlog -h ${config_file_path} | grep 'head:' | awk '{print \$2}'", returnStdout: true).trim()
-                                echo "Current revision number of config file: ${revision_number_config_file}"
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Get Revision Number of Config File: ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
+Ensured seamless, on-time delivery of multiple releases by resolving critical bugs and implementing enhancements.
 
-                stage('Version Control Checkout (Config File)') {
-                    steps {
-                        script {
-                            try {
-                                echo "Performing version control checkout for config file..."
-                                def result = sh(script: "co -l -f ${config_file_path}", returnStatus: true)
-                                if (result != 0) {
-                                    error "Version control checkout failed for config file with exit code: ${result}"
-                                }
-                                echo "Config file checked out successfully."
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Version Control Checkout (Config File): ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
+Proactively identified and resolved root causes of recurring issues to improve system stability.
 
-                stage('Backup Config File') {
-                    steps {
-                        script {
-                            try {
-                                echo "Creating backup for config file..."
-                                def formattedDate = new Date().format("dd-MMM-yyyy")
-                                config_backup_file_name = "${CONFIG_FILE_NAME}-${formattedDate}-rev${revision_number_config_file}"
-                                sh "cp -f ${config_file_path} ${BACKUP_PATH}${config_backup_file_name}"
-                                echo "Backup created successfully: ${config_backup_file_name}"
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Backup Config File: ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
 
-                stage('Append IDs to Config File') {
-                    steps {
-                        script {
-                            try {
-                                echo "Appending IDs to config file..."
-                                def groupAids = params.GROUP_AID.split(',')
-                                groupAids.each { aid ->
-                                    def newLine = "${aid.trim()}\t# Request_ID: ${params.REQUEST_ID}"
-                                    sh "echo '${newLine}' >> ${config_file_path}"
-                                }
-                                echo "IDs appended to config file successfully."
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Append IDs to Config File: ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
+Pipeline Optimization: Improved pipeline efficiency by integrating user feedback.
 
-                stage('Version Control Check-in (Config File)') {
-                    steps {
-                        script {
-                            try {
-                                echo "Performing version control check-in for config file..."
-                                def commitMessage = "${params.USER_ID} Added - Build #${params.REQUEST_ID}"
-                                sh "ci -u -m\"${commitMessage}\" ${config_file_path}"
-                                echo "Config file checked in successfully."
-                            } catch (Exception e) {
-                                env.error_reason = "Error in Version Control Check-in (Config File): ${e.message}"
-                                error(env.error_reason)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+Feature Search Implementation: Developed a search feature to fetch individual feature details with precision.
 
-    post {
-        success {
-            echo "Pipeline executed successfully."
-        }
-        failure {
-            echo """
-            **************************************************
-            PIPELINE FAILED
-            Reason: ${env.error_reason}
-            **************************************************
-            """
-        }
-    }
-}
+Expiry Dashboard Development: Built a dashboard to identify critical and non-critical expiring features, sending timely alerts to WPL/Admins for renewals.
+
+License Validation: Automated vendor MAC ID comparisons with license file IDs, ensuring licensing accuracy.
+
+Hyper-Support Queries: Provided solutions and resolved technical queries effectively.
+
+Master List Management: Updated and enhanced the Master List with added functionality and troubleshooting capabilities.
+
+
+Reporting Reminders Script (Time Limits for Batch Jobs)
+
+Automated reporting for non-array jobs, monitoring batch job time limits to reduce manual intervention and enhance operational efficiency.
+
+Delivered timely notifications for critical jobs, minimizing delays and improving reliability.
+
+
+MYLSF Phase II
+
+Addressed bug fixes and enhancements from Phase I, continuously improving Phase II based on feedback.
+
+Set up and optimized Jenkins nodes for India and Dallas after thorough testing.
+
+Developed:
+
+Admin Panel: Empowered admins to approve/reject requests based on user efficiency and slot utilization.
+
+Queue Access and Slot Change: Reduced support tickets (~400+) by automating queue access and slot updates across regions.
+
+Optimal Server Job Script: Deployed scripts to identify and assign jobs to the most efficient servers.
+
+Super Admin Panel: Provided granular tracking and control over requests.
+
+
+Built Dev, Stage, and Prod environments with Ping SSO setup for streamlined operations.
+
+Migrated MYLSF from HPCI Jenkins to NPDE and designed email notifications for success/failure alerts.
+
+Proposed and implemented workflow optimizations, enhancing adaptability and efficiency.
+
+
+
+---
+
+Operations
+
+Migrated 60+ users (out of 91 contacted) to WS80 with seamless execution.
+
+Provided prompt troubleshooting support and issue resolution.
+
+
+
+---
+
+Courses and Certifications
+
+SaltStack for Absolute Beginners
+
+Applied course knowledge to execute a SaltStack proof of concept, showcasing its automation and configuration management potential.
+
+Addressed POC challenges and demonstrated readiness for future automation needs.
+
+
+Docker & Kubernetes (Udemy)
+
+Optimized Docker usage in FLAMES and MYLSF, enhancing application containerization and deployment.
+
+Reduced deployment times and improved scalability by integrating advanced tools.
+
+
+Additional Learning
+
+Production Support - Site Reliability Engineer: Gained deep insights into SRE roles in various environments.
+
+Linux Administration Bootcamp: Advanced understanding of Linux concepts and commands for day-to-day operations.
+
+Cloud Computing Essentials: Developed a strong foundation in cloud technologies and concepts.
+
+
+
+---
+
+Extra Activities
+
+Conducted interviews and organized knowledge transfer sessions across verticals.
+
+Enhanced team productivity by ensuring quality hires and fostering technical knowledge sharing.
+
+
+
+---
+
+Innovations
+
+Application Deployment Handbook
+
+Authored a comprehensive handbook to standardize deployment procedures (Dev, Stage, Prod).
+
+Streamlined processes, reduced errors, and increased deployment efficiency.
+
+
+DevSecOps Security Models (Sonarqube, Trivy, OWASP)
+
+Integrated security tools into CI/CD pipelines to detect and resolve vulnerabilities early.
+
+Reduced security risks and ensured alignment with industry best practices.
+
+
+Jenkins Node Monitoring Setup
+
+Designed a monitoring setup to provide real-time alerts for node failures.
+
+Minimized downtime by proactively addressing node-related issues, improving system reliability.
+
+
+
+---
+
+This revised version is structured to highlight your contributions clearly, emphasizing the impact and value of your work to the organization. It’s both concise and comprehensive to showcase your hard work effectively. Let me know if you'd like to refine anything further!
+
