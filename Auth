@@ -1,238 +1,203 @@
-Here’s an updated version of your frontend and backend code to handle rejection reasons and ensure that the processed date is fetched on the backend instead of the frontend.
+Yes, you can create separate log files for React and Flask and write error logs to them in real-time. Here's how you can do it:
 
 
 ---
 
-Frontend Updates
+1. Logging Errors in Flask (Backend)
 
-Changes:
+You can create a dedicated flask_error.log file and configure Flask to write errors there.
 
-1. Reject Button: Now opens a dialog box where the admin can enter a rejection reason.
+Steps:
 
-
-2. handleClick Function: Modified to include rejectionReason when the action is 'REJECTED'.
-
-
-3. Dialog Component: Added to take the rejection reason input.
+1. Create a log file: flask_error.log
 
 
-
-import { useState } from 'react';
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from '@mui/material';
-
-const [openDialog, setOpenDialog] = useState(false);
-const [rejectionReason, setRejectionReason] = useState('');
-const [selectedRow, setSelectedRow] = useState(null);
-
-const handleRejectClick = (row) => {
-    setSelectedRow(row);
-    setOpenDialog(true);
-};
-
-const handleDialogClose = () => {
-    setOpenDialog(false);
-    setRejectionReason('');
-};
-
-const handleConfirmReject = async () => {
-    if (!rejectionReason.trim()) {
-        alert("Rejection reason is required!");
-        return;
-    }
-    setOpenDialog(false);
-    await handleClick(selectedRow, 'REJECTED', rejectionReason);
-};
-
-const handleClick = async (row, action, reason = null) => {
-    setOpen(true);
-    console.log('row.original', row.original);
-
-    const { REQUEST_ID, CATEGORY_NAME, REQUEST_TYPE, ...otherProps } = row.original;
-
-    const rowData = {
-        REQUEST_ID,
-        ADMIN_APPROVAL: userID,
-        CATEGORY_NAME,
-        REQUEST_TYPE,
-        action,
-        rejectionReason: reason  // Adding rejection reason if rejected
-    };
-
-    console.log([rowData], 'rows log');
-
-    try {
-        const response = await apiInstance.put('/admin_panel_requests', [rowData]);
-        console.log(response, 'handleClick response');
-
-        if (response.status === 200) {
-            await refetch();
-            setOpen(false);
-        }
-    } catch (error) {
-        console.error('Update Failed:', error);
-    }
-};
-
-const renderRowButtons = ({ table, row }) => (
-    <Grid2 textAlign={'center'} justifyContent="center" alignItems="center">
-        <Button
-            size="large"
-            sx={{ mx: 1 }}
-            color="success"
-            disabled={table.getSelectedRowModel().flatRows.length > 1}
-            onClick={() => handleClick(row, 'APPROVED')}
-            variant="contained"
-        >
-            Approve
-        </Button>
-        <Button
-            size="large"
-            color="error"
-            disabled={table.getSelectedRowModel().flatRows.length > 1}
-            onClick={() => handleRejectClick(row)}
-            variant="contained"
-        >
-            Reject
-        </Button>
-
-        {/* Dialog Box for Rejection Reason */}
-        <Dialog open={openDialog} onClose={handleDialogClose}>
-            <DialogTitle>Enter Rejection Reason</DialogTitle>
-            <DialogContent>
-                <TextField
-                    autoFocus
-                    margin="dense"
-                    label="Rejection Reason"
-                    fullWidth
-                    multiline
-                    rows={3}
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                />
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={handleDialogClose} color="primary">
-                    Cancel
-                </Button>
-                <Button onClick={handleConfirmReject} color="error">
-                    Confirm Reject
-                </Button>
-            </DialogActions>
-        </Dialog>
-    </Grid2>
-);
-
-
----
-
-Backend Updates
-
-Changes:
-
-1. Fetch UPDATED_DATE on Backend: Replaced PROCESSED_DATE with sysdate to avoid fetching it on the frontend.
-
-
-2. Handle Rejection Reason: Added REJECTION_REASON column update in case of rejection.
+2. Modify your Flask app to write errors to this file.
 
 
 
-elif request.method == 'PUT':
+Code:
+
+import logging
+from logging.handlers import RotatingFileHandler
+from flask import Flask
+
+app = Flask(__name__)
+
+# Create a rotating file handler (prevents logs from getting too big)
+log_file = "flask_error.log"
+handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=3)
+handler.setLevel(logging.ERROR)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+
+# Attach handler to Flask's logger
+app.logger.addHandler(handler)
+app.logger.setLevel(logging.INFO)
+
+@app.route("/")
+def home():
     try:
-        query_queue = f"""
-        UPDATE {dbCfg['QUEUE_ACCESS']}
-        SET UPDATED_DATE = sysdate,  -- Fetching from backend
-            REQUEST_STATUS = :REQUEST_STATUS,
-            APPROVED_BY = :ADMIN_APPROVAL,
-            ACCESS_END_DATE = TO_DATE(:ACCESS_END_DATE, 'YYYY-MM-DD'),
-            REJECTION_REASON = :REJECTION_REASON  -- Adding rejection reason
-        WHERE REQUEST_ID = :REQUEST_ID
-        """
-
-        query_slot = f"""
-        UPDATE {dbCfg['SLOT_REQUEST']}
-        SET UPDATED_DATE = sysdate,  -- Fetching from backend
-            REQUEST_STATUS = :REQUEST_STATUS,
-            APPROVED_BY = :ADMIN_APPROVAL,
-            REJECTION_REASON = :REJECTION_REASON  -- Adding rejection reason
-        WHERE REQUEST_ID = :REQUEST_ID
-        """
-
-        data = request.json
-        print("Data from frontend:", data)
-        params = []
-
-        for item in data:
-            category = item.get('CATEGORY_NAME')
-            rejection_reason = item.get('rejectionReason', None)
-
-            if category == 'QUEUE':
-                if item['REQUEST_TYPE'] in ['priority', 'hwsim']:
-                    access_end_date = calculate_access_end_date(item['PROCESSED_DATE'], item['action'])
-                    print("Access end date:", access_end_date)
-                else:
-                    raise ValueError("Invalid REQUEST_TYPE for QUEUE category")
-
-                params.append({
-                    "REQUEST_ID": item['REQUEST_ID'],
-                    "ADMIN_APPROVAL": item['ADMIN_APPROVAL'],
-                    "REQUEST_STATUS": item['action'],
-                    "ACCESS_END_DATE": access_end_date,
-                    "REJECTION_REASON": rejection_reason,
-                })
-
-            elif category == 'SLOT':
-                if item['REQUEST_TYPE'] in ['gui', 'regress']:
-                    params.append({
-                        "REQUEST_ID": item['REQUEST_ID'],
-                        "ADMIN_APPROVAL": item['ADMIN_APPROVAL'],
-                        "REQUEST_STATUS": item['action'],
-                        "REJECTION_REASON": rejection_reason,
-                    })
-                else:
-                    raise ValueError("Invalid REQUEST_TYPE for SLOT category")
-
-        db = get_db()
-        cursor = db.cursor()
-
-        if category == 'QUEUE':
-            cursor.executemany(query_queue, params)
-            print("Queue data updated successfully")
-        elif category == 'SLOT':
-            cursor.executemany(query_slot, params)
-            print("Slot data updated successfully")
-
-        db.commit()
-        return jsonify({'message': "Request updated successfully"}), 200
-
+        # Simulate an error
+        raise Exception("Test error in Flask")
     except Exception as e:
-        print(f"An error occurred: {str(e)}")
-        return jsonify({'error': str(e)})
-    finally:
-        cursor.close()
+        app.logger.error("Error occurred: %s", str(e), exc_info=True)
+    return "Hello, World!"
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+How It Works:
+
+All errors will be written to flask_error.log.
+
+It automatically rotates logs when the file reaches 5MB.
+
+The log will contain timestamps and full error traces.
+
 
 
 ---
 
-Summary of Changes
+2. Logging Errors in React (Frontend)
 
-1. Frontend:
+Since JavaScript runs in the browser, it doesn’t have direct file access, but you can:
 
-Added a dialog box for entering rejection reasons.
+Capture errors and send them to an API.
 
-Passed the rejection reason to handleClick.
-
-Ensured PROCESSED_DATE is no longer generated on the frontend.
+Save logs to a file on the server.
 
 
+Steps:
 
-2. Backend:
-
-Used sysdate for UPDATED_DATE to ensure the date is fetched in the backend.
-
-Stored REJECTION_REASON in the database when an admin rejects a request.
+1. Create a log file on the server: react_error.log
 
 
+2. Modify React to send errors to Flask.
 
 
-This implementation ensures that admins must enter a rejection reason, and all important data (like timestamps) is handled securely on the backend. Let me know if you need any further modifications!
+3. Flask will write React errors to react_error.log.
+
+
+
+Step 1: Create Flask API to Receive Logs
+
+Modify your Flask app to accept logs from React.
+
+from flask import request, jsonify
+
+@app.route("/log_error", methods=["POST"])
+def log_error():
+    try:
+        data = request.json
+        error_message = data.get("error_message")
+        log_file = "react_error.log"
+
+        # Write to the React log file
+        with open(log_file, "a") as file:
+            file.write(f"{datetime.datetime.now()} - ERROR - {error_message}\n")
+
+        return jsonify({"status": "logged"}), 200
+    except Exception as e:
+        app.logger.error("Failed to log error: %s", str(e), exc_info=True)
+        return jsonify({"status": "error"}), 500
+
+
+---
+
+Step 2: Send Errors from React to Flask
+
+In React, use window.onerror or an ErrorBoundary to catch and send errors to Flask.
+
+Method 1: Global Error Listener
+
+Add this in index.js:
+
+window.onerror = function (message, source, lineno, colno, error) {
+  fetch("http://localhost:5000/log_error", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      error_message: `Message: ${message}, Source: ${source}, Line: ${lineno}, Column: ${colno}`,
+    }),
+  });
+};
+
+This sends JavaScript errors to Flask whenever they occur.
+
+Method 2: React Error Boundary
+
+Create an ErrorBoundary.js:
+
+import React from "react";
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    fetch("http://localhost:5000/log_error", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        error_message: `Error: ${error}, Info: ${JSON.stringify(errorInfo)}`,
+      }),
+    });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <h1>Something went wrong.</h1>;
+    }
+    return this.props.children;
+  }
+}
+
+export default ErrorBoundary;
+
+Wrap your entire app in ErrorBoundary in App.js:
+
+import ErrorBoundary from "./ErrorBoundary";
+
+function App() {
+  return (
+    <ErrorBoundary>
+      <YourMainComponent />
+    </ErrorBoundary>
+  );
+}
+
+export default App;
+
+
+---
+
+How This Works
+
+Flask writes backend errors to flask_error.log.
+
+React errors are sent to Flask, which writes them to react_error.log.
+
+Both logs persist errors, even if multiple users access the app.
+
+
+
+---
+
+Bonus: Monitor Logs in Real-Time
+
+To see logs live, use:
+
+tail -f flask_error.log
+tail -f react_error.log
+
+This will show errors as they happen.
+
+Would you like to add automatic alerts when errors occur?
 
