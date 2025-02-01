@@ -1,144 +1,238 @@
-Here's a revised and polished version of your document with enhanced impact and professional tone while keeping it concise and structured:
+Here’s an updated version of your frontend and backend code to handle rejection reasons and ensure that the processed date is fetched on the backend instead of the frontend.
 
 
 ---
 
-Year-End Performance and Accomplishments
+Frontend Updates
+
+Changes:
+
+1. Reject Button: Now opens a dialog box where the admin can enter a rejection reason.
+
+
+2. handleClick Function: Modified to include rejectionReason when the action is 'REJECTED'.
+
+
+3. Dialog Component: Added to take the rejection reason input.
+
+
+
+import { useState } from 'react';
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from '@mui/material';
+
+const [openDialog, setOpenDialog] = useState(false);
+const [rejectionReason, setRejectionReason] = useState('');
+const [selectedRow, setSelectedRow] = useState(null);
+
+const handleRejectClick = (row) => {
+    setSelectedRow(row);
+    setOpenDialog(true);
+};
+
+const handleDialogClose = () => {
+    setOpenDialog(false);
+    setRejectionReason('');
+};
+
+const handleConfirmReject = async () => {
+    if (!rejectionReason.trim()) {
+        alert("Rejection reason is required!");
+        return;
+    }
+    setOpenDialog(false);
+    await handleClick(selectedRow, 'REJECTED', rejectionReason);
+};
+
+const handleClick = async (row, action, reason = null) => {
+    setOpen(true);
+    console.log('row.original', row.original);
+
+    const { REQUEST_ID, CATEGORY_NAME, REQUEST_TYPE, ...otherProps } = row.original;
+
+    const rowData = {
+        REQUEST_ID,
+        ADMIN_APPROVAL: userID,
+        CATEGORY_NAME,
+        REQUEST_TYPE,
+        action,
+        rejectionReason: reason  // Adding rejection reason if rejected
+    };
+
+    console.log([rowData], 'rows log');
+
+    try {
+        const response = await apiInstance.put('/admin_panel_requests', [rowData]);
+        console.log(response, 'handleClick response');
+
+        if (response.status === 200) {
+            await refetch();
+            setOpen(false);
+        }
+    } catch (error) {
+        console.error('Update Failed:', error);
+    }
+};
+
+const renderRowButtons = ({ table, row }) => (
+    <Grid2 textAlign={'center'} justifyContent="center" alignItems="center">
+        <Button
+            size="large"
+            sx={{ mx: 1 }}
+            color="success"
+            disabled={table.getSelectedRowModel().flatRows.length > 1}
+            onClick={() => handleClick(row, 'APPROVED')}
+            variant="contained"
+        >
+            Approve
+        </Button>
+        <Button
+            size="large"
+            color="error"
+            disabled={table.getSelectedRowModel().flatRows.length > 1}
+            onClick={() => handleRejectClick(row)}
+            variant="contained"
+        >
+            Reject
+        </Button>
+
+        {/* Dialog Box for Rejection Reason */}
+        <Dialog open={openDialog} onClose={handleDialogClose}>
+            <DialogTitle>Enter Rejection Reason</DialogTitle>
+            <DialogContent>
+                <TextField
+                    autoFocus
+                    margin="dense"
+                    label="Rejection Reason"
+                    fullWidth
+                    multiline
+                    rows={3}
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                />
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={handleDialogClose} color="primary">
+                    Cancel
+                </Button>
+                <Button onClick={handleConfirmReject} color="error">
+                    Confirm Reject
+                </Button>
+            </DialogActions>
+        </Dialog>
+    </Grid2>
+);
 
 
 ---
 
-Projects
+Backend Updates
 
-FLAMES
+Changes:
 
-Release Support and Enhancements:
-
-Ensured seamless, on-time delivery of multiple releases by resolving critical bugs and implementing enhancements.
-
-Proactively identified and resolved root causes of recurring issues to improve system stability.
+1. Fetch UPDATED_DATE on Backend: Replaced PROCESSED_DATE with sysdate to avoid fetching it on the frontend.
 
 
-Pipeline Optimization: Improved pipeline efficiency by integrating user feedback.
-
-Feature Search Implementation: Developed a search feature to fetch individual feature details with precision.
-
-Expiry Dashboard Development: Built a dashboard to identify critical and non-critical expiring features, sending timely alerts to WPL/Admins for renewals.
-
-License Validation: Automated vendor MAC ID comparisons with license file IDs, ensuring licensing accuracy.
-
-Hyper-Support Queries: Provided solutions and resolved technical queries effectively.
-
-Master List Management: Updated and enhanced the Master List with added functionality and troubleshooting capabilities.
-
-
-Reporting Reminders Script (Time Limits for Batch Jobs)
-
-Automated reporting for non-array jobs, monitoring batch job time limits to reduce manual intervention and enhance operational efficiency.
-
-Delivered timely notifications for critical jobs, minimizing delays and improving reliability.
-
-
-MYLSF Phase II
-
-Addressed bug fixes and enhancements from Phase I, continuously improving Phase II based on feedback.
-
-Set up and optimized Jenkins nodes for India and Dallas after thorough testing.
-
-Developed:
-
-Admin Panel: Empowered admins to approve/reject requests based on user efficiency and slot utilization.
-
-Queue Access and Slot Change: Reduced support tickets (~400+) by automating queue access and slot updates across regions.
-
-Optimal Server Job Script: Deployed scripts to identify and assign jobs to the most efficient servers.
-
-Super Admin Panel: Provided granular tracking and control over requests.
-
-
-Built Dev, Stage, and Prod environments with Ping SSO setup for streamlined operations.
-
-Migrated MYLSF from HPCI Jenkins to NPDE and designed email notifications for success/failure alerts.
-
-Proposed and implemented workflow optimizations, enhancing adaptability and efficiency.
+2. Handle Rejection Reason: Added REJECTION_REASON column update in case of rejection.
 
 
 
----
+elif request.method == 'PUT':
+    try:
+        query_queue = f"""
+        UPDATE {dbCfg['QUEUE_ACCESS']}
+        SET UPDATED_DATE = sysdate,  -- Fetching from backend
+            REQUEST_STATUS = :REQUEST_STATUS,
+            APPROVED_BY = :ADMIN_APPROVAL,
+            ACCESS_END_DATE = TO_DATE(:ACCESS_END_DATE, 'YYYY-MM-DD'),
+            REJECTION_REASON = :REJECTION_REASON  -- Adding rejection reason
+        WHERE REQUEST_ID = :REQUEST_ID
+        """
 
-Operations
+        query_slot = f"""
+        UPDATE {dbCfg['SLOT_REQUEST']}
+        SET UPDATED_DATE = sysdate,  -- Fetching from backend
+            REQUEST_STATUS = :REQUEST_STATUS,
+            APPROVED_BY = :ADMIN_APPROVAL,
+            REJECTION_REASON = :REJECTION_REASON  -- Adding rejection reason
+        WHERE REQUEST_ID = :REQUEST_ID
+        """
 
-Migrated 60+ users (out of 91 contacted) to WS80 with seamless execution.
+        data = request.json
+        print("Data from frontend:", data)
+        params = []
 
-Provided prompt troubleshooting support and issue resolution.
+        for item in data:
+            category = item.get('CATEGORY_NAME')
+            rejection_reason = item.get('rejectionReason', None)
 
+            if category == 'QUEUE':
+                if item['REQUEST_TYPE'] in ['priority', 'hwsim']:
+                    access_end_date = calculate_access_end_date(item['PROCESSED_DATE'], item['action'])
+                    print("Access end date:", access_end_date)
+                else:
+                    raise ValueError("Invalid REQUEST_TYPE for QUEUE category")
 
+                params.append({
+                    "REQUEST_ID": item['REQUEST_ID'],
+                    "ADMIN_APPROVAL": item['ADMIN_APPROVAL'],
+                    "REQUEST_STATUS": item['action'],
+                    "ACCESS_END_DATE": access_end_date,
+                    "REJECTION_REASON": rejection_reason,
+                })
 
----
+            elif category == 'SLOT':
+                if item['REQUEST_TYPE'] in ['gui', 'regress']:
+                    params.append({
+                        "REQUEST_ID": item['REQUEST_ID'],
+                        "ADMIN_APPROVAL": item['ADMIN_APPROVAL'],
+                        "REQUEST_STATUS": item['action'],
+                        "REJECTION_REASON": rejection_reason,
+                    })
+                else:
+                    raise ValueError("Invalid REQUEST_TYPE for SLOT category")
 
-Courses and Certifications
+        db = get_db()
+        cursor = db.cursor()
 
-SaltStack for Absolute Beginners
+        if category == 'QUEUE':
+            cursor.executemany(query_queue, params)
+            print("Queue data updated successfully")
+        elif category == 'SLOT':
+            cursor.executemany(query_slot, params)
+            print("Slot data updated successfully")
 
-Applied course knowledge to execute a SaltStack proof of concept, showcasing its automation and configuration management potential.
+        db.commit()
+        return jsonify({'message': "Request updated successfully"}), 200
 
-Addressed POC challenges and demonstrated readiness for future automation needs.
-
-
-Docker & Kubernetes (Udemy)
-
-Optimized Docker usage in FLAMES and MYLSF, enhancing application containerization and deployment.
-
-Reduced deployment times and improved scalability by integrating advanced tools.
-
-
-Additional Learning
-
-Production Support - Site Reliability Engineer: Gained deep insights into SRE roles in various environments.
-
-Linux Administration Bootcamp: Advanced understanding of Linux concepts and commands for day-to-day operations.
-
-Cloud Computing Essentials: Developed a strong foundation in cloud technologies and concepts.
-
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        return jsonify({'error': str(e)})
+    finally:
+        cursor.close()
 
 
 ---
 
-Extra Activities
+Summary of Changes
 
-Conducted interviews and organized knowledge transfer sessions across verticals.
+1. Frontend:
 
-Enhanced team productivity by ensuring quality hires and fostering technical knowledge sharing.
+Added a dialog box for entering rejection reasons.
 
+Passed the rejection reason to handleClick.
 
-
----
-
-Innovations
-
-Application Deployment Handbook
-
-Authored a comprehensive handbook to standardize deployment procedures (Dev, Stage, Prod).
-
-Streamlined processes, reduced errors, and increased deployment efficiency.
-
-
-DevSecOps Security Models (Sonarqube, Trivy, OWASP)
-
-Integrated security tools into CI/CD pipelines to detect and resolve vulnerabilities early.
-
-Reduced security risks and ensured alignment with industry best practices.
-
-
-Jenkins Node Monitoring Setup
-
-Designed a monitoring setup to provide real-time alerts for node failures.
-
-Minimized downtime by proactively addressing node-related issues, improving system reliability.
+Ensured PROCESSED_DATE is no longer generated on the frontend.
 
 
 
----
+2. Backend:
 
-This revised version is structured to highlight your contributions clearly, emphasizing the impact and value of your work to the organization. It’s both concise and comprehensive to showcase your hard work effectively. Let me know if you'd like to refine anything further!
+Used sysdate for UPDATED_DATE to ensure the date is fetched in the backend.
+
+Stored REJECTION_REASON in the database when an admin rejects a request.
+
+
+
+
+This implementation ensures that admins must enter a rejection reason, and all important data (like timestamps) is handled securely on the backend. Let me know if you need any further modifications!
 
