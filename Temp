@@ -1,162 +1,84 @@
-Got it! So your config.json will now also store priority file name, lsb file name, and their respective paths. Here's how we can adjust the solution to accommodate this.
+import React, { useEffect, useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
+import { TextField, MenuItem, Grid } from '@mui/material';
 
+const SlotForm = () => {
+    const { control, watch } = useForm();
+    const [config, setConfig] = useState(null);
+    const [slotOptions, setSlotOptions] = useState([]);
 
----
+    // Fetch config.json from Flask backend
+    useEffect(() => {
+        fetch('http://flask-backend-url:5000/get-config')
+            .then(response => response.json())
+            .then(data => setConfig(data))
+            .catch(error => console.error('Error fetching config:', error));
+    }, []);
 
-Updated config.json Structure
+    // Watch the SLOT_TYPE field to update slot options dynamically
+    const slotType = watch('SLOT_TYPE', '');
 
-Now, your config file will look something like this:
-
-{
-  "GUI": {
-    "12": "gui_12slots_grp",
-    "16": "gui_16slots_grp",
-    "32": "gui_32slots_grp",
-    "40": "gui_40slots_grp"
-  },
-  "REGRESS": {
-    "500": "regress_500_grp",
-    "800": "regress_800_grp"
-  },
-  "FILES": {
-    "priority_file_name": "priority_data.txt",
-    "priority_file_path": "/path/to/priority",
-    "lsb_file_name": "lsb_data.txt",
-    "lsb_file_path": "/path/to/lsb"
-  }
-}
-
-
----
-
-Flask Backend Updates
-
-You’ll need to serve this updated config and allow modifications via APIs.
-
-1. Fetch Config API
-
-Modify your existing API to return the full config:
-
-from flask import Flask, jsonify, request
-import json
-
-app = Flask(__name__)
-
-CONFIG_FILE_PATH = 'config.json'
-
-# Fetch configuration
-@app.route('/get-config', methods=['GET'])
-def get_config():
-    with open(CONFIG_FILE_PATH, 'r') as file:
-        data = json.load(file)
-    return jsonify(data)
-
-# Update configuration
-@app.route('/update-config', methods=['PUT'])
-def update_config():
-    data = request.json
-    with open(CONFIG_FILE_PATH, 'w') as file:
-        json.dump(data, file, indent=4)
-    return jsonify({"message": "Configuration updated successfully"})
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
-
-
----
-
-Jenkins Pipeline Updates
-
-You need to fetch and use these file paths in your pipeline.
-
-1. Fetch Config and Read File Paths
-
-Modify the Jenkins pipeline to extract file names and paths:
-
-pipeline {
-    agent any
-
-    stages {
-        stage('Fetch Config') {
-            steps {
-                script {
-                    def response = sh(script: "curl -s http://flask-backend-url:5000/get-config", returnStdout: true).trim()
-                    def config = readJSON text: response
-
-                    echo "GUI Options: ${config.GUI}"
-                    echo "Regress Options: ${config.REGRESS}"
-
-                    def priorityFile = "${config.FILES.priority_file_path}/${config.FILES.priority_file_name}"
-                    def lsbFile = "${config.FILES.lsb_file_path}/${config.FILES.lsb_file_name}"
-
-                    echo "Priority File Path: ${priorityFile}"
-                    echo "LSB File Path: ${lsbFile}"
-
-                    // Use these files in the pipeline
-                    sh "cat ${priorityFile}"
-                    sh "cat ${lsbFile}"
-                }
+    useEffect(() => {
+        if (config) {
+            if (slotType === 'gui') {
+                setSlotOptions(Object.keys(config.GUI).map(Number));  // Convert keys to numbers
+            } else if (slotType === 'regress') {
+                setSlotOptions(Object.keys(config.REGRESS).map(Number)); 
+            } else {
+                setSlotOptions([]);
             }
         }
-    }
-}
+    }, [slotType, config]);
 
+    return (
+        <Grid container spacing={2}>
+            <Grid item xs={12}>
+                <Controller
+                    name="SLOT_TYPE"
+                    control={control}
+                    defaultValue=""
+                    rules={{ required: 'Slot type is required.' }}
+                    render={({ field }) => (
+                        <TextField
+                            {...field}
+                            select
+                            label="Slot Type"
+                            fullWidth
+                            error={!!slotType}
+                            helperText={!slotType ? 'Slot type is required.' : ''}
+                        >
+                            <MenuItem value="gui">GUI Slot</MenuItem>
+                            <MenuItem value="regress">Regress Slot</MenuItem>
+                        </TextField>
+                    )}
+                />
+            </Grid>
 
----
-
-Frontend Updates (React)
-
-Your React frontend should allow users to:
-
-View and update GUI/REGRESS options.
-
-Modify file names and paths for priority and LSB files.
-
-
-Fetching Config in React
-
-useEffect(() => {
-    fetch('http://flask-backend-url:5000/get-config')
-        .then(response => response.json())
-        .then(data => setConfig(data));
-}, []);
-
-Updating Config in React
-
-const updateConfig = () => {
-    fetch('http://flask-backend-url:5000/update-config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config)
-    }).then(response => response.json())
-      .then(data => console.log(data));
+            <Grid item xs={12}>
+                <Controller
+                    name="REQUESTED_SLOT"
+                    control={control}
+                    defaultValue=""
+                    rules={{ required: 'Slot needed is required.' }}
+                    render={({ field }) => (
+                        <TextField
+                            {...field}
+                            select
+                            label="Slot Needed"
+                            fullWidth
+                            error={!slotOptions.length}
+                            helperText={!slotOptions.length ? 'Select a slot.' : ''}
+                            disabled={!slotOptions.length}
+                        >
+                            {slotOptions.map(slot => (
+                                <MenuItem key={slot} value={slot}>{slot}</MenuItem>
+                            ))}
+                        </TextField>
+                    )}
+                />
+            </Grid>
+        </Grid>
+    );
 };
 
-
----
-
-Key Benefits of This Approach
-
-✅ Dynamic & Editable – Users can modify the config without changing the pipeline.
-✅ Centralized Configuration – Everything is managed in config.json in the backend.
-✅ Easy Jenkins Integration – Jenkins can fetch and use the latest config dynamically.
-
-
----
-
-Alternative Enhancements
-
-If you want to make this even better, consider:
-
-1. Store Files in AWS S3 – Instead of using paths, store files in S3 and fetch them dynamically.
-
-
-2. Database Storage – Store config in PostgreSQL or MongoDB instead of JSON.
-
-
-3. Config Versioning – Maintain previous versions of config changes.
-
-
-
-Your current approach is solid, but let me know if you need any refinements!
-
+export default SlotForm;
