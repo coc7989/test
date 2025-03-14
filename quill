@@ -1,89 +1,92 @@
-from flask import Blueprint, jsonify
-from flask_cors import cross_origin
+pipeline {
+    agent any
 
-master_list_bp = Blueprint('master_list_bp', __name__)
+    parameters {
+        string(name: 'USER_ID', defaultValue: 'user123', description: 'User ID to move')
+        string(name: 'SOURCE_FILE', defaultValue: 'source.txt', description: 'File to remove the user ID from')
+        string(name: 'DEST_FILE', defaultValue: 'dest.txt', description: 'File to append the user ID to')
+    }
 
-@master_list_bp.route('/get_master_list_data', methods=["GET"])
-@cross_origin()
-def get_master_list_data():
-    connection = get_connection()
-    cursor = connection.cursor()
-    cursor.execute('SELECT * FROM MASTERLIST ORDER BY REGION, SERVER, VENDOR')
-    data = cursor.fetchall()
-    grouped_data = {}
-    
-    for row in data:
-        region = row[1]
-        if region not in grouped_data:
-            grouped_data[region] = []
-        grouped_data[region].append({
-            'id': row[0],
-            'server': row[2],
-            'vendor': row[3],
-            'redundancy': row[4],
-            'criticality': row[5],
-            'comments': row[6]
-        })
-        
-    data_list = []
-    
-    for region, rows in grouped_data.items():
-        rowspan_region = len(rows)
-        server_counts = {}
-        vendor_counts = {}
+    environment {
+        RCS_DIR = "/path/to/rcs"  // Set this to your RCS directory
+    }
 
-        for row in rows:
-            server = row['server']
-            vendor = row['vendor']
-            if server not in server_counts:
-                server_counts[server] = 0
-            if vendor not in vendor_counts:
-                vendor_counts[vendor] = 0
-            server_counts[server] += 1
-            vendor_counts[vendor] += 1
-            
-        for idx, row in enumerate(rows):
-            server = row['server']
-            vendor = row['vendor']
-            rowspan_server = server_counts[server]
-            rowspan_vendor = vendor_counts[vendor]
-            server_counts[server] = 0
-            vendor_counts[vendor] = 0
-            
-            if idx == 0:
-                data_list.append({
-                    'id': row['id'],
-                    'region': region,
-                    'server': server,
-                    'vendor': vendor,
-                    'redundancy': row['redundancy'],
-                    'criticality': row['criticality'],
-                    'comments': row['comments'],
-                    'rowSpan': {'region': rowspan_region, 'server': rowspan_server, 'vendor': rowspan_vendor}
-                })
-            else:
-                if rowspan_server > 0 or rowspan_vendor > 0:
-                    data_list.append({
-                        'id': row['id'],
-                        'region': region,
-                        'server': server,
-                        'vendor': vendor,
-                        'redundancy': row['redundancy'],
-                        'criticality': row['criticality'],
-                        'comments': row['comments'],
-                        'rowSpan': {'server': rowspan_server, 'vendor': rowspan_vendor}
-                    })
-                else:
-                    data_list.append({
-                        'id': row['id'],
-                        'region': region,
-                        'server': server,
-                        'vendor': vendor,
-                        'redundancy': row['redundancy'],
-                        'criticality': row['criticality'],
-                        'comments': row['comments'],
-                        'rowSpan': {}
-                    })
-    cursor.close()
-    release_connection(connection)
-    return jsonify({'data_list': data_list}), 200
+    stages {
+        stage('Checkout Files') {
+            steps {
+                script {
+                    try {
+                        sh """
+                            co -l ${params.SOURCE_FILE}
+                            co -l ${params.DEST_FILE}
+                        """
+                    } catch (Exception e) {
+                        error "Checkout failed: ${e.getMessage()}"
+                    }
+                }
+            }
+        }
+
+        stage('Capture Revision Numbers') {
+            steps {
+                script {
+                    try {
+                        env.SOURCE_REV = sh(script: "rlog -h ${params.SOURCE_FILE} | awk '/head/ {print \$2}'", returnStdout: true).trim()
+                        env.DEST_REV = sh(script: "rlog -h ${params.DEST_FILE} | awk '/head/ {print \$2}'", returnStdout: true).trim()
+                        echo "Captured revisions - Source: ${env.SOURCE_REV}, Destination: ${env.DEST_REV}"
+                    } catch (Exception e) {
+                        error "Failed to capture revision numbers: ${e.getMessage()}"
+                    }
+                }
+            }
+        }
+
+        stage('Modify Files') {
+            steps {
+                script {
+                    try {
+                        // Remove user ID from source file
+                        sh "sed -i '/${params.USER_ID}/d' ${params.SOURCE_FILE}"
+
+                        // Append user ID to destination file
+                        sh "echo '${params.USER_ID}' >> ${params.DEST_FILE}"
+
+                    } catch (Exception e) {
+                        echo "Modification failed: ${e.getMessage()}"
+                        echo "Rolling back to previous versions..."
+                        sh """
+                            rcs -o${env.SOURCE_REV} ${params.SOURCE_FILE}
+                            rcs -o${env.DEST_REV} ${params.DEST_FILE}
+                            co -l ${params.SOURCE_FILE}
+                            co -l ${params.DEST_FILE}
+                        """
+                        error "Rollback complete due to modification failure"
+                    }
+                }
+            }
+        }
+
+        stage('Check-in Changes') {
+            steps {
+                script {
+                    try {
+                        sh """
+                            ci -u -m'Updated user list' ${params.SOURCE_FILE}
+                            ci -u -m'Updated user list' ${params.DEST_FILE}
+                        """
+                    } catch (Exception e) {
+                        echo "Check-in failed: ${e.getMessage()}"
+                        echo "Rolling back to previous versions..."
+                        sh """
+                            rcs -o${env.SOURCE_REV} ${params.SOURCE_FILE}
+                            rcs -o${env.DEST_REV} ${params.DEST_FILE}
+                            co -l ${params.SOURCE_FILE}
+                            co -l ${params.DEST_FILE}
+                        """
+                        error "Rollback complete due to check-in failure"
+                    }
+                }
+            }
+        }
+    }
+}
