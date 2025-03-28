@@ -1,84 +1,224 @@
-import React, { useEffect, useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
-import { TextField, MenuItem, Grid } from '@mui/material';
+import { ClusterContext } from '../../../NotificationContext';
+const QueueRequestForm = () => {
+  const { userID, selectedCluster } = useContext(ClusterContext);
+  const {
+    control,
+    handleSubmit,
+    reset,
+    watch,
+    unregister,
+    setValue,
+    formState: { errors },
+  } = useForm({
+    shouldUnregister: true,
+    mode: 'onChange',
+    defaultValues: {
+      QUEUE: '',
+      CLUSTER_NAME: '',
+    },
+  });
 
-const SlotForm = () => {
-    const { control, watch } = useForm();
-    const [config, setConfig] = useState(null);
-    const [slotOptions, setSlotOptions] = useState([]);
+  const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
 
-    // Fetch config.json from Flask backend
-    useEffect(() => {
-        fetch('http://flask-backend-url:5000/get-config')
-            .then(response => response.json())
-            .then(data => setConfig(data))
-            .catch(error => console.error('Error fetching config:', error));
-    }, []);
+  const today = dayjs();
 
-    // Watch the SLOT_TYPE field to update slot options dynamically
-    const slotType = watch('SLOT_TYPE', '');
+  const handleClusterChange = (e, field) => {
+    field.onChange(e);
+    setValue('QUEUE', '');
+  };
 
-    useEffect(() => {
-        if (config) {
-            if (slotType === 'gui') {
-                setSlotOptions(Object.keys(config.GUI).map(Number));  // Convert keys to numbers
-            } else if (slotType === 'regress') {
-                setSlotOptions(Object.keys(config.REGRESS).map(Number)); 
-            } else {
-                setSlotOptions([]);
-            }
-        }
-    }, [slotType, config]);
+  const handleQueueChange = (e, field) => {
+    field.onChange(e);
+    if (e.target.value === 'hwsim' && watch('CLUSTER_NAME') === 'dal-design') {
+      setOpenDialog(true);
+    }
+  };
 
-    return (
-        <Grid container spacing={2}>
-            <Grid item xs={12}>
+  const handleDialogClose = () => {
+    setOpenDialog(false);
+  };
+
+  const handleSnackbarClose = (event, reason) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setOpenSnackbar(false);
+  };
+
+  const onSubmit = async (data) => {
+    setIsSubmitting(true);
+    
+    // Set LSB_OPTION based on CLUSTER_NAME
+    data.LSB_OPTION = data.CLUSTER_NAME === 'dal-design';
+
+    data.REQUEST_STATUS = 'PENDING';
+    data.USER_AID = userID;
+    data.SUBMISSION_DATE = today.format('YYYY-MM-DD');
+
+    try {
+      const response = await apiInstance.post('/queue_request', data);
+      if (response.status === 200) {
+        setSnackbarSeverity('success');
+        setSnackbarMessage('Request submitted successfully!');
+        setOpenSnackbar(true);
+        reset();
+      }
+    } catch (error) {
+      console.error('Submission failed:', error);
+      setSnackbarSeverity('error');
+      setSnackbarMessage('Failed to submit request. Please try again.');
+      setOpenSnackbar(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <Paper elevation={24} square={false}>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
+          <Grid container spacing={2} justifyContent="center" alignItems="center">
+            
+            {/* Cluster Name */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth variant="outlined" error={Boolean(errors.CLUSTER_NAME)}>
+                <InputLabel>Select Cluster</InputLabel>
                 <Controller
-                    name="SLOT_TYPE"
-                    control={control}
-                    defaultValue=""
-                    rules={{ required: 'Slot type is required.' }}
-                    render={({ field }) => (
-                        <TextField
-                            {...field}
-                            select
-                            label="Slot Type"
-                            fullWidth
-                            error={!!slotType}
-                            helperText={!slotType ? 'Slot type is required.' : ''}
-                        >
-                            <MenuItem value="gui">GUI Slot</MenuItem>
-                            <MenuItem value="regress">Regress Slot</MenuItem>
-                        </TextField>
-                    )}
+                  name="CLUSTER_NAME"
+                  control={control}
+                  rules={{ required: 'Cluster Name is required' }}
+                  render={({ field, fieldState }) => (
+                    <>
+                      <Select
+                        {...field}
+                        label="Select Cluster"
+                        onChange={(e) => handleClusterChange(e, field)}
+                      >
+                        <MenuItem value={"tii-shared"}>India (tii-shared)</MenuItem>
+                        <MenuItem value={"dal-design"}>Dallas (dal-design)</MenuItem>
+                        <MenuItem value={"cdc-design"}>China (cdc-design)</MenuItem>
+                        <MenuItem value={"tid"}>Freising (tid)</MenuItem>
+                      </Select>
+                      {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
+                    </>
+                  )}
                 />
+              </FormControl>
             </Grid>
 
-            <Grid item xs={12}>
+            {/* Queue */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth variant="outlined" error={Boolean(errors.QUEUE)}>
+                <InputLabel>Queue</InputLabel>
                 <Controller
-                    name="REQUESTED_SLOT"
-                    control={control}
-                    defaultValue=""
-                    rules={{ required: 'Slot needed is required.' }}
-                    render={({ field }) => (
-                        <TextField
-                            {...field}
-                            select
-                            label="Slot Needed"
-                            fullWidth
-                            error={!slotOptions.length}
-                            helperText={!slotOptions.length ? 'Select a slot.' : ''}
-                            disabled={!slotOptions.length}
-                        >
-                            {slotOptions.map(slot => (
-                                <MenuItem key={slot} value={slot}>{slot}</MenuItem>
-                            ))}
-                        </TextField>
-                    )}
+                  name="QUEUE"
+                  control={control}
+                  rules={{ required: 'Queue is required' }}
+                  render={({ field, fieldState }) => (
+                    <>
+                      <Select
+                        {...field}
+                        label="Queue"
+                        disabled={!watch('CLUSTER_NAME')}  // Disable until cluster is selected
+                        onChange={(e) => handleQueueChange(e, field)}
+                      >
+                        <MenuItem value="priority">Priority</MenuItem>
+                        {['tii-shared', 'dal-design'].includes(watch('CLUSTER_NAME')) && (
+                          <MenuItem value="hwsim">HwSim</MenuItem>
+                        )}
+                      </Select>
+                      {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
+                    </>
+                  )}
                 />
+              </FormControl>
             </Grid>
-        </Grid>
-    );
+
+            {/* Slot Pool (conditional rendering) */}
+            {watch('CLUSTER_NAME') === 'dal-design' && watch('QUEUE') === 'priority' && (
+              <Grid item xs={12} md={6}>
+                <Controller
+                  name="SLOT_POOL"
+                  control={control}
+                  defaultValue={50}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      label="Slot Pool"
+                      placeholder="Enter Slot Pool"
+                      variant="outlined"
+                      fullWidth
+                    />
+                  )}
+                />
+              </Grid>
+            )}
+
+            {/* PG Date */}
+            {watch('QUEUE') === 'priority' && (
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth variant="outlined" error={Boolean(errors.PG_DATE)}>
+                  <Controller
+                    name="PG_DATE"
+                    control={control}
+                    rules={{ required: 'PG Date is required' }}
+                    defaultValue={today}
+                    render={({ field, fieldState }) => (
+                      <>
+                        <DatePicker
+                          {...field}
+                          label="PG / Major Commitment Date *"
+                          placeholder="Select Date"
+                          disablePast
+                          defaultValue={today}
+                          error={!!errors?.PG_DATE}
+                          helperText={errors?.PG_DATE?.message}
+                        />
+                        {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
+                      </>
+                    )}
+                  />
+                </FormControl>
+              </Grid>
+            )}
+          </Grid>
+
+          <Stack spacing={2} direction="row" justifyContent="center" p={2}>
+            <Button type="submit" variant="contained" color="primary">Submit</Button>
+            <Button type="button" variant="contained" color="primary" onClick={() => reset()}>Reset</Button>
+          </Stack>
+        </form>
+
+        <Backdrop open={isSubmitting} sx={{ color: "#fff", zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+          <CircularProgress color="inherit" />
+          <Typography variant="h6" sx={{ marginLeft: 2 }}>Submitting...</Typography>
+        </Backdrop>
+
+        <SnackbarAlert
+          open={openSnackbar}
+          handleClose={handleSnackbarClose}
+          message={snackbarMessage}
+          severity={snackbarSeverity}
+        />
+
+        <Dialog open={openDialog} onClose={handleDialogClose}>
+          <DialogTitle>Notice</DialogTitle>
+          <DialogContent>
+            Please use Palladium Box for HwSim access. Use -R "select[ws80 && palladium]" while submitting jobs.
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleDialogClose}>OK</Button>
+          </DialogActions>
+        </Dialog>
+
+        <DevTool control={control} />
+      </Paper>
+    </>
+  );
 };
 
-export default SlotForm;
+export default QueueRequestForm;
