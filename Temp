@@ -1,224 +1,155 @@
-import { ClusterContext } from '../../../NotificationContext';
-const QueueRequestForm = () => {
-  const { userID, selectedCluster } = useContext(ClusterContext);
-  const {
-    control,
-    handleSubmit,
-    reset,
-    watch,
-    unregister,
-    setValue,
-    formState: { errors },
-  } = useForm({
-    shouldUnregister: true,
-    mode: 'onChange',
-    defaultValues: {
-      QUEUE: '',
-      CLUSTER_NAME: '',
-    },
-  });
+✅ Updated Approach: Show Dialog Immediately on PG_DATE Selection
 
-  const [openSnackbar, setOpenSnackbar] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [openDialog, setOpenDialog] = useState(false);
+To meet your requirements:
 
-  const today = dayjs();
+1. Trigger the dialog box as soon as the user selects a PG_DATE that is beyond 2 weeks.
 
-  const handleClusterChange = (e, field) => {
-    field.onChange(e);
-    setValue('QUEUE', '');
-  };
 
-  const handleQueueChange = (e, field) => {
-    field.onChange(e);
-    if (e.target.value === 'hwsim' && watch('CLUSTER_NAME') === 'dal-design') {
-      setOpenDialog(true);
-    }
-  };
+2. Display a strict message in the dialog stating that priority queue is only allowed for dates within 2 weeks and provide an email ID for urgent cases.
 
-  const handleDialogClose = () => {
-    setOpenDialog(false);
-  };
 
-  const handleSnackbarClose = (event, reason) => {
-    if (reason === 'clickaway') {
-      return;
-    }
-    setOpenSnackbar(false);
-  };
+3. On closing the dialog, reset the PG_DATE to today's date.
 
-  const onSubmit = async (data) => {
-    setIsSubmitting(true);
-    
-    // Set LSB_OPTION based on CLUSTER_NAME
-    data.LSB_OPTION = data.CLUSTER_NAME === 'dal-design';
 
-    data.REQUEST_STATUS = 'PENDING';
-    data.USER_AID = userID;
-    data.SUBMISSION_DATE = today.format('YYYY-MM-DD');
 
-    try {
-      const response = await apiInstance.post('/queue_request', data);
-      if (response.status === 200) {
-        setSnackbarSeverity('success');
-        setSnackbarMessage('Request submitted successfully!');
-        setOpenSnackbar(true);
-        reset();
-      }
-    } catch (error) {
-      console.error('Submission failed:', error);
-      setSnackbarSeverity('error');
-      setSnackbarMessage('Failed to submit request. Please try again.');
-      setOpenSnackbar(true);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
-  return (
-    <>
-      <Paper elevation={24} square={false}>
-        <form onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Grid container spacing={2} justifyContent="center" alignItems="center">
-            
-            {/* Cluster Name */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth variant="outlined" error={Boolean(errors.CLUSTER_NAME)}>
-                <InputLabel>Select Cluster</InputLabel>
-                <Controller
-                  name="CLUSTER_NAME"
-                  control={control}
-                  rules={{ required: 'Cluster Name is required' }}
-                  render={({ field, fieldState }) => (
-                    <>
-                      <Select
-                        {...field}
-                        label="Select Cluster"
-                        onChange={(e) => handleClusterChange(e, field)}
-                      >
-                        <MenuItem value={"tii-shared"}>India (tii-shared)</MenuItem>
-                        <MenuItem value={"dal-design"}>Dallas (dal-design)</MenuItem>
-                        <MenuItem value={"cdc-design"}>China (cdc-design)</MenuItem>
-                        <MenuItem value={"tid"}>Freising (tid)</MenuItem>
-                      </Select>
-                      {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
-                    </>
-                  )}
-                />
-              </FormControl>
-            </Grid>
+---
 
-            {/* Queue */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth variant="outlined" error={Boolean(errors.QUEUE)}>
-                <InputLabel>Queue</InputLabel>
-                <Controller
-                  name="QUEUE"
-                  control={control}
-                  rules={{ required: 'Queue is required' }}
-                  render={({ field, fieldState }) => (
-                    <>
-                      <Select
-                        {...field}
-                        label="Queue"
-                        disabled={!watch('CLUSTER_NAME')}  // Disable until cluster is selected
-                        onChange={(e) => handleQueueChange(e, field)}
-                      >
-                        <MenuItem value="priority">Priority</MenuItem>
-                        {['tii-shared', 'dal-design'].includes(watch('CLUSTER_NAME')) && (
-                          <MenuItem value="hwsim">HwSim</MenuItem>
-                        )}
-                      </Select>
-                      {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
-                    </>
-                  )}
-                />
-              </FormControl>
-            </Grid>
+💡 Code Changes:
 
-            {/* Slot Pool (conditional rendering) */}
-            {watch('CLUSTER_NAME') === 'dal-design' && watch('QUEUE') === 'priority' && (
-              <Grid item xs={12} md={6}>
-                <Controller
-                  name="SLOT_POOL"
-                  control={control}
-                  defaultValue={50}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      label="Slot Pool"
-                      placeholder="Enter Slot Pool"
-                      variant="outlined"
-                      fullWidth
-                    />
-                  )}
-                />
-              </Grid>
-            )}
+✅ 1. Add State and Dialog Logic:
 
-            {/* PG Date */}
-            {watch('QUEUE') === 'priority' && (
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth variant="outlined" error={Boolean(errors.PG_DATE)}>
-                  <Controller
-                    name="PG_DATE"
-                    control={control}
-                    rules={{ required: 'PG Date is required' }}
-                    defaultValue={today}
-                    render={({ field, fieldState }) => (
-                      <>
-                        <DatePicker
-                          {...field}
-                          label="PG / Major Commitment Date *"
-                          placeholder="Select Date"
-                          disablePast
-                          defaultValue={today}
-                          error={!!errors?.PG_DATE}
-                          helperText={errors?.PG_DATE?.message}
-                        />
-                        {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
-                      </>
-                    )}
-                  />
-                </FormControl>
-              </Grid>
-            )}
-          </Grid>
+const [openPGDialog, setOpenPGDialog] = useState(false);
+const today = dayjs();
+const twoWeeksLater = today.add(14, "days");
 
-          <Stack spacing={2} direction="row" justifyContent="center" p={2}>
-            <Button type="submit" variant="contained" color="primary">Submit</Button>
-            <Button type="button" variant="contained" color="primary" onClick={() => reset()}>Reset</Button>
-          </Stack>
-        </form>
-
-        <Backdrop open={isSubmitting} sx={{ color: "#fff", zIndex: (theme) => theme.zIndex.drawer + 1 }}>
-          <CircularProgress color="inherit" />
-          <Typography variant="h6" sx={{ marginLeft: 2 }}>Submitting...</Typography>
-        </Backdrop>
-
-        <SnackbarAlert
-          open={openSnackbar}
-          handleClose={handleSnackbarClose}
-          message={snackbarMessage}
-          severity={snackbarSeverity}
-        />
-
-        <Dialog open={openDialog} onClose={handleDialogClose}>
-          <DialogTitle>Notice</DialogTitle>
-          <DialogContent>
-            Please use Palladium Box for HwSim access. Use -R "select[ws80 && palladium]" while submitting jobs.
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleDialogClose}>OK</Button>
-          </DialogActions>
-        </Dialog>
-
-        <DevTool control={control} />
-      </Paper>
-    </>
-  );
+// Function to handle dialog close
+const handlePGDialogClose = () => {
+  setOpenPGDialog(false);
+  setValue("PG_DATE", today.format("YYYY-MM-DD"));  // Reset to today's date
 };
 
-export default QueueRequestForm;
+
+---
+
+✅ 2. Modify PG_DATE Handling Logic:
+
+Add a watch() to monitor the PG_DATE field.
+
+As soon as the user selects a date, check if it’s beyond 2 weeks and trigger the dialog.
+
+
+const selectedPGDate = watch("PG_DATE");
+
+// Trigger dialog immediately when date is beyond 2 weeks
+useEffect(() => {
+  if (selectedPGDate) {
+    const pgDate = dayjs(selectedPGDate);
+    if (pgDate.isAfter(twoWeeksLater)) {
+      setOpenPGDialog(true);
+    }
+  }
+}, [selectedPGDate, twoWeeksLater]);
+
+
+---
+
+✅ 3. Add the Dialog Component with Updated Message:
+
+<Dialog open={openPGDialog} onClose={handlePGDialogClose}>
+  <DialogTitle>Priority Queue Restriction</DialogTitle>
+  <DialogContent>
+    <Typography>
+      **Priority queue requests are only allowed if your PG date is within the next 2 weeks.**  
+      If you have an urgent need, please send an email to:  
+      <strong>support@example.com</strong>.
+    </Typography>
+  </DialogContent>
+  <DialogActions>
+    <Button onClick={handlePGDialogClose}>OK</Button>
+  </DialogActions>
+</Dialog>
+
+
+---
+
+✅ Explanation of Changes:
+
+1. Immediate Dialog Trigger:
+
+The useEffect() hook monitors PG_DATE with watch() and triggers the dialog as soon as a date beyond 2 weeks is selected.
+
+
+
+2. Strict Message:
+
+The dialog message clearly states that priority queue is only allowed for dates within 2 weeks.
+
+It provides an email ID for urgent cases.
+
+
+
+3. Date Reset on Dialog Close:
+
+On closing the dialog, the PG_DATE is reset to today's date using:
+
+
+setValue("PG_DATE", today.format("YYYY-MM-DD"));
+
+
+
+
+---
+
+💡 Optional: Snackbar Notification
+
+If you want to notify the user after resetting the date, you can display a snackbar:
+
+const handlePGDialogClose = () => {
+  setOpenPGDialog(false);
+  setValue("PG_DATE", today.format("YYYY-MM-DD"));
+  setSnackbarSeverity("info");
+  setSnackbarMessage("PG date reset to today's date.");
+  setOpenSnackbar(true);
+};
+
+✅ Let me know if you need further modifications or refinements!
+
+
+
+const onSubmit = async (data) => {
+  setIsSubmitting(true);
+
+  // Check PG_DATE when queue is priority
+  if (data.QUEUE === "priority") {
+    const selectedDate = dayjs(data.PG_DATE);
+    if (selectedDate.isAfter(twoWeeksLater)) {
+      setOpenPGDialog(true);   // Show dialog if PG_DATE > 2 weeks
+      setIsSubmitting(false);
+      return;
+    }
+  }
+
+  // Continue with the submission logic
+  data.REQUEST_STATUS = "PENDING";
+  data.USER_AID = userID;
+  data.SUBMISSION_DATE = today.format("YYYY-MM-DD");
+
+  try {
+    const response = await apiInstance.post("/queue_request", data);
+    if (response.status === 200) {
+      setSnackbarSeverity("success");
+      setSnackbarMessage("Request submitted successfully!");
+      setOpenSnackbar(true);
+      handleReset();
+    }
+  } catch (error) {
+    console.error("Submission failed:", error);
+    setSnackbarSeverity("error");
+    setSnackbarMessage("Failed to submit request. Please try again.");
+    setOpenSnackbar(true);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+
