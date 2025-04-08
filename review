@@ -1,0 +1,384 @@
+import React, { useEffect, useState, useContext } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import {
+  Alert,
+  Box,
+  Button,
+  Grid,
+  MenuItem,
+  Paper,
+  Stack,
+  TextField,
+  Typography,
+  CircularProgress,
+  FormControl,
+  FormHelperText,
+  Snackbar,
+  Backdrop,
+  Select,
+  InputLabel,
+} from '@mui/material';
+import dayjs from 'dayjs';
+import { DatePicker } from '@mui/x-date-pickers';
+import apiInstance from '../../../api';
+import { ClusterContext } from '../../../NotificationContext';
+
+const CLUSTERS = {
+  INDIA: 'tii-shared',
+  DALLAS: 'dal-design',
+  CHINA: 'cdc-design',
+  FREISING: 'tid',
+}; // 💬 Constants centralized
+
+const SLOT_TYPES = {
+  GUI: 'gui',
+  REGRESS: 'regress',
+}; // 💬 Constants centralized
+
+const SlotRequestForm = () => {
+  const { userID } = useContext(ClusterContext);
+
+  const {
+    control,
+    handleSubmit,
+    reset,
+    watch,
+    formState: { errors },
+    setValue,
+  } = useForm({ mode: 'onChange' });
+
+  const SLOT_TYPE = watch('SLOT_TYPE');
+  const clusterName = watch('CLUSTER_NAME', '').trim(); // 💬 Trim whitespace for consistency
+
+  const [currentSlotLimit, setCurrentSlotLimit] = useState(null);
+  const [requestId, setRequestId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [snackMessage, setSnackMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false); // 💬 Submission spinner state
+  const [clusterSelected, setClusterSelected] = useState(false); // 💬 Optional: future use
+  const [configData, setConfigData] = useState(null); // 💬 Store full config
+  const [slotTypes, setSlotTypes] = useState([]); // 💬 Extracted available slot types per cluster
+  const [slotOptions, setSlotOptions] = useState([]); // 💬 Options for requested slot dropdown
+
+  const today = dayjs();
+  const maxDate = today.add(2, 'month');
+
+  const getErrorMessage = (err) =>
+    err?.response?.data?.error || err.message || 'Unexpected error'; // 💬 Reusable error extractor
+
+  // 💬 Fetch config and derive available slot types
+  useEffect(() => {
+    if (!clusterName) return;
+
+    const fetchConfig = async () => {
+      setLoading(true);
+      try {
+        const response = await apiInstance.get(`/get_config`);
+        const data = response.data;
+
+        const types = [];
+        if (data[`${clusterName}-gui`]) types.push(SLOT_TYPES.GUI);
+        if (data[`${clusterName}-regress`]) types.push(SLOT_TYPES.REGRESS);
+
+        setConfigData(data); // 💬 Store config once
+        setSlotTypes(types); // 💬 Derive valid slot types for this cluster
+      } catch (err) {
+        setError(getErrorMessage(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchConfig();
+  }, [clusterName]);
+
+  // 💬 Derive slot values from config once type is selected
+  useEffect(() => {
+    if (configData && clusterName && SLOT_TYPE) {
+      const key = `${clusterName}-${SLOT_TYPE}`;
+      setSlotOptions(configData[key] ? Object.keys(configData[key]).map(Number) : []);
+    }
+  }, [SLOT_TYPE, clusterName, configData]);
+
+  // 💬 Fetch current slot limit for user + cluster + slot type
+  useEffect(() => {
+    const fetchLimit = async () => {
+      if (!userID || !SLOT_TYPE || !clusterName) return;
+
+      setLoading(true);
+      setError('');
+      try {
+        const res = await apiInstance.get('/get_current_slot_limit', {
+          params: { userID, SLOT_TYPE, CLUSTER_NAME: clusterName },
+        });
+
+        setCurrentSlotLimit(res.data.current_slot_limit);
+        setRequestId(res.data.request_id);
+      } catch (err) {
+        setError(getErrorMessage(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLimit();
+  }, [userID, SLOT_TYPE, clusterName]);
+
+  const onSubmit = async (data) => {
+    if (!currentSlotLimit || !requestId) {
+      setError('Missing slot limit or request ID');
+      return;
+    }
+
+    setIsSubmitting(true); // 💬 Trigger backdrop spinner
+    try {
+      const payload = {
+        ...data,
+        CURRENT_SLOT_LIMIT: currentSlotLimit,
+        REQUEST_ID: requestId,
+        USER_AID: userID,
+        REQUEST_STATUS: 'PENDING',
+        ACCESS_END_DATE: dayjs(data.ACCESS_END_DATE).format('YYYY-MM-DD'),
+        SUBMISSION_DATE: today.format('YYYY-MM-DD'),
+      };
+
+      const response = await apiInstance.post('/slot_request', payload);
+      setSnackMessage(response.data.message);
+      setOpenSnackbar(true);
+      resetForm(); // 💬 Clear form on success
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setIsSubmitting(false); // 💬 Hide spinner
+    }
+  };
+
+  const resetForm = () => {
+    reset();
+    setCurrentSlotLimit(null);
+    setValue('SLOT_TYPE', '');
+    setValue('REQUESTED_SLOT', '');
+    setValue('ACCESS_END_DATE', '');
+    setValue('JUSTIFICATION', '');
+    setValue('CLUSTER_NAME', '');
+  };
+
+  const handleCloseSnackbar = (_, reason) => {
+    if (reason !== 'clickaway') setOpenSnackbar(false); // 💬 Dismiss on auto or manual
+  };
+
+  const handleClusterChange = (e, field) => {
+    field.onChange(e);
+    setClusterSelected(true); // 💬 Placeholder for UI toggle/transition
+  };
+
+  return (
+    <>
+      <Paper elevation={24} sx={{ padding: 4 }}>
+        <Typography variant="h5" mb={2}>
+          Slot Change Form
+        </Typography>
+
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <Grid container spacing={2}>
+            {/* Cluster Dropdown */}
+            <Grid item md={12}>
+              <FormControl fullWidth error={Boolean(errors.CLUSTER_NAME)}>
+                <InputLabel>Select Cluster *</InputLabel>
+                <Controller
+                  name="CLUSTER_NAME"
+                  control={control}
+                  rules={{ required: 'Cluster Name is required' }}
+                  render={({ field, fieldState }) => (
+                    <>
+                      <Select
+                        {...field}
+                        label="Select Cluster *"
+                        onChange={(e) => handleClusterChange(e, field)} // 💬 Keep field and update clusterSelected
+                      >
+                        {Object.entries(CLUSTERS).map(([label, value]) => (
+                          <MenuItem key={value} value={value}>
+                            {label} ({value})
+                          </MenuItem>
+                        ))}
+                      </Select>
+                      {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
+                    </>
+                  )}
+                />
+              </FormControl>
+            </Grid>
+
+            {/* Slot Type */}
+            <Grid item xs={12}>
+              <Controller
+                name="SLOT_TYPE"
+                control={control}
+                rules={{ required: 'Slot type is required' }}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    select
+                    label="Slot Type *"
+                    fullWidth
+                    disabled={!clusterName}
+                    error={!!errors.SLOT_TYPE}
+                    helperText={errors.SLOT_TYPE?.message}
+                  >
+                    {slotTypes.map((type) => (
+                      <MenuItem key={type} value={type}>
+                        {type.toUpperCase()}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+            </Grid>
+
+            {/* Project Name */}
+            <Grid item xs={12}>
+              <Controller
+                name="PROJECT_NAME"
+                control={control}
+                rules={{ required: 'Project Name is required' }}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    label="Project Name *"
+                    fullWidth
+                    error={!!errors.PROJECT_NAME}
+                    helperText={errors.PROJECT_NAME?.message}
+                  />
+                )}
+              />
+            </Grid>
+
+            {/* Slot Limit Display */}
+            <Grid item xs={12}>
+              {SLOT_TYPE && (
+                <Box sx={{ border: '1px solid #ccc', borderRadius: 2, p: 2, backgroundColor: '#f9f9f9' }}>
+                  {loading ? (
+                    <Typography>
+                      Fetching current slot limit for <b>{SLOT_TYPE}</b>...
+                      <CircularProgress size={20} sx={{ ml: 2 }} />
+                    </Typography>
+                  ) : error ? (
+                    <Typography color="error">{error}</Typography>
+                  ) : (
+                    <Typography>
+                      Current Slot Limit for <b>{SLOT_TYPE}</b>:{" "}
+                      <Typography component="span" color="primary" fontWeight="bold">
+                        {currentSlotLimit}
+                      </Typography>
+                    </Typography>
+                  )}
+                </Box>
+              )}
+            </Grid>
+
+            {/* Requested Slot */}
+            <Grid item xs={12}>
+              <Controller
+                name="REQUESTED_SLOT"
+                control={control}
+                rules={{ required: 'Slot needed is required' }}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    select
+                    label="Slot Needed *"
+                    fullWidth
+                    disabled={!SLOT_TYPE}
+                    error={!!errors.REQUESTED_SLOT}
+                    helperText={errors.REQUESTED_SLOT?.message}
+                  >
+                    {slotOptions.map((slot) => (
+                      <MenuItem key={slot} value={slot}>
+                        {slot}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+            </Grid>
+
+            {/* Access End Date */}
+            <Grid item xs={12}>
+              <FormControl fullWidth error={!!errors.ACCESS_END_DATE}>
+                <Controller
+                  name="ACCESS_END_DATE"
+                  control={control}
+                  rules={{ required: 'Access End Date is required' }}
+                  defaultValue={today}
+                  render={({ field, fieldState }) => (
+                    <>
+                      <DatePicker
+                        {...field}
+                        label="Access End Date *"
+                        disablePast
+                        maxDate={maxDate}
+                      />
+                      {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
+                    </>
+                  )}
+                />
+              </FormControl>
+            </Grid>
+
+            {/* Justification */}
+            <Grid item xs={12}>
+              <Controller
+                name="JUSTIFICATION"
+                control={control}
+                rules={{ required: 'Business Justification is required' }}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    label="Business Justification *"
+                    multiline
+                    rows={4}
+                    fullWidth
+                    error={!!errors.JUSTIFICATION}
+                    helperText={errors.JUSTIFICATION?.message}
+                  />
+                )}
+              />
+            </Grid>
+          </Grid>
+
+          {/* Buttons */}
+          <Stack spacing={2} direction="row" justifyContent="center" mt={3}>
+            <Button type="submit" variant="contained" color="primary" disabled={isSubmitting}>
+              Submit
+            </Button>
+            <Button variant="contained" color="secondary" onClick={resetForm}>
+              Reset
+            </Button>
+          </Stack>
+        </form>
+      </Paper>
+
+      {/* Spinner on submit */}
+      <Backdrop open={isSubmitting} sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+        <CircularProgress color="inherit" />
+        <Typography sx={{ ml: 2 }}>Submitting...</Typography>
+      </Backdrop>
+
+      {/* Snackbar */}
+      <Snackbar
+        open={openSnackbar}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity="success" variant="filled" sx={{ width: '100%' }}>
+          {snackMessage}
+        </Alert>
+      </Snackbar>
+    </>
+  );
+};
+
+export default SlotRequestForm;
