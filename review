@@ -1,14 +1,24 @@
-const resetForm = () => {
-  reset({
-    CLUSTER_NAME: '',
-    SLOT_TYPE: '',
-    PROJECT_NAME: '',
-    REQUESTED_SLOT: '',
-    ACCESS_END_DATE: null,
-    JUSTIFICATION: '',
-  });
-  setCurrentSlotLimit(null);
-  setConfigData(null);
-  setSlotOptions([]);
-  setSlotTypes([]);
-};
+<Controller
+  name="CLUSTER_NAME"
+  control={control}
+  rules={{ required: 'Cluster Name is required' }}
+  render={({ field, fieldState }) => (
+    <>
+      <Select
+        value={field.value} // ✅ explicitly binding value
+        onChange={(e) => {
+          field.onChange(e); // ✅ update RHF state
+          setClusterSelected(true); // ✅ local side effect
+        }}
+        label="Select Cluster *"
+        sx={{ minWidth: '100px' }}
+      >
+        <MenuItem value={'tii-shared'}>India (tii-shared)</MenuItem>
+        <MenuItem value={'dal-design'}>Dallas (dal-design)</MenuItem>
+        <MenuItem value={'cdc-design'}>China (cdc-design)</MenuItem>
+        <MenuItem value={'tid'}>Freising (tid)</MenuItem>
+      </Select>
+      {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
+    </>
+  )}
+/>
