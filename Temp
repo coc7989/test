@@ -1,128 +1,90 @@
-Great! Here's how you can update your code to support the cluster dropdown, use the default cluster from context, and dynamically fetch data based on the selected cluster.
+Perfect — here's how you can enhance your setup to support multiple REQUEST_STATUS values, including the new ones: ACTIVE_PRIORITY, ACCESS_ENDED, and changing COMPLETED to a broader OTHERS.
 
 
 ---
 
-1. Update AdminPanel.js
+1. Update Tabs in AdminPanel.js
 
-Add a dropdown for selecting clusters and manage the selected cluster state.
+Update the tab labels and values to reflect the new statuses:
 
-import { MenuItem, Select, InputLabel, FormControl } from '@mui/material';
-import { useContext, useEffect, useState } from 'react';
-// ...
-
-const AdminPanel = () => {
-  const [alignment, setAlignment] = useState('PENDING');
-  const { defaultCluster } = useContext(ClusterContext); // from context
-  const [selectedCluster, setSelectedCluster] = useState(defaultCluster);
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    setSelectedCluster(defaultCluster);
-  }, [defaultCluster]);
-
-  const handleClusterChange = (event) => {
-    setSelectedCluster(event.target.value);
-  };
-
-  return (
-    <Container maxWidth="xl">
-      <Paper elevation={1} sx={{ backgroundColor: '#f2ebfb', p: 2 }}>
-        <Grid container xs={12} direction="row" justifyContent="space-between" alignItems="center">
-          <Grid>
-            <FormControl>
-              <InputLabel>Select Cluster</InputLabel>
-              <Select value={selectedCluster} onChange={handleClusterChange} label="Select Cluster">
-                <MenuItem value="cluster1">Cluster 1</MenuItem>
-                <MenuItem value="cluster2">Cluster 2</MenuItem>
-                {/* Add more clusters as needed */}
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid xs={12} textAlign={'center'}>
-            <Tabs
-              centered
-              value={alignment}
-              onChange={(e, newValue) => setAlignment(newValue)}
-              textColor="primary"
-              indicatorColor="primary"
-            >
-              <Tab sx={{ fontSize: '18px' }} value="PENDING" label="PENDING FOR APPROVAL" />
-              <Tab sx={{ fontSize: '18px' }} value="COMPLETED" label="COMPLETED" />
-            </Tabs>
-          </Grid>
-
-          <Grid xs={12} ref={containerRef}>
-            {alignment === 'PENDING' && (
-              <Slide direction="right" in timeout={200} container={containerRef.current}>
-                <Card sx={{ mt: 1 }}>
-                  <AdminRequestPanel REQUEST_STATUS="PENDING" clusterName={selectedCluster} />
-                </Card>
-              </Slide>
-            )}
-            {alignment === 'COMPLETED' && (
-              <Slide direction="left" in timeout={200} container={containerRef.current}>
-                <Grid2 xs={12} sx={{ mt: 1 }}>
-                  <AdminRequestPanel REQUEST_STATUS="COMPLETED" clusterName={selectedCluster} />
-                </Grid2>
-              </Slide>
-            )}
-          </Grid>
-        </Grid>
-      </Paper>
-    </Container>
-  );
-};
+<Tabs
+  centered
+  value={alignment}
+  onChange={(e, newValue) => setAlignment(newValue)}
+  textColor="primary"
+  indicatorColor="primary"
+>
+  <Tab sx={{ fontSize: '18px' }} value="PENDING" label="PENDING FOR APPROVAL" />
+  <Tab sx={{ fontSize: '18px' }} value="ACTIVE_PRIORITY" label="ACTIVE PRIORITY" />
+  <Tab sx={{ fontSize: '18px' }} value="ACCESS_ENDED" label="ACCESS ENDED" />
+  <Tab sx={{ fontSize: '18px' }} value="OTHERS" label="OTHERS" />
+</Tabs>
 
 
 ---
 
-2. Update AdminRequestPanel.js
+2. Render Panels for Each Tab
 
-Accept clusterName as a prop and include it in your API call.
+Update your conditional rendering to add more Slide components for the new statuses:
 
-const AdminRequestPanel = ({ REQUEST_STATUS, clusterName }) => {
-  // ...
-
-  const fetchAccessRequests = async (userID, REQUEST_STATUS, clusterName) => {
-    const res = await apiInstance.get(
-      `/admin_panel_requests?userID=${userID}&REQUEST_STATUS=${REQUEST_STATUS}&clusterName=${clusterName}`
-    );
-    return res.data || {};
-  };
-
-  const {
-    data,
-    isLoading,
-    refetch,
-  } = useQuery(
-    ['accessRequests', userID, REQUEST_STATUS, clusterName],
-    () => fetchAccessRequests(userID, REQUEST_STATUS, clusterName),
-    {}
-  );
-
-  useEffect(() => {
-    refetch();
-  }, [REQUEST_STATUS, clusterName]); // refetch on status or cluster change
-
-  // ...
-};
-
-
----
-
-3. Update main.py backend
-
-Update your Flask endpoint to read the clusterName from the query string.
-
-userID = request.args.get('userID')
-REQUEST_STATUS = request.args.get('REQUEST_STATUS')
-site_name = request.args.get('clusterName')  # Now taken from frontend instead of context mapping
-
-You can optionally fall back to the mapping if clusterName is not passed.
+<Grid xs={12} ref={containerRef}>
+  {alignment === 'PENDING' && (
+    <Slide direction="right" in timeout={200} container={containerRef.current}>
+      <Card sx={{ mt: 1 }}>
+        <AdminRequestPanel REQUEST_STATUS="PENDING" clusterName={selectedCluster} />
+      </Card>
+    </Slide>
+  )}
+  {alignment === 'ACTIVE_PRIORITY' && (
+    <Slide direction="left" in timeout={200} container={containerRef.current}>
+      <Card sx={{ mt: 1 }}>
+        <AdminRequestPanel REQUEST_STATUS="ACTIVE_PRIORITY" clusterName={selectedCluster} />
+      </Card>
+    </Slide>
+  )}
+  {alignment === 'ACCESS_ENDED' && (
+    <Slide direction="right" in timeout={200} container={containerRef.current}>
+      <Card sx={{ mt: 1 }}>
+        <AdminRequestPanel REQUEST_STATUS="ACCESS_ENDED" clusterName={selectedCluster} />
+      </Card>
+    </Slide>
+  )}
+  {alignment === 'OTHERS' && (
+    <Slide direction="left" in timeout={200} container={containerRef.current}>
+      <Card sx={{ mt: 1 }}>
+        <AdminRequestPanel REQUEST_STATUS="OTHERS" clusterName={selectedCluster} />
+      </Card>
+    </Slide>
+  )}
+</Grid>
 
 
 ---
 
-Let me know if you want to dynamically populate the cluster list as well (e.g. from backend via API).
+3. Update Backend Logic
+
+Update your /admin_panel_requests endpoint in main.py to handle the new request statuses:
+
+request_status = request.args.get('REQUEST_STATUS')
+cluster_name = request.args.get('clusterName')
+
+# Example logic
+if request_status == "ACTIVE_PRIORITY":
+    result = query_records(status="COMPLETED", cluster=cluster_name, is_priority=True)
+elif request_status == "ACCESS_ENDED":
+    result = query_records(status="ACCESS_ENDED", cluster=cluster_name)
+elif request_status == "OTHERS":
+    result = query_records(
+        exclude_statuses=["PENDING", "ACTIVE_PRIORITY", "ACCESS_ENDED"],
+        cluster=cluster_name
+    )
+else:
+    result = query_records(status=request_status, cluster=cluster_name)
+
+You can define query_records() to use SQLAlchemy or raw SQL depending on your backend.
+
+
+---
+
+Let me know if you want filtering, sorting, or search on top of this too — or need help with how ACTIVE_PRIORITY is marked in your data.
 
