@@ -1,155 +1,128 @@
-✅ Updated Approach: Show Dialog Immediately on PG_DATE Selection
-
-To meet your requirements:
-
-1. Trigger the dialog box as soon as the user selects a PG_DATE that is beyond 2 weeks.
-
-
-2. Display a strict message in the dialog stating that priority queue is only allowed for dates within 2 weeks and provide an email ID for urgent cases.
-
-
-3. On closing the dialog, reset the PG_DATE to today's date.
-
-
+Great! Here's how you can update your code to support the cluster dropdown, use the default cluster from context, and dynamically fetch data based on the selected cluster.
 
 
 ---
 
-💡 Code Changes:
+1. Update AdminPanel.js
 
-✅ 1. Add State and Dialog Logic:
+Add a dropdown for selecting clusters and manage the selected cluster state.
 
-const [openPGDialog, setOpenPGDialog] = useState(false);
-const today = dayjs();
-const twoWeeksLater = today.add(14, "days");
+import { MenuItem, Select, InputLabel, FormControl } from '@mui/material';
+import { useContext, useEffect, useState } from 'react';
+// ...
 
-// Function to handle dialog close
-const handlePGDialogClose = () => {
-  setOpenPGDialog(false);
-  setValue("PG_DATE", today.format("YYYY-MM-DD"));  // Reset to today's date
+const AdminPanel = () => {
+  const [alignment, setAlignment] = useState('PENDING');
+  const { defaultCluster } = useContext(ClusterContext); // from context
+  const [selectedCluster, setSelectedCluster] = useState(defaultCluster);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    setSelectedCluster(defaultCluster);
+  }, [defaultCluster]);
+
+  const handleClusterChange = (event) => {
+    setSelectedCluster(event.target.value);
+  };
+
+  return (
+    <Container maxWidth="xl">
+      <Paper elevation={1} sx={{ backgroundColor: '#f2ebfb', p: 2 }}>
+        <Grid container xs={12} direction="row" justifyContent="space-between" alignItems="center">
+          <Grid>
+            <FormControl>
+              <InputLabel>Select Cluster</InputLabel>
+              <Select value={selectedCluster} onChange={handleClusterChange} label="Select Cluster">
+                <MenuItem value="cluster1">Cluster 1</MenuItem>
+                <MenuItem value="cluster2">Cluster 2</MenuItem>
+                {/* Add more clusters as needed */}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid xs={12} textAlign={'center'}>
+            <Tabs
+              centered
+              value={alignment}
+              onChange={(e, newValue) => setAlignment(newValue)}
+              textColor="primary"
+              indicatorColor="primary"
+            >
+              <Tab sx={{ fontSize: '18px' }} value="PENDING" label="PENDING FOR APPROVAL" />
+              <Tab sx={{ fontSize: '18px' }} value="COMPLETED" label="COMPLETED" />
+            </Tabs>
+          </Grid>
+
+          <Grid xs={12} ref={containerRef}>
+            {alignment === 'PENDING' && (
+              <Slide direction="right" in timeout={200} container={containerRef.current}>
+                <Card sx={{ mt: 1 }}>
+                  <AdminRequestPanel REQUEST_STATUS="PENDING" clusterName={selectedCluster} />
+                </Card>
+              </Slide>
+            )}
+            {alignment === 'COMPLETED' && (
+              <Slide direction="left" in timeout={200} container={containerRef.current}>
+                <Grid2 xs={12} sx={{ mt: 1 }}>
+                  <AdminRequestPanel REQUEST_STATUS="COMPLETED" clusterName={selectedCluster} />
+                </Grid2>
+              </Slide>
+            )}
+          </Grid>
+        </Grid>
+      </Paper>
+    </Container>
+  );
 };
 
 
 ---
 
-✅ 2. Modify PG_DATE Handling Logic:
+2. Update AdminRequestPanel.js
 
-Add a watch() to monitor the PG_DATE field.
+Accept clusterName as a prop and include it in your API call.
 
-As soon as the user selects a date, check if it’s beyond 2 weeks and trigger the dialog.
+const AdminRequestPanel = ({ REQUEST_STATUS, clusterName }) => {
+  // ...
 
+  const fetchAccessRequests = async (userID, REQUEST_STATUS, clusterName) => {
+    const res = await apiInstance.get(
+      `/admin_panel_requests?userID=${userID}&REQUEST_STATUS=${REQUEST_STATUS}&clusterName=${clusterName}`
+    );
+    return res.data || {};
+  };
 
-const selectedPGDate = watch("PG_DATE");
+  const {
+    data,
+    isLoading,
+    refetch,
+  } = useQuery(
+    ['accessRequests', userID, REQUEST_STATUS, clusterName],
+    () => fetchAccessRequests(userID, REQUEST_STATUS, clusterName),
+    {}
+  );
 
-// Trigger dialog immediately when date is beyond 2 weeks
-useEffect(() => {
-  if (selectedPGDate) {
-    const pgDate = dayjs(selectedPGDate);
-    if (pgDate.isAfter(twoWeeksLater)) {
-      setOpenPGDialog(true);
-    }
-  }
-}, [selectedPGDate, twoWeeksLater]);
+  useEffect(() => {
+    refetch();
+  }, [REQUEST_STATUS, clusterName]); // refetch on status or cluster change
 
-
----
-
-✅ 3. Add the Dialog Component with Updated Message:
-
-<Dialog open={openPGDialog} onClose={handlePGDialogClose}>
-  <DialogTitle>Priority Queue Restriction</DialogTitle>
-  <DialogContent>
-    <Typography>
-      **Priority queue requests are only allowed if your PG date is within the next 2 weeks.**  
-      If you have an urgent need, please send an email to:  
-      <strong>support@example.com</strong>.
-    </Typography>
-  </DialogContent>
-  <DialogActions>
-    <Button onClick={handlePGDialogClose}>OK</Button>
-  </DialogActions>
-</Dialog>
-
-
----
-
-✅ Explanation of Changes:
-
-1. Immediate Dialog Trigger:
-
-The useEffect() hook monitors PG_DATE with watch() and triggers the dialog as soon as a date beyond 2 weeks is selected.
-
-
-
-2. Strict Message:
-
-The dialog message clearly states that priority queue is only allowed for dates within 2 weeks.
-
-It provides an email ID for urgent cases.
-
-
-
-3. Date Reset on Dialog Close:
-
-On closing the dialog, the PG_DATE is reset to today's date using:
-
-
-setValue("PG_DATE", today.format("YYYY-MM-DD"));
-
-
-
-
----
-
-💡 Optional: Snackbar Notification
-
-If you want to notify the user after resetting the date, you can display a snackbar:
-
-const handlePGDialogClose = () => {
-  setOpenPGDialog(false);
-  setValue("PG_DATE", today.format("YYYY-MM-DD"));
-  setSnackbarSeverity("info");
-  setSnackbarMessage("PG date reset to today's date.");
-  setOpenSnackbar(true);
+  // ...
 };
 
-✅ Let me know if you need further modifications or refinements!
+
+---
+
+3. Update main.py backend
+
+Update your Flask endpoint to read the clusterName from the query string.
+
+userID = request.args.get('userID')
+REQUEST_STATUS = request.args.get('REQUEST_STATUS')
+site_name = request.args.get('clusterName')  # Now taken from frontend instead of context mapping
+
+You can optionally fall back to the mapping if clusterName is not passed.
 
 
+---
 
-const onSubmit = async (data) => {
-  setIsSubmitting(true);
-
-  // Check PG_DATE when queue is priority
-  if (data.QUEUE === "priority") {
-    const selectedDate = dayjs(data.PG_DATE);
-    if (selectedDate.isAfter(twoWeeksLater)) {
-      setOpenPGDialog(true);   // Show dialog if PG_DATE > 2 weeks
-      setIsSubmitting(false);
-      return;
-    }
-  }
-
-  // Continue with the submission logic
-  data.REQUEST_STATUS = "PENDING";
-  data.USER_AID = userID;
-  data.SUBMISSION_DATE = today.format("YYYY-MM-DD");
-
-  try {
-    const response = await apiInstance.post("/queue_request", data);
-    if (response.status === 200) {
-      setSnackbarSeverity("success");
-      setSnackbarMessage("Request submitted successfully!");
-      setOpenSnackbar(true);
-      handleReset();
-    }
-  } catch (error) {
-    console.error("Submission failed:", error);
-    setSnackbarSeverity("error");
-    setSnackbarMessage("Failed to submit request. Please try again.");
-    setOpenSnackbar(true);
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+Let me know if you want to dynamically populate the cluster list as well (e.g. from backend via API).
 
