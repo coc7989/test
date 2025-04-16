@@ -1,19 +1,18 @@
-const {
-  control,
-  handleSubmit,
-  reset,
-  watch,
-  formState: { errors },
-  setValue,
-} = useForm({
-  mode: 'onChange',
-  defaultValues: {
-    CLUSTER_NAME: '',
-    SLOT_TYPE: '',
-    PROJECT_NAME: '',
-    REQUESTED_SLOT: '',
-    ACCESS_END_DATE: null,
-    JUSTIFICATION: '',
-  },
-});
-
+{
+  "_notes": [
+    "Slot Queue Configuration - Golden Source",
+    "Format: <queue_name>: [ { slots, file }, ... ]",
+    "To add a new slot group, add entries under queue name.",
+    "Update Jenkins + UI consumers after changes."
+  ],
+  "gui": [
+    { "slots": 12, "file": "gui_12_grp" },
+    { "slots": 20, "file": "gui_20_grp" }
+  ],
+  "api": [
+    { "slots": 10, "file": "api_10_grp" }
+  ],
+  "default": [
+    { "slots": 5, "file": "default_5_grp" }
+  ]
+}
