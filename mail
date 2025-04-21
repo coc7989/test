@@ -1,92 +1,176 @@
-Yes, you can achieve this by using resource allocation limits and user group configurations in IBM LSF. Specifically, you can configure your LSF cluster to restrict the usage of ws70 to specific users, while allowing unrestricted access to ws80 for all users.
+Absolutely, here's a clean separation of concerns approach:
 
-Here are the steps to implement this restriction:
+Frontend will:
 
+Continue calling /admin_panel_requests with selected fields.
 
----
-
-1. Define the Resource (ws70) in lsf.shared
-
-Ensure the resources ws70 and ws80 are defined in the lsf.shared configuration file. For example:
-
-Begin Resource
-RESOURCENAME  TYPE      INTERVAL  INCREASING  DESCRIPTION
-ws70          Boolean   ()        ()          Resource ws70
-ws80          Boolean   ()        ()          Resource ws80
-End Resource
-
-Run lsadmin reconfig after editing the file.
+If action is REJECTED, it will also make a second API call to /send_rejection_email_for_admin_panel_requests, passing the full row.original.
 
 
----
+Backend will:
 
-2. Set Up a Resource Allocation Limit
+Keep /admin_panel_requests focused on DB update logic.
 
-Edit the lsf.cluster.<cluster_name> configuration file to define an allocation limit for the resource ws70 by user group.
+Add a new route /send_rejection_email_for_admin_panel_requests to send the email using row.original and the mapping.
 
-Example Configuration:
-
-Begin ResourceMap
-RESOURCENAME  HOSTS
-ws70          all
-ws80          all
-End ResourceMap
-
-Begin UserGroup
-GROUP_NAME    GROUP_MEMBER
-allow_ws70    user1 user2
-End UserGroup
-
-Begin ResourceLimit
-NAME          USERS         RESOURCES         HOSTS         QUEUES         DURATION
-limit_ws70    all           ws70              all           all            0
-allow_ws70    @allow_ws70   ws70              all           all            0
-End ResourceLimit
-
-The first rule (limit_ws70) blocks all users from using ws70.
-
-The second rule (allow_ws70) allows only users in the allow_ws70 group to use ws70.
 
 
 
 ---
 
-3. Reload the Configuration
+Frontend: Full Updated Code
 
-Run the following commands to apply the new configuration:
+const handleClick = async (row, action, reason = null) => {
+  setOpen(true);
+  console.log('row.original', row.original);
 
-lsadmin reconfig
-badmin reconfig
+  const {
+    REQUEST_ID,
+    CATEGORY_NAME,
+    REQUEST_TYPE,
+    USER_ID,
+    ...otherProps
+  } = row.original;
+
+  const rowData = {
+    REQUEST_ID,
+    ADMIN_APPROVAL: userID,
+    CATEGORY_NAME,
+    REQUEST_TYPE,
+    USER_ID,
+    action,
+    rejectionReason: reason,
+  };
+
+  try {
+    const response = await apiInstance.put('/admin_panel_requests', [rowData]);
+    console.log(response, 'handleClick response');
+
+    if (response.status === 200) {
+      await refetch();
+      setOpenSnackbar(true);
+      setSnackbarMessage(response.data.message);
+      setOpen(false);
+
+      if (action === 'APPROVED') {
+        try {
+          const jenkinsResponse = await apiInstance.post('/trigger_jenkins_for_admin_panel_requests', [rowData]);
+          console.log('Automation triggered for request', REQUEST_ID);
+          if (jenkinsResponse.status === 200) {
+            console.log('Automation process completed successfully');
+          }
+        } catch (error) {
+          if (error.jenkinsResponse && error.jenkinsResponse.status === 401) {
+            console.log('SSO Timeout');
+            setSessionTimeout(true);
+          } else if (error.jenkinsResponse?.status === 500) {
+            console.log('Automation execution failed:', error.jenkinsResponse.data.error_message);
+          }
+        }
+      } else if (action === 'REJECTED') {
+        const rejectionPayload = {
+          ...row.original,
+          action,
+          rejectionReason: reason,
+        };
+
+        try {
+          const emailResponse = await apiInstance.post('/send_rejection_email_for_admin_panel_requests', rejectionPayload);
+          console.log('Rejection email sent:', emailResponse.data.message);
+        } catch (emailError) {
+          console.error('Failed to send rejection email:', emailError);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Action Failed:', error);
+  }
+};
 
 
 ---
 
-4. Testing the Configuration
+Backend: Full Code Updates
 
-Users not in the allow_ws70 group will receive an error if they try to use ws70:
+1. Mapping + HTML Table Helpers
 
-bsub -R "select[ws70]" my_job
+# Add this globally
+COLUMN_NAME_MAPPING = {
+    "REQUEST_ID": "Request ID",
+    "CATEGORY_NAME": "Category",
+    "REQUEST_TYPE": "Request Type",
+    "USER_ID": "User ID",
+    "PROJECT_NAME": "Project Name",
+    "REJECTION_REASON": "Rejection Reason",
+    "ADMIN_APPROVAL": "Reviewed By",
+    "action": "Request Status",
+    # Add more as needed
+}
 
-Error: Job not submitted: User does not have permission to use resource ws70.
-
-Users in the allow_ws70 group can submit jobs with ws70:
-
-bsub -R "select[ws70]" my_job
-
-Job is successfully submitted.
-
+def generate_html_table(data):
+    rows = ""
+    for key, value in data.items():
+        pretty_key = COLUMN_NAME_MAPPING.get(key, key)
+        rows += f"<tr><td><strong>{pretty_key}</strong></td><td>{value}</td></tr>"
+    return f"""
+    <html>
+      <body>
+        <p>The following request has been <strong>REJECTED</strong>.</p>
+        <p><strong>Rejection Reason:</strong> {data.get('rejectionReason', 'N/A')}</p>
+        <br/>
+        <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
+          {rows}
+        </table>
+      </body>
+    </html>
+    """
 
 
 ---
 
-Notes
+2. Rejection Email API Endpoint
 
-If you need finer control, you can further restrict based on queues or specific hosts by modifying the ResourceLimit section.
+@app.route(f"{API_URL_PREFIX}/send_rejection_email_for_admin_panel_requests", methods=['POST'])
+@cross_origin()
+def send_rejection_email():
+    try:
+        data = request.json
+        user_id = data.get('USER_ID')
+        if not user_id:
+            return jsonify({"error": "Missing USER_ID"}), 400
 
-Always back up your configuration files before making changes.
+        html_content = generate_html_table(data)
 
-Use bresources to verify resource configurations and badmin showlim to check active limits.
+        msg = Message(
+            subject="Request Rejected Notification",
+            sender="noreply@yourdomain.com",
+            recipients=[f"{user_id}@yourcompany.com"],
+            html=html_content
+        )
+        mail.send(msg)
+        print(f"Rejection email sent to {user_id}")
+        return jsonify({"message": "Rejection email sent successfully"}), 200
+
+    except Exception as e:
+        print(f"Failed to send rejection email: {str(e)}")
+        return jsonify({"error": "Failed to send rejection email"}), 500
 
 
-Let me know if you need further guidance!
+---
+
+3. No Changes Needed to PUT /admin_panel_requests
+
+Keep it exactly as you had it for updating the database.
+
+
+---
+
+Let me know if:
+
+You want to support CC/BCC in the rejection email.
+
+You’re not using Flask-Mail and need a different SMTP/email setup.
+
+You want to embed images or logos in the email.
+
 
