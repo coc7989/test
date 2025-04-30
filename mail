@@ -1,176 +1,193 @@
-Absolutely, here's a clean separation of concerns approach:
+🔧 1. LSF Job Scheduler Health and Performance
+Critical Areas:
 
-Frontend will:
-
-Continue calling /admin_panel_requests with selected fields.
-
-If action is REJECTED, it will also make a second API call to /send_rejection_email_for_admin_panel_requests, passing the full row.original.
+Job throughput and queue delays
 
 
-Backend will:
-
-Keep /admin_panel_requests focused on DB update logic.
-
-Add a new route /send_rejection_email_for_admin_panel_requests to send the email using row.original and the mapping.
+Scheduler daemon health (mbatchd, sbatchd)
 
 
+License usage (if any licensed features like Intel compilers, ANSYS, etc.)
 
 
----
+Key Metrics:
 
-Frontend: Full Updated Code
-
-const handleClick = async (row, action, reason = null) => {
-  setOpen(true);
-  console.log('row.original', row.original);
-
-  const {
-    REQUEST_ID,
-    CATEGORY_NAME,
-    REQUEST_TYPE,
-    USER_ID,
-    ...otherProps
-  } = row.original;
-
-  const rowData = {
-    REQUEST_ID,
-    ADMIN_APPROVAL: userID,
-    CATEGORY_NAME,
-    REQUEST_TYPE,
-    USER_ID,
-    action,
-    rejectionReason: reason,
-  };
-
-  try {
-    const response = await apiInstance.put('/admin_panel_requests', [rowData]);
-    console.log(response, 'handleClick response');
-
-    if (response.status === 200) {
-      await refetch();
-      setOpenSnackbar(true);
-      setSnackbarMessage(response.data.message);
-      setOpen(false);
-
-      if (action === 'APPROVED') {
-        try {
-          const jenkinsResponse = await apiInstance.post('/trigger_jenkins_for_admin_panel_requests', [rowData]);
-          console.log('Automation triggered for request', REQUEST_ID);
-          if (jenkinsResponse.status === 200) {
-            console.log('Automation process completed successfully');
-          }
-        } catch (error) {
-          if (error.jenkinsResponse && error.jenkinsResponse.status === 401) {
-            console.log('SSO Timeout');
-            setSessionTimeout(true);
-          } else if (error.jenkinsResponse?.status === 500) {
-            console.log('Automation execution failed:', error.jenkinsResponse.data.error_message);
-          }
-        }
-      } else if (action === 'REJECTED') {
-        const rejectionPayload = {
-          ...row.original,
-          action,
-          rejectionReason: reason,
-        };
-
-        try {
-          const emailResponse = await apiInstance.post('/send_rejection_email_for_admin_panel_requests', rejectionPayload);
-          console.log('Rejection email sent:', emailResponse.data.message);
-        } catch (emailError) {
-          console.error('Failed to send rejection email:', emailError);
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Action Failed:', error);
-  }
-};
+Number of pending jobs (bjobs -p)
 
 
----
-
-Backend: Full Code Updates
-
-1. Mapping + HTML Table Helpers
-
-# Add this globally
-COLUMN_NAME_MAPPING = {
-    "REQUEST_ID": "Request ID",
-    "CATEGORY_NAME": "Category",
-    "REQUEST_TYPE": "Request Type",
-    "USER_ID": "User ID",
-    "PROJECT_NAME": "Project Name",
-    "REJECTION_REASON": "Rejection Reason",
-    "ADMIN_APPROVAL": "Reviewed By",
-    "action": "Request Status",
-    # Add more as needed
-}
-
-def generate_html_table(data):
-    rows = ""
-    for key, value in data.items():
-        pretty_key = COLUMN_NAME_MAPPING.get(key, key)
-        rows += f"<tr><td><strong>{pretty_key}</strong></td><td>{value}</td></tr>"
-    return f"""
-    <html>
-      <body>
-        <p>The following request has been <strong>REJECTED</strong>.</p>
-        <p><strong>Rejection Reason:</strong> {data.get('rejectionReason', 'N/A')}</p>
-        <br/>
-        <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
-          {rows}
-        </table>
-      </body>
-    </html>
-    """
+Average job wait time
 
 
----
-
-2. Rejection Email API Endpoint
-
-@app.route(f"{API_URL_PREFIX}/send_rejection_email_for_admin_panel_requests", methods=['POST'])
-@cross_origin()
-def send_rejection_email():
-    try:
-        data = request.json
-        user_id = data.get('USER_ID')
-        if not user_id:
-            return jsonify({"error": "Missing USER_ID"}), 400
-
-        html_content = generate_html_table(data)
-
-        msg = Message(
-            subject="Request Rejected Notification",
-            sender="noreply@yourdomain.com",
-            recipients=[f"{user_id}@yourcompany.com"],
-            html=html_content
-        )
-        mail.send(msg)
-        print(f"Rejection email sent to {user_id}")
-        return jsonify({"message": "Rejection email sent successfully"}), 200
-
-    except Exception as e:
-        print(f"Failed to send rejection email: {str(e)}")
-        return jsonify({"error": "Failed to send rejection email"}), 500
+mbatchd daemon status & restart count
 
 
----
-
-3. No Changes Needed to PUT /admin_panel_requests
-
-Keep it exactly as you had it for updating the database.
+sbatchd status per compute node
 
 
----
-
-Let me know if:
-
-You want to support CC/BCC in the rejection email.
-
-You’re not using Flask-Mail and need a different SMTP/email setup.
-
-You want to embed images or logos in the email.
+Queue lengths and utilization
 
 
+Job failure rates
+
+
+License usage (via lmstat or FlexLM integration)
+
+
+🖥️ 2. Compute Node Health & UtilizationCritical Areas:
+
+Node availability and responsiveness
+
+
+Resource bottlenecks (CPU, memory, disk)
+
+
+Thermal or hardware issues (especially in HPCI systems)
+
+
+Key Metrics:
+
+CPU load average per node
+
+
+Memory usage (used vs. available)
+
+
+Disk usage / inode exhaustion
+
+
+GPU utilization (if applicable)
+
+
+Network throughput and latency
+
+
+Node down/unreachable events
+
+
+Hardware errors (via IPMI, sensors, or logs)
+
+
+📦 3. Cluster Resource UtilizationCritical Areas:
+
+Underutilized or overloaded resources
+
+
+Imbalanced workload distribution
+
+
+Key Metrics:
+Core hours used vs. available
+
+
+Memory usage trends across the cluster
+
+
+Job slot usage per node or group
+
+
+
+Idle vs. active node time
+
+
+
+Resource reservation patterns
+
+
+🧑‍🔬 4. User Behavior and Job EfficiencyCritical Areas:
+
+Inefficient job scripts or resource requests
+
+
+Misuse of shared resources
+
+
+
+Frequent job failures or reruns
+
+
+Key Metrics:
+Top N users by job submissions
+
+
+
+Top users by CPU/memory consumption
+
+
+Jobs exceeding walltime or memory limits
+
+
+Job exit codes and failure reasons
+
+
+Ratio of successful vs. failed jobs
+
+🔍 Expanded Monitoring Dimensions
+1. LSF Scheduling Efficiency & Job Trends
+
+Backlog analysis: Identify queues/jobs that are perpetually backlogged or starved of resources.
+
+
+Slot fragmentation: Detect when jobs can't start due to mismatch between requested resources and available slots.
+
+
+Job array behavior: Monitor massive job arrays for anomalies (e.g., high failure rates, uneven durations).
+
+
+Job preemption or suspension tracking: Useful if you implement preemptive scheduling policies.
+
+
+2. Node Lifecycle and Maintenance Awareness
+
+Track nodes entering/exiting maintenance states (bhosts, lsload).
+
+
+Detect nodes frequently flipping between available and unavailable states—possible hardware issues.
+
+
+Rolling node performance degradation: Over time, disk IO or memory performance can degrade unnoticed.
+
+
+3. I/O and Filesystem Bottlenecks
+Monitor Lustre, GPFS, or NFS performance if using shared filesystems.
+
+
+Look for slow I/O that delays job completion (especially critical for simulation workloads).
+
+
+File count & inode usage per user/job temp area.
+
+
+4. Environmental Metrics (if available)
+
+Temperature, fan speed, power usage per node (through IPMI/SNMP).
+
+
+High temperature could indicate impending thermal throttling or hardware damage.
+
+
+5. Job Efficiency Metrics
+Resource efficiency scoring per job:
+
+
+CPU efficiency = CPU time / walltime
+
+
+Memory efficiency = avg memory used / memory requested
+
+
+
+
+Zombie jobs (jobs doing nothing but still running).
+
+
+Jobs with high page fault or context switch rates.
+
+
+6. License Bottlenecks (If using license-based software)
+Time jobs spent waiting for license tokens.
+
+
+License denials per vendor (via FlexLM debug logs).
+
+
+Peak vs. actual usage of licenses.
