@@ -1,0 +1,108 @@
+To modify your code so that generate_super_admin_html_table returns subject and recipients (to_email) along with the HTML content, we can:
+
+1. Update generate_super_admin_html_table(data) to return a tuple: (html_content, subject, to_email)
+
+
+2. Move the subject and recipient logic inside this function based on REQUEST_STATUS.
+
+
+3. Refactor send_super_admin_email to unpack the returned values.
+
+
+
+Here’s the updated version of both functions:
+
+
+---
+
+Updated generate_super_admin_html_table:
+
+def generate_super_admin_html_table(data):
+    try:
+        COLUMN_NAME_MAPPING = {
+            "REQUEST_ID": "Request ID",
+            "USER_AID": "Requested By",
+            "GROUP_AID": "Requested For",
+            "PROJECT_NAME": "Project Name",
+            "REVIEWED_BY": "Reviewed By",
+            "PLM_AID": "Reviewed By",
+        }
+
+        column_order = ["REQUEST_ID", "PROJECT_NAME", "REVIEWED_BY", "GROUP_AID"]
+        rows = ""
+        for key in column_order:
+            if key in data and data[key]:
+                label = COLUMN_NAME_MAPPING.get(key, key)
+                rows += f"<tr><td><b>{label}</b></td><td>{data[key]}</td></tr>"
+
+        request_status = data.get("REQUEST_STATUS")
+        category = data.get("CATEGORY_NAME")
+        user_aid = data.get("USER_AID")
+        group_aid = data.get("GROUP_AID", "")
+        plm_aid = data.get("PLM_AID", "")
+        project_name = data.get("PROJECT_NAME", "")
+        request_type = data.get("REQUEST_TYPE", "").upper()
+
+        if request_status == "COMPLETED" and category == "SLOT":
+            subject = f"{request_type} Queue Access Approved for Project: {project_name}"
+            recipients = ",".join([f"{aid}@ti.com" for aid in group_aid.split(",") + plm_aid.split(",")])
+            html_content = f"<html><body><h3>Access Approved</h3><table>{rows}</table></body></html>"
+        elif request_status == "ACCESS ENDED":
+            subject = f"{request_type} Queue Access Ended for Project: {project_name}"
+            recipients = f"{user_aid}@ti.com"
+            html_content = f"<html><body><h3>Access Ended</h3><table>{rows}</table></body></html>"
+        else:
+            subject = f"{request_type} Queue Notification for Project: {project_name}"
+            recipients = f"{user_aid}@ti.com"
+            html_content = f"<html><body><h3>Status Update</h3><table>{rows}</table></body></html>"
+
+        return html_content, subject, recipients
+
+    except Exception as e:
+        print(f"Failed to generate html table: {str(e)}")
+        return "<html><body>Error generating email</body></html>", "Error Email", "admin@ti.com"
+
+
+---
+
+Updated send_super_admin_email:
+
+def send_super_admin_email(data):
+    try:
+        data = request.json
+        print("data for super admin email:", data)
+
+        html_content, subject, to_email = generate_super_admin_html_table(data)
+
+        smtp_server = 'smtp.mail.ti.com'
+        smtp_port = 25
+        sender_email = "noreply-mylsf@ti.com"
+
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(html_content, "html"))
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.sendmail(sender_email, to_email.split(","), msg.as_string())  # ensure multiple recipients work
+        server.quit()
+
+        print(f"Email sent to {to_email}")
+        return jsonify({"message": "Email sent successfully"}), 200
+    except Exception as e:
+        print(f"Failed to send email: {str(e)}")
+        return jsonify({"error": "Failed to send email"}), 500
+
+
+---
+
+This setup ensures:
+
+The HTML, subject, and recipients are dynamically generated based on logic.
+
+Recipients list is formatted correctly (especially when multiple).
+
+
+Would you like me to help you modularize this further or support more elif conditions?
+
