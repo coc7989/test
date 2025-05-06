@@ -1,108 +1,88 @@
-To modify your code so that generate_super_admin_html_table returns subject and recipients (to_email) along with the HTML content, we can:
+Got it — if you want to use plain file writing instead of Python's logging module, you can manage two separate log files manually: one for cron jobs, and one for API route logs.
 
-1. Update generate_super_admin_html_table(data) to return a tuple: (html_content, subject, to_email)
-
-
-2. Move the subject and recipient logic inside this function based on REQUEST_STATUS.
-
-
-3. Refactor send_super_admin_email to unpack the returned values.
-
-
-
-Here’s the updated version of both functions:
+Here’s how to set it up cleanly:
 
 
 ---
 
-Updated generate_super_admin_html_table:
+1. Utility Functions for Logging
 
-def generate_super_admin_html_table(data):
+Create a logger_utils.py file (or keep in your main file) with:
+
+import os
+from datetime import datetime
+import platform
+
+# Set base log directory cross-platform
+if platform.system() == 'Windows':
+    BASE_LOG_DIR = 'C:\\log'
+else:
+    BASE_LOG_DIR = '/var/log/my_app'  # or '/home/youruser/logs'
+
+os.makedirs(BASE_LOG_DIR, exist_ok=True)
+
+CRON_LOG_FILE = os.path.join(BASE_LOG_DIR, 'cron_jobs.log')
+API_LOG_FILE = os.path.join(BASE_LOG_DIR, 'api_errors.log')
+
+
+def write_to_cron_log(message):
+    _write_to_file(CRON_LOG_FILE, message)
+
+
+def write_to_api_log(message):
+    _write_to_file(API_LOG_FILE, message)
+
+
+def _write_to_file(filepath, message):
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    with open(filepath, 'a') as f:
+        f.write(f"[{timestamp}] {message}\n")
+
+
+---
+
+2. Use in Cron Jobs
+
+from logger_utils import write_to_cron_log
+
+def scheduled_database_removal_query():
+    write_to_cron_log("Job started: daily_database_removal_query")
     try:
-        COLUMN_NAME_MAPPING = {
-            "REQUEST_ID": "Request ID",
-            "USER_AID": "Requested By",
-            "GROUP_AID": "Requested For",
-            "PROJECT_NAME": "Project Name",
-            "REVIEWED_BY": "Reviewed By",
-            "PLM_AID": "Reviewed By",
-        }
-
-        column_order = ["REQUEST_ID", "PROJECT_NAME", "REVIEWED_BY", "GROUP_AID"]
-        rows = ""
-        for key in column_order:
-            if key in data and data[key]:
-                label = COLUMN_NAME_MAPPING.get(key, key)
-                rows += f"<tr><td><b>{label}</b></td><td>{data[key]}</td></tr>"
-
-        request_status = data.get("REQUEST_STATUS")
-        category = data.get("CATEGORY_NAME")
-        user_aid = data.get("USER_AID")
-        group_aid = data.get("GROUP_AID", "")
-        plm_aid = data.get("PLM_AID", "")
-        project_name = data.get("PROJECT_NAME", "")
-        request_type = data.get("REQUEST_TYPE", "").upper()
-
-        if request_status == "COMPLETED" and category == "SLOT":
-            subject = f"{request_type} Queue Access Approved for Project: {project_name}"
-            recipients = ",".join([f"{aid}@ti.com" for aid in group_aid.split(",") + plm_aid.split(",")])
-            html_content = f"<html><body><h3>Access Approved</h3><table>{rows}</table></body></html>"
-        elif request_status == "ACCESS ENDED":
-            subject = f"{request_type} Queue Access Ended for Project: {project_name}"
-            recipients = f"{user_aid}@ti.com"
-            html_content = f"<html><body><h3>Access Ended</h3><table>{rows}</table></body></html>"
-        else:
-            subject = f"{request_type} Queue Notification for Project: {project_name}"
-            recipients = f"{user_aid}@ti.com"
-            html_content = f"<html><body><h3>Status Update</h3><table>{rows}</table></body></html>"
-
-        return html_content, subject, recipients
-
+        # Your logic here
+        write_to_cron_log("Completed processing successfully")
     except Exception as e:
-        print(f"Failed to generate html table: {str(e)}")
-        return "<html><body>Error generating email</body></html>", "Error Email", "admin@ti.com"
+        write_to_cron_log(f"Job failed with error: {e}")
 
 
 ---
 
-Updated send_super_admin_email:
+3. Use in Flask API
 
-def send_super_admin_email(data):
+Wrap your routes or use @app.errorhandler:
+
+from flask import Flask, jsonify
+from logger_utils import write_to_api_log
+
+app = Flask(__name__)
+
+@app.route('/example')
+def example():
     try:
-        data = request.json
-        print("data for super admin email:", data)
-
-        html_content, subject, to_email = generate_super_admin_html_table(data)
-
-        smtp_server = 'smtp.mail.ti.com'
-        smtp_port = 25
-        sender_email = "noreply-mylsf@ti.com"
-
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(html_content, "html"))
-
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.sendmail(sender_email, to_email.split(","), msg.as_string())  # ensure multiple recipients work
-        server.quit()
-
-        print(f"Email sent to {to_email}")
-        return jsonify({"message": "Email sent successfully"}), 200
+        # API logic here
+        return jsonify({'status': 'success'})
     except Exception as e:
-        print(f"Failed to send email: {str(e)}")
-        return jsonify({"error": "Failed to send email"}), 500
+        write_to_api_log(f"API /example failed with error: {e}")
+        return jsonify({'error': 'Something went wrong'}), 500
+
+You can also globally catch unhandled exceptions in Flask like this:
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    write_to_api_log(f"Unhandled exception: {str(e)}")
+    return jsonify({'error': 'Internal server error'}), 500
 
 
 ---
 
-This setup ensures:
-
-The HTML, subject, and recipients are dynamically generated based on logic.
-
-Recipients list is formatted correctly (especially when multiple).
-
-
-Would you like me to help you modularize this further or support more elif conditions?
+Would you like to add log rotation (e.g. daily log files) or is a single growing log file okay for now?
 
