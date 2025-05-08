@@ -1,0 +1,157 @@
+Absolutely. Here's a breakdown of what each IBM LSF configuration file typically contains and what it controls. Understanding this helps you ensure each one is optimized and well-structured:
+
+
+---
+
+1. lsf.conf – Global LSF Environment Settings
+
+This is the main environment configuration file and is sourced by all LSF daemons and tools.
+
+Key contents:
+
+Paths and environment variables:
+
+LSF_ENVDIR, LSF_SERVERDIR, LSF_LOGDIR, etc.
+
+
+Cluster name:
+
+LSF_CLUSTER_NAME
+
+
+Logging levels and behavior:
+
+LSF_LOG_MASK, LSF_LOGDIR
+
+
+Daemon control:
+
+LSF_LIM_PORT, LSF_RES_PORT, LSF_MBD_PORT
+
+
+Licensing info (if applicable)
+
+Scheduler tuning:
+
+MBD_SLEEP_TIME, SCHEDULER_INTERVAL
+
+
+
+Goal: Define the LSF runtime environment and system-wide behavior.
+
+
+---
+
+2. lsf.cluster.<cluster_name> – Cluster-Wide Host Definitions
+
+Defines the hosts in your LSF cluster, including which ones act as master or slave.
+
+Key contents:
+
+Hostnames and roles (e.g., master, slave)
+
+Host types and models (e.g., x86_64, intel)
+
+Default resource configurations (optional)
+
+
+Example:
+
+Begin   Host
+HOST_NAME      model    type   server   RESOURCES
+lsf-master     X86_64   linux  1        (lsfmaster)
+compute001     X86_64   linux  1        (compute)
+End     Host
+
+Goal: Define which machines are part of the cluster and what roles/resources they play.
+
+
+---
+
+3. lsb.queues – Queue Definitions and Job Control Policies
+
+Controls job queues, limits, scheduling, and policies.
+
+Key contents:
+
+Queue names and host assignments
+
+Priority levels and fairshare settings
+
+Job slot limits, runtime limits, thresholds
+
+Preemption, backfilling, and job acceptance rules
+
+Default job resource requirements
+
+
+Goal: Define how jobs are submitted, scheduled, prioritized, and managed.
+
+
+---
+
+4. lsb.hosts – Per-Host Job Control Settings
+
+Overrides or augments the default cluster settings per host.
+
+Key contents:
+
+Host-level resource availability (slots, memory, custom resources)
+
+Job concurrency limits
+
+Load thresholds for job dispatch
+
+
+Goal: Fine-tune job behavior on a per-host basis (e.g., limit max jobs per host).
+
+
+---
+
+5. lsb.resources – Custom Resource Types and Tags
+
+Defines resource names, types, usage rules, and units.
+
+Key contents:
+
+Boolean, numeric, or string resources
+
+Dynamic vs static attributes
+
+How LSF queries or calculates the resource
+
+
+Example:
+
+rusage[mem]
+type    Numeric
+interval 15
+description  "Memory in MB"
+
+Goal: Allow jobs to request meaningful, schedulable resources (e.g., memory, GPU, licenses).
+
+
+---
+
+6. ego.conf – (Optional) Platform EGO Configuration
+
+If you're using Platform EGO (Enterprise Grid Orchestrator) as the resource management layer beneath LSF, this file configures it.
+
+Key contents:
+
+Cluster and consumer topology
+
+Resource allocation policies
+
+Component settings for EGO daemons
+
+Logging and failover
+
+
+Goal: Control advanced scheduling and resource allocation (e.g., for mixed workloads, containers, YARN).
+
+
+---
+
+Would you like a checklist of best practices for each of these files, or a sample config bundle to compare with?
+
