@@ -1,336 +1,84 @@
-yYou're building a solid observability plan around IBM LSF, and tying it with Zabbix is a great idea for real-time monitoring. Below is a breakdown of each critical area, key metrics, explanations, and how to collect that data, ideally integrating with Zabbix or external scripts.
+yIn IBM LSF, the bhosts command shows the status of each host in the cluster. The STATUS field helps administrators understand the availability and readiness of each host for running jobs. Here's a breakdown of the most common statuses:
 
 
 ---
 
-1. LSF Job Scheduler Health and Performance
+1. ok
 
-Critical Areas and Metrics
+Meaning: The host is available and functioning normally.
 
-a) Job throughput and queue delays
-
-What it is: Measures how many jobs are being processed and how long jobs wait in the queue.
-
-Metrics:
-
-bjobs -p -o "pend_reason" – See why jobs are pending.
-
-Job submission vs completion rate.
-
-
-How to gather:
-
-Script to parse bjobs output and count jobs per queue/user.
-
-Monitor with Zabbix via a custom script using LSF CLI.
-
-
-
-b) Number of cores (DPP 1hosts vs Non-DPP) vs OS type (ws70 vs ws80)
-
-What it is: Helps compare job distribution and performance across hardware and OS types.
-
-Metrics:
-
-Cores available and used per host type.
-
-Job slot usage categorized by OS type.
-
-
-How to gather:
-
-Use lsload, bhosts, and lsfhostgroup info.
-
-Maintain a host mapping file (host -> DPP/OS type) and use Zabbix low-level discovery.
-
-
-
-c) Scheduler daemon health (mbatchd, sbatchd)
-
-What it is: Monitors if the LSF daemons are running, responsive, and healthy.
-
-Metrics:
-
-Live connection count.
-
-CPU usage.
-
-Process state (running, zombie).
-
-Systemctl service status.
-
-
-How to gather:
-
-Use ps, top, or systemctl status.
-
-Zabbix can monitor daemon state via a systemd check.
-
-Use a user parameter to parse process CPU.
-
-
-
-d) Identify queues/jobs backlogged/starved
-
-What it is: Identifies queues with large numbers of jobs waiting due to no resources.
-
-Metrics:
-
-Number of jobs pending per queue.
-
-Queues with long wait times.
-
-
-How to gather:
-
-Use bqueues, bjobs -p regularly.
-
-Zabbix can collect queue-wise job stats with a script and custom items.
-
-
-
-e) Job failure rates
-
-What it is: Tracks how often jobs fail and patterns behind failures.
-
-Metrics:
-
-Exit codes of jobs.
-
-Failure reasons from bhist -l or bacct.
-
-
-How to gather:
-
-Daily or hourly parsing of bacct -l or bhist -l by user/job ID.
-
-Feed into Zabbix with an external script or scheduled cron job.
-
+Jobs can be dispatched: Yes.
 
 
 
 ---
 
-2. Compute Node Health & Utilization
+2. unavail
 
-Critical Areas and Metrics
+Meaning: The host is not responding to LSF daemons (e.g., res or sbatchd).
 
-a) Node availability and responsiveness
+Possible causes:
 
-Metrics:
+Host is down.
 
-bhosts status.
+LSF daemons have crashed or are stopped.
 
-sbatchd responsiveness.
-
-Ping or SSH check.
+Network issues.
 
 
-How to gather:
-
-Use bhosts and alert if a node is unavail.
-
-Zabbix native agent can monitor host liveness.
-
-
-
-b) Resource bottlenecks (CPU, memory, disk)
-
-Metrics:
-
-CPU load: top, uptime, lsload.
-
-Memory usage: free, vmstat, top.
-
-Disk I/O: iostat, df -h /tmp.
-
-
-How to gather:
-
-Zabbix agent can directly monitor CPU/memory/disk.
-
-Extend with user parameters to fetch /tmp usage specifically.
-
-
-
-c) Thermal or hardware issues
-
-Metrics:
-
-CPU temperatures (lm_sensors).
-
-Disk health (SMART).
-
-Hardware logs.
-
-
-How to gather:
-
-Use sensors, smartctl, or IPMI tools.
-
-Zabbix templates exist for hardware health monitoring.
-
+Jobs can be dispatched: No.
 
 
 
 ---
 
-3. Cluster Resource Utilization
+3. unreachable
 
-Critical Areas and Metrics
+Meaning: The host is powered on but cannot be reached by the master host.
 
-a) Underutilized/Overloaded resources
+Difference from unavail: Indicates a communication problem rather than a daemon failure.
 
-Metrics:
-
-CPU core hours used vs. available.
-
-Memory usage trends.
-
-Slot usage.
-
-
-How to gather:
-
-lsload, bhosts, bacct to calculate usage over time.
-
-Zabbix graphs + history.
-
-
-
-b) Imbalanced workload distribution
-
-What it is: Detect if some nodes are heavily used while others sit idle.
-
-Metrics:
-
-Per-node usage stats from lsload, bhosts.
-
-
-How to gather:
-
-Cron job to scan node load and submit to Zabbix.
-
-Visualize via heatmaps or dashboards.
-
-
-
-c) Decommissioning hosts
-
-What it is: Identify hosts like ws40, ws60 that aren’t being used.
-
-Metrics:
-
-No jobs in last X days.
-
-Always idle.
-
-
-How to gather:
-
-Use bacct, bhist, and create report of idle nodes.
-
-Zabbix trend data can support long-term analysis.
-
+Jobs can be dispatched: No.
 
 
 
 ---
 
-4. User Behavior and Job Efficiency
+4. closed
 
-Critical Areas and Metrics
+Meaning: The host is administratively closed to new jobs.
 
-a) Inefficient jobs and resource misuse
+Set by: Admins or automatically by LSF policies.
 
-Metrics:
-
-Job efficiency = CPU time / wallclock.
-
-Memory requested vs. used.
-
-Frequent failures or short-lived jobs.
-
-
-How to gather:
-
-Use bacct -l, bjobs -l, or bhist.
-
-Export metrics to Zabbix per user/job group.
-
-
-
-b) Zombie or orphan jobs
-
-Metrics:
-
-Jobs running with 0% CPU or memory.
-
-Processes without parent LSF jobs.
-
-
-How to gather:
-
-Use ps scan + job-to-process matching script.
-
-Cross-reference with bjobs.
-
-
-
-c) Top N users by usage
-
-Metrics:
-
-Submissions.
-
-CPU/memory consumption.
-
-Failures per user.
-
-
-How to gather:
-
-Parse bacct, bjobs, or bhist.
-
-Zabbix external script can aggregate by user and push stats.
-
+Jobs can be dispatched: No new jobs; running jobs may continue.
 
 
 
 ---
 
-Sssd Failures Note:
+5. busy
 
-This is generally an infra issue. Monitor with:
+Meaning: The host is currently busy (e.g., high load or resource usage).
 
-journalctl -u sssd
+Trigger: Based on thresholds set in lsf.conf or host load thresholds.
 
-Zabbix can have a log file or systemd watcher for it.
-
-
-
----
-
-Integration with Zabbix
-
-1. Use Zabbix agent (passive or active) on all nodes.
-
-
-2. Create UserParameters for LSF-specific CLI queries.
-
-
-3. Aggregate Metrics via cron jobs or scheduled scripts.
-
-
-4. Use low-level discovery (LLD) to dynamically monitor compute nodes, queues, or user jobs.
-
-
-5. Set triggers and thresholds for pending jobs, daemon CPU usage, etc.
-
+Jobs can be dispatched: Usually no, unless configured otherwise.
 
 
 
 ---
 
-Let me know if you’d like help writing Zabbix user parameter scripts or a dashboard template for any of these categories.
+Other statuses you might see:
+
+full: Host has reached the max job limit.
+
+locked: Host is locked for exclusive job use.
+
+no_license: License unavailable for this host (in licensed environments).
+
+
+
+---
+
+Would you like a command example to filter or monitor these statuses dynamically?
 
