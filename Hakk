@@ -1,84 +1,153 @@
-yIn IBM LSF, the bhosts command shows the status of each host in the cluster. The STATUS field helps administrators understand the availability and readiness of each host for running jobs. Here's a breakdown of the most common statuses:
+tTo build a clean and intuitive React frontend for viewing log files based on environment and log type (cron or API error), here's a suggested design and implementation plan:
 
 
 ---
 
-1. ok
+Goals of the Frontend
 
-Meaning: The host is available and functioning normally.
+Single-page application (SPA) with a simple interface.
 
-Jobs can be dispatched: Yes.
+Environment-aware (dev vs prod).
 
+User selects log type: API Errors or Cron Jobs.
 
+Displays log file content in a readable format.
 
----
-
-2. unavail
-
-Meaning: The host is not responding to LSF daemons (e.g., res or sbatchd).
-
-Possible causes:
-
-Host is down.
-
-LSF daemons have crashed or are stopped.
-
-Network issues.
-
-
-Jobs can be dispatched: No.
+Option to refresh/reload logs.
 
 
 
 ---
 
-3. unreachable
+Design Proposal
 
-Meaning: The host is powered on but cannot be reached by the master host.
+UI Layout
 
-Difference from unavail: Indicates a communication problem rather than a daemon failure.
+Header: Displays current environment (e.g., "Environment: Dev")
 
-Jobs can be dispatched: No.
+Log Type Toggle:
 
-
-
----
-
-4. closed
-
-Meaning: The host is administratively closed to new jobs.
-
-Set by: Admins or automatically by LSF policies.
-
-Jobs can be dispatched: No new jobs; running jobs may continue.
+Dropdown or buttons: API Logs, Cron Logs
 
 
+Log Viewer Panel:
 
----
+Scrollable, formatted text area.
 
-5. busy
+Line numbers and timestamps visible.
 
-Meaning: The host is currently busy (e.g., high load or resource usage).
 
-Trigger: Based on thresholds set in lsf.conf or host load thresholds.
-
-Jobs can be dispatched: Usually no, unless configured otherwise.
+Refresh Button: To reload logs without refreshing the page.
 
 
 
 ---
 
-Other statuses you might see:
+Example React UI (with Tailwind CSS for styling)
 
-full: Host has reached the max job limit.
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 
-locked: Host is locked for exclusive job use.
+const LOG_TYPES = {
+  api: 'API Error Logs',
+  cron: 'Cron Job Logs',
+};
 
-no_license: License unavailable for this host (in licensed environments).
+export default function LogViewer() {
+  const [logType, setLogType] = useState('api');
+  const [logContent, setLogContent] = useState('');
+  const [env, setEnv] = useState('dev');
+
+  const fetchLogs = async () => {
+    try {
+      const response = await axios.get(`/logs/${logType}`);
+      setLogContent(response.data);
+    } catch (error) {
+      setLogContent(`Error fetching logs: ${error.message}`);
+    }
+  };
+
+  useEffect(() => {
+    fetchLogs();
+  }, [logType]);
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 font-mono">
+      <h1 className="text-2xl mb-2">Log Viewer</h1>
+      <p className="text-sm mb-4 text-gray-600">Environment: {env.toUpperCase()}</p>
+
+      <div className="flex space-x-4 mb-4">
+        {Object.entries(LOG_TYPES).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setLogType(key)}
+            className={`px-4 py-2 border rounded ${logType === key ? 'bg-blue-500 text-white' : 'bg-white text-black border-gray-300'}`}
+          >
+            {label}
+          </button>
+        ))}
+        <button onClick={fetchLogs} className="ml-auto px-4 py-2 bg-green-500 text-white rounded">
+          Refresh
+        </button>
+      </div>
+
+      <div className="bg-black text-green-400 p-4 rounded h-[500px] overflow-auto whitespace-pre-wrap border">
+        {logContent || 'No logs found.'}
+      </div>
+    </div>
+  );
+}
+
+
+---
+
+Flask Backend API Design
+
+You need to expose a route that reads from the appropriate log file based on BRANCH_NAME and requested log type.
+
+from flask import Flask, jsonify, request
+import os
+from datetime import datetime
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)  # Enable CORS for frontend access
+
+branch_name = os.getenv('BRANCH_NAME', 'dev')
+is_dev = branch_name in ['dev', 'local']
+
+LOG_DIR = 'log'
+LOG_FILES = {
+    'api': os.path.join(LOG_DIR, 'dev_api_errors.log' if is_dev else 'api_errors.log'),
+    'cron': os.path.join(LOG_DIR, 'dev_cron_jobs.log' if is_dev else 'cron_jobs.log')
+}
+
+@app.route('/logs/<log_type>', methods=['GET'])
+def get_logs(log_type):
+    filepath = LOG_FILES.get(log_type)
+    if not filepath or not os.path.exists(filepath):
+        return jsonify(f"Log file not found: {filepath}"), 404
+
+    with open(filepath, 'r') as file:
+        content = file.read()
+    return content, 200, {'Content-Type': 'text/plain'}
+
+
+---
+
+Bonus UI Enhancements
+
+Add download button to let users save the log.
+
+Show last updated time.
+
+Add search/filter inside logs.
+
+Highlight errors or keywords.
 
 
 
 ---
 
-Would you like a command example to filter or monitor these statuses dynamically?
+Would you like me to package this into a ready-to-run React + Flask project structure with folders and instructions?
 
