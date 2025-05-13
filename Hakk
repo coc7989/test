@@ -1,69 +1,82 @@
-tTo build a clean and intuitive React frontend for viewing log files based on environment and log type (cron or API error), here's a suggested design and implementation plan:
+rPerfect! Let's use Material UI (MUI) for styling and components. Here's a fully enhanced React frontend using MUI, with the following features:
 
 
 ---
 
-Goals of the Frontend
+✅ Features Included:
 
-Single-page application (SPA) with a simple interface.
+Material UI design
 
-Environment-aware (dev vs prod).
+Toggle log types (API Logs / Cron Logs)
 
-User selects log type: API Errors or Cron Jobs.
+Shows environment label
 
-Displays log file content in a readable format.
+Refresh logs
 
-Option to refresh/reload logs.
+Download logs
 
+Last updated time
 
+Search/filter inside logs
 
----
+Keyword highlighting (error, fail, exception, warning)
 
-Design Proposal
-
-UI Layout
-
-Header: Displays current environment (e.g., "Environment: Dev")
-
-Log Type Toggle:
-
-Dropdown or buttons: API Logs, Cron Logs
-
-
-Log Viewer Panel:
-
-Scrollable, formatted text area.
-
-Line numbers and timestamps visible.
-
-
-Refresh Button: To reload logs without refreshing the page.
+Error handling
 
 
 
 ---
 
-Example React UI (with Tailwind CSS for styling)
+React Frontend (Enhanced with Material UI)
+
+Install Required Packages:
+
+npm install @mui/material @emotion/react @emotion/styled axios
+
+
+---
+
+LogViewer.jsx
 
 import React, { useState, useEffect } from 'react';
+import {
+  AppBar, Toolbar, Typography, Button, Container,
+  ToggleButtonGroup, ToggleButton, Box, TextField, Paper, Snackbar, Alert
+} from '@mui/material';
 import axios from 'axios';
 
 const LOG_TYPES = {
-  api: 'API Error Logs',
-  cron: 'Cron Job Logs',
+  api: 'API Logs',
+  cron: 'Cron Logs',
+};
+
+const KEYWORDS = ['error', 'fail', 'exception', 'warning'];
+
+const highlightText = (text) => {
+  let escaped = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const regex = new RegExp(`\\b(${KEYWORDS.join('|')})\\b`, 'gi');
+  return escaped.replace(regex, match => `<mark style="background-color: #ff9800; color: black;">${match}</mark>`);
 };
 
 export default function LogViewer() {
   const [logType, setLogType] = useState('api');
   const [logContent, setLogContent] = useState('');
-  const [env, setEnv] = useState('dev');
+  const [filteredContent, setFilteredContent] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [lastUpdated, setLastUpdated] = useState('');
+  const [env, setEnv] = useState('dev'); // Can come from backend
+  const [errorMsg, setErrorMsg] = useState('');
 
   const fetchLogs = async () => {
     try {
       const response = await axios.get(`/logs/${logType}`);
+      const now = new Date().toLocaleString();
       setLogContent(response.data);
-    } catch (error) {
-      setLogContent(`Error fetching logs: ${error.message}`);
+      setLastUpdated(now);
+      setErrorMsg('');
+    } catch (err) {
+      setErrorMsg('Error fetching logs');
+      setLogContent('');
     }
   };
 
@@ -71,83 +84,131 @@ export default function LogViewer() {
     fetchLogs();
   }, [logType]);
 
+  useEffect(() => {
+    if (searchTerm) {
+      const filtered = logContent
+        .split('\n')
+        .filter(line => line.toLowerCase().includes(searchTerm.toLowerCase()))
+        .join('\n');
+      setFilteredContent(filtered);
+    } else {
+      setFilteredContent(logContent);
+    }
+  }, [searchTerm, logContent]);
+
+  const handleDownload = () => {
+    const blob = new Blob([filteredContent], { type: 'text/plain' });
+    const link = document.createElement('a');
+    link.href = window.URL.createObjectURL(blob);
+    link.download = `${logType}_logs.txt`;
+    link.click();
+  };
+
   return (
-    <div className="max-w-4xl mx-auto p-4 font-mono">
-      <h1 className="text-2xl mb-2">Log Viewer</h1>
-      <p className="text-sm mb-4 text-gray-600">Environment: {env.toUpperCase()}</p>
+    <Box>
+      <AppBar position="static">
+        <Toolbar>
+          <Typography variant="h6" sx={{ flexGrow: 1 }}>
+            Log Viewer - {env.toUpperCase()}
+          </Typography>
+          <Button color="inherit" onClick={fetchLogs}>Refresh</Button>
+        </Toolbar>
+      </AppBar>
 
-      <div className="flex space-x-4 mb-4">
-        {Object.entries(LOG_TYPES).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setLogType(key)}
-            className={`px-4 py-2 border rounded ${logType === key ? 'bg-blue-500 text-white' : 'bg-white text-black border-gray-300'}`}
-          >
-            {label}
-          </button>
-        ))}
-        <button onClick={fetchLogs} className="ml-auto px-4 py-2 bg-green-500 text-white rounded">
-          Refresh
-        </button>
-      </div>
+      <Container sx={{ mt: 4 }}>
+        <ToggleButtonGroup
+          value={logType}
+          exclusive
+          onChange={(e, val) => val && setLogType(val)}
+          aria-label="log type"
+          sx={{ mb: 2 }}
+        >
+          {Object.entries(LOG_TYPES).map(([key, label]) => (
+            <ToggleButton key={key} value={key}>{label}</ToggleButton>
+          ))}
+        </ToggleButtonGroup>
 
-      <div className="bg-black text-green-400 p-4 rounded h-[500px] overflow-auto whitespace-pre-wrap border">
-        {logContent || 'No logs found.'}
-      </div>
-    </div>
+        <Box display="flex" alignItems="center" gap={2} mb={2}>
+          <TextField
+            label="Search logs"
+            variant="outlined"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            fullWidth
+          />
+          <Button variant="contained" color="primary" onClick={handleDownload}>
+            Download
+          </Button>
+        </Box>
+
+        <Typography variant="caption" gutterBottom>
+          Last updated: {lastUpdated}
+        </Typography>
+
+        <Paper
+          elevation={3}
+          sx={{
+            bgcolor: '#1e1e1e',
+            color: '#e0e0e0',
+            p: 2,
+            height: 500,
+            overflow: 'auto',
+            whiteSpace: 'pre-wrap',
+            fontFamily: 'monospace',
+          }}
+          dangerouslySetInnerHTML={{ __html: highlightText(filteredContent) }}
+        />
+
+        <Snackbar open={!!errorMsg} autoHideDuration={6000} onClose={() => setErrorMsg('')}>
+          <Alert severity="error" onClose={() => setErrorMsg('')}>{errorMsg}</Alert>
+        </Snackbar>
+      </Container>
+    </Box>
   );
 }
 
 
 ---
 
-Flask Backend API Design
+Flask Backend (for API Endpoint)
 
-You need to expose a route that reads from the appropriate log file based on BRANCH_NAME and requested log type.
+Here’s a matching Flask backend for the frontend above:
 
-from flask import Flask, jsonify, request
+from flask import Flask, send_file, jsonify
 import os
-from datetime import datetime
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend access
+CORS(app)
 
 branch_name = os.getenv('BRANCH_NAME', 'dev')
 is_dev = branch_name in ['dev', 'local']
 
-LOG_DIR = 'log'
 LOG_FILES = {
-    'api': os.path.join(LOG_DIR, 'dev_api_errors.log' if is_dev else 'api_errors.log'),
-    'cron': os.path.join(LOG_DIR, 'dev_cron_jobs.log' if is_dev else 'cron_jobs.log')
+    'api': os.path.join('log', 'dev_api_errors.log' if is_dev else 'api_errors.log'),
+    'cron': os.path.join('log', 'dev_cron_jobs.log' if is_dev else 'cron_jobs.log'),
 }
 
 @app.route('/logs/<log_type>', methods=['GET'])
 def get_logs(log_type):
-    filepath = LOG_FILES.get(log_type)
-    if not filepath or not os.path.exists(filepath):
-        return jsonify(f"Log file not found: {filepath}"), 404
-
-    with open(filepath, 'r') as file:
+    path = LOG_FILES.get(log_type)
+    if not path or not os.path.exists(path):
+        return jsonify({'error': 'Log file not found'}), 404
+    with open(path, 'r') as file:
         content = file.read()
     return content, 200, {'Content-Type': 'text/plain'}
 
 
 ---
 
-Bonus UI Enhancements
+Next Steps
 
-Add download button to let users save the log.
+Place the LogViewer.jsx component in your React app.
 
-Show last updated time.
+Set up a proxy to your Flask API (in vite.config.js or package.json).
 
-Add search/filter inside logs.
-
-Highlight errors or keywords.
+Ensure CORS is enabled on the Flask side.
 
 
-
----
-
-Would you like me to package this into a ready-to-run React + Flask project structure with folders and instructions?
+Would you like a downloadable full project boilerplate for this? I can structure the folders and prepare a ZIP.
 
