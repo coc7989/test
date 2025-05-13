@@ -1,47 +1,8 @@
-rPerfect! Let's use Material UI (MUI) for styling and components. Here's a fully enhanced React frontend using MUI, with the following features:
-
-
----
-
-✅ Features Included:
-
-Material UI design
-
-Toggle log types (API Logs / Cron Logs)
-
-Shows environment label
-
-Refresh logs
-
-Download logs
-
-Last updated time
-
-Search/filter inside logs
-
-Keyword highlighting (error, fail, exception, warning)
-
-Error handling
-
-
-
----
-
-React Frontend (Enhanced with Material UI)
-
-Install Required Packages:
-
-npm install @mui/material @emotion/react @emotion/styled axios
-
-
----
-
-LogViewer.jsx
-
-import React, { useState, useEffect } from 'react';
+eimport React, { useState, useEffect } from 'react';
 import {
   AppBar, Toolbar, Typography, Button, Container,
-  ToggleButtonGroup, ToggleButton, Box, TextField, Paper, Snackbar, Alert
+  ToggleButtonGroup, ToggleButton, Box, TextField,
+  Paper, Snackbar, Alert
 } from '@mui/material';
 import axios from 'axios';
 
@@ -50,29 +11,20 @@ const LOG_TYPES = {
   cron: 'Cron Logs',
 };
 
-const KEYWORDS = ['error', 'fail', 'exception', 'warning'];
-
-const highlightText = (text) => {
-  let escaped = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const regex = new RegExp(`\\b(${KEYWORDS.join('|')})\\b`, 'gi');
-  return escaped.replace(regex, match => `<mark style="background-color: #ff9800; color: black;">${match}</mark>`);
-};
-
 export default function LogViewer() {
   const [logType, setLogType] = useState('api');
   const [logContent, setLogContent] = useState('');
   const [filteredContent, setFilteredContent] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [lastUpdated, setLastUpdated] = useState('');
-  const [env, setEnv] = useState('dev'); // Can come from backend
+  const [env, setEnv] = useState('dev'); // Optionally fetch this from backend
   const [errorMsg, setErrorMsg] = useState('');
 
   const fetchLogs = async () => {
     try {
       const response = await axios.get(`/logs/${logType}`);
-      const now = new Date().toLocaleString();
       setLogContent(response.data);
-      setLastUpdated(now);
+      setLastUpdated(new Date().toLocaleString());
       setErrorMsg('');
     } catch (err) {
       setErrorMsg('Error fetching logs');
@@ -99,7 +51,7 @@ export default function LogViewer() {
   const handleDownload = () => {
     const blob = new Blob([filteredContent], { type: 'text/plain' });
     const link = document.createElement('a');
-    link.href = window.URL.createObjectURL(blob);
+    link.href = URL.createObjectURL(blob);
     link.download = `${logType}_logs.txt`;
     link.click();
   };
@@ -156,59 +108,16 @@ export default function LogViewer() {
             whiteSpace: 'pre-wrap',
             fontFamily: 'monospace',
           }}
-          dangerouslySetInnerHTML={{ __html: highlightText(filteredContent) }}
-        />
+        >
+          {filteredContent || 'No logs available.'}
+        </Paper>
 
         <Snackbar open={!!errorMsg} autoHideDuration={6000} onClose={() => setErrorMsg('')}>
-          <Alert severity="error" onClose={() => setErrorMsg('')}>{errorMsg}</Alert>
+          <Alert severity="error" onClose={() => setErrorMsg('')}>
+            {errorMsg}
+          </Alert>
         </Snackbar>
       </Container>
     </Box>
   );
 }
-
-
----
-
-Flask Backend (for API Endpoint)
-
-Here’s a matching Flask backend for the frontend above:
-
-from flask import Flask, send_file, jsonify
-import os
-from flask_cors import CORS
-
-app = Flask(__name__)
-CORS(app)
-
-branch_name = os.getenv('BRANCH_NAME', 'dev')
-is_dev = branch_name in ['dev', 'local']
-
-LOG_FILES = {
-    'api': os.path.join('log', 'dev_api_errors.log' if is_dev else 'api_errors.log'),
-    'cron': os.path.join('log', 'dev_cron_jobs.log' if is_dev else 'cron_jobs.log'),
-}
-
-@app.route('/logs/<log_type>', methods=['GET'])
-def get_logs(log_type):
-    path = LOG_FILES.get(log_type)
-    if not path or not os.path.exists(path):
-        return jsonify({'error': 'Log file not found'}), 404
-    with open(path, 'r') as file:
-        content = file.read()
-    return content, 200, {'Content-Type': 'text/plain'}
-
-
----
-
-Next Steps
-
-Place the LogViewer.jsx component in your React app.
-
-Set up a proxy to your Flask API (in vite.config.js or package.json).
-
-Ensure CORS is enabled on the Flask side.
-
-
-Would you like a downloadable full project boilerplate for this? I can structure the folders and prepare a ZIP.
-
