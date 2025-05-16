@@ -1,123 +1,128 @@
-eimport React, { useState, useEffect } from 'react';
-import {
-  AppBar, Toolbar, Typography, Button, Container,
-  ToggleButtonGroup, ToggleButton, Box, TextField,
-  Paper, Snackbar, Alert
-} from '@mui/material';
-import axios from 'axios';
+hThanks for sharing the details. The job you’re submitting is getting deprioritized due to low job efficiency, which is commonly caused by how well your job utilizes requested resources (especially CPU and memory). Here are concrete steps to improve your job’s efficiency:
 
-const LOG_TYPES = {
-  api: 'API Logs',
-  cron: 'Cron Logs',
-};
 
-export default function LogViewer() {
-  const [logType, setLogType] = useState('api');
-  const [logContent, setLogContent] = useState('');
-  const [filteredContent, setFilteredContent] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [lastUpdated, setLastUpdated] = useState('');
-  const [env, setEnv] = useState('dev'); // Optionally fetch this from backend
-  const [errorMsg, setErrorMsg] = useState('');
+---
 
-  const fetchLogs = async () => {
-    try {
-      const response = await axios.get(`/logs/${logType}`);
-      setLogContent(response.data);
-      setLastUpdated(new Date().toLocaleString());
-      setErrorMsg('');
-    } catch (err) {
-      setErrorMsg('Error fetching logs');
-      setLogContent('');
-    }
-  };
+1. Analyze Past Job Efficiency
 
-  useEffect(() => {
-    fetchLogs();
-  }, [logType]);
+Run:
 
-  useEffect(() => {
-    if (searchTerm) {
-      const filtered = logContent
-        .split('\n')
-        .filter(line => line.toLowerCase().includes(searchTerm.toLowerCase()))
-        .join('\n');
-      setFilteredContent(filtered);
-    } else {
-      setFilteredContent(logContent);
-    }
-  }, [searchTerm, logContent]);
+bjobs -l <job_id>
 
-  const handleDownload = () => {
-    const blob = new Blob([filteredContent], { type: 'text/plain' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${logType}_logs.txt`;
-    link.click();
-  };
+or
 
-  return (
-    <Box>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Log Viewer - {env.toUpperCase()}
-          </Typography>
-          <Button color="inherit" onClick={fetchLogs}>Refresh</Button>
-        </Toolbar>
-      </AppBar>
+bhist -l <job_id>
 
-      <Container sx={{ mt: 4 }}>
-        <ToggleButtonGroup
-          value={logType}
-          exclusive
-          onChange={(e, val) => val && setLogType(val)}
-          aria-label="log type"
-          sx={{ mb: 2 }}
-        >
-          {Object.entries(LOG_TYPES).map(([key, label]) => (
-            <ToggleButton key={key} value={key}>{label}</ToggleButton>
-          ))}
-        </ToggleButtonGroup>
+Look for:
 
-        <Box display="flex" alignItems="center" gap={2} mb={2}>
-          <TextField
-            label="Search logs"
-            variant="outlined"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            fullWidth
-          />
-          <Button variant="contained" color="primary" onClick={handleDownload}>
-            Download
-          </Button>
-        </Box>
+CPU time vs. wall-clock time
 
-        <Typography variant="caption" gutterBottom>
-          Last updated: {lastUpdated}
-        </Typography>
+Memory usage vs. requested (rusage[mem=10240])
 
-        <Paper
-          elevation={3}
-          sx={{
-            bgcolor: '#1e1e1e',
-            color: '#e0e0e0',
-            p: 2,
-            height: 500,
-            overflow: 'auto',
-            whiteSpace: 'pre-wrap',
-            fontFamily: 'monospace',
-          }}
-        >
-          {filteredContent || 'No logs available.'}
-        </Paper>
 
-        <Snackbar open={!!errorMsg} autoHideDuration={6000} onClose={() => setErrorMsg('')}>
-          <Alert severity="error" onClose={() => setErrorMsg('')}>
-            {errorMsg}
-          </Alert>
-        </Snackbar>
-      </Container>
-    </Box>
-  );
-}
+If your job is:
+
+Using less CPU than requested: it will be marked inefficient.
+
+Using significantly less memory: same issue.
+
+
+
+---
+
+2. Improve CPU Utilization
+
+In your command:
+
+pvs -lsf -mp 8 -mt 6 ...
+
+You're:
+
+Requesting 8 CPUs (-n 8)
+
+Using 8 CPUs for multiprocessor (-mp 8)
+
+Using 6 threads (-mt 6)
+
+
+Suggestions:
+
+Set -mp and -mt so they actually match what the tool can utilize.
+
+If pvs internally can’t use 8 cores effectively, requesting 8 will harm efficiency.
+
+
+Try:
+
+Reduce -n 8 to -n 4
+
+Adjust -mp 4 -mt 4
+
+Or test -mp 6 -mt 3 and see what combination gives better CPU usage.
+
+
+
+---
+
+3. Check Memory Usage
+
+You’re requesting 10 GB per CPU:
+
+rusage[mem=10240]
+
+So for 8 CPUs, it's 80 GB total. If you’re only using 20 GB in practice, the system sees this as inefficiency.
+
+Suggestion:
+
+Run a few test jobs with mem=2048 or mem=4096 and monitor them using bjobs -l or lsfmon.
+
+
+
+---
+
+4. License Check Delays
+
+This part:
+
+bsub -E 'check_licenses ... -wait 60 -e' ...
+
+Adds potential 60-second delays just waiting for licenses — during this time, your job may not be using any CPU, harming efficiency.
+
+Suggestion:
+
+If you can, do license checks before submitting to LSF, or shorten the -wait window.
+
+
+
+---
+
+5. Use Job Tags or Special Queues (if available)
+
+Check with your sysadmin if there's a priority queue for smaller jobs or options like:
+
+-sp <priority> (if enabled)
+
+Run during off-peak hours
+
+Submit smaller, shorter jobs that finish fast and efficiently
+
+
+
+---
+
+6. Efficiency Workaround (Last Resort)
+
+If all else fails and you’re getting consistently deprioritized, try:
+
+Running at night
+
+Reducing resource requests further
+
+Splitting the job into smaller ones (per cell, per block, etc.)
+
+
+
+---
+
+Would you like help profiling your current job’s actual resource usage to fine-tune the values? I can guide you through it.
+
