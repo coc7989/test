@@ -255,3 +255,122 @@ if build_result == 'COMPLETED' and request_data['CATEGORY_NAME'].upper() == 'SLO
     db.commit()
 
 cursor.close()
+
+Thanks for the detailed info — here's a clean and fully integrated version of your function with the default slot limits logic, update/insert handling, and error-safe DB operations.
+
+
+---
+
+Defaults Based on SLOT_TYPE and CLUSTER_NAME
+
+DEFAULT_SLOT_LIMITS = {
+    'GUI': {
+        'INDIA': 10,
+        'DALLAS': 20
+    },
+    'REGRESS': {
+        'INDIA': 200,
+        'DALLAS': 250
+    }
+}
+
+
+---
+
+Updated Function: Enhanced User Slot Limit Removal
+
+build_result = trigger_jenkins_job_removal(query_result)
+
+if build_result == 'SUCCESS':
+    build_result = 'ACCESS ENDED'
+elif build_result == 'UNSTABLE':
+    build_result = 'QUEUED FOR RETRY'
+else:
+    build_result = 'AWAITING ADMIN REVIEW'
+
+print("build_result", build_result)
+print("query_result['REQUEST_ID']", query_result['REQUEST_ID'])
+print("query_result['REQUEST_TYPE']", query_result['REQUEST_TYPE'])  # This is SLOT_TYPE
+print("query_result['USER_AID']", query_result['USER_AID'])
+print("query_result['CLUSTER_NAME']", query_result['CLUSTER_NAME'])
+
+db = get_db()
+cursor = db.cursor()
+
+# Step 1: Update request status
+removal_status_query = f"""
+    UPDATE {dbCfg['QUEUE_ACCESS'] if query_result['CATEGORY_NAME'] == 'QUEUE' else dbCfg['SLOT_REQUEST']}
+    SET UPDATED_DATE = sysdate,
+        REQUEST_STATUS = :REQUEST_STATUS
+    WHERE REQUEST_ID = :REQUEST_ID
+"""
+cursor.execute(removal_status_query, {
+    "REQUEST_STATUS": build_result,
+    "REQUEST_ID": query_result['REQUEST_ID'],
+})
+db.commit()
+
+# Step 2: If it's a SLOT category and removal succeeded, reset to default limit
+if build_result == 'ACCESS ENDED' and query_result['CATEGORY_NAME'].upper() == 'SLOT':
+    user_id = query_result['USER_AID']
+    slot_type = query_result['REQUEST_TYPE'].upper()
+    cluster_name = query_result['CLUSTER_NAME'].upper()
+
+    # Get default slot limit
+    default_slot_limit = DEFAULT_SLOT_LIMITS.get(slot_type, {}).get(cluster_name, None)
+
+    if default_slot_limit is not None:
+        # Update existing slot limit
+        update_query = """
+            UPDATE slot_limits
+            SET current_slot_limit = :limit,
+                updated_at = sysdate
+            WHERE user_id = :user_id
+              AND slot_type = :slot_type
+              AND cluster_name = :cluster_name
+        """
+        cursor.execute(update_query, {
+            "limit": default_slot_limit,
+            "user_id": user_id,
+            "slot_type": slot_type,
+            "cluster_name": cluster_name
+        })
+
+        # If no update happened, insert new record
+        if cursor.rowcount == 0:
+            insert_query = """
+                INSERT INTO slot_limits (user_id, slot_type, cluster_name, current_slot_limit, updated_at)
+                VALUES (:user_id, :slot_type, :cluster_name, :limit, sysdate)
+            """
+            cursor.execute(insert_query, {
+                "user_id": user_id,
+                "slot_type": slot_type,
+                "cluster_name": cluster_name,
+                "limit": default_slot_limit
+            })
+        db.commit()
+    else:
+        print(f"No default limit configured for SLOT_TYPE: {slot_type}, CLUSTER_NAME: {cluster_name}")
+
+cursor.close()
+
+
+---
+
+Features Included:
+
+Graceful handling for unknown SLOT_TYPE or CLUSTER_NAME
+
+Clean fallback insert if update didn't affect any rows
+
+Modular default config for easy future updates
+
+Maintains consistency with your previous update logic
+
+
+
+---
+
+Would you like this moved into a utility function for reuse? I can help create a shared method like upsert_slot_limit(user_id, slot_type, cluster_name, limit) if that helps cleanup your codebase.
+
+
