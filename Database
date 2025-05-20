@@ -1,0 +1,183 @@
+eAbsolutely — shifting to Oracle SQL to fetch the current slot limit is a more reliable and scalable approach than relying on Jenkins and in-memory communication.
+
+
+---
+
+New Architecture Overview
+
+Current (Old) Flow:
+
+1. Frontend calls Flask API (/get_current_slot_limit)
+
+
+2. Flask triggers a Jenkins job.
+
+
+3. Jenkins computes the value and POSTs it back to Flask.
+
+
+4. Flask temporarily stores it in memory and returns it.
+
+
+
+Problems:
+
+Jenkins delay
+
+Volatile in-memory storage
+
+Multi-process inconsistencies
+
+Complex logging/troubleshooting
+
+
+
+---
+
+Proposed (New) Flow with Oracle DB:
+
+1. Frontend calls Flask API (/get_current_slot_limit)
+
+
+2. Flask connects directly to Oracle DB
+
+
+3. It fetches current_slot_limit based on userID, SLOT_TYPE, and CLUSTER_NAME
+
+
+4. Flask returns the result to the frontend
+
+
+
+
+---
+
+Assumptions:
+
+Oracle database has a table like:
+
+
+CREATE TABLE slot_limits (
+    user_id VARCHAR2(100),
+    slot_type VARCHAR2(100),
+    cluster_name VARCHAR2(100),
+    current_slot_limit NUMBER,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+---
+
+Steps to Update Flask App
+
+1. Install Oracle Client Library
+
+In your Dockerfile or system:
+
+pip install cx_Oracle
+
+Ensure libclntsh.so and Oracle Instant Client are installed in your image or server.
+
+
+---
+
+2. Updated Flask Code (with Oracle Integration)
+
+import cx_Oracle
+from flask import Flask, request, jsonify
+from flask_cors import cross_origin
+import os
+import traceback
+
+app = Flask(__name__)
+API_URL_PREFIX = "/api"
+
+# Oracle DB credentials (use env variables in real scenarios)
+ORACLE_HOST = os.getenv("ORACLE_HOST", "your_host")
+ORACLE_PORT = os.getenv("ORACLE_PORT", "1521")
+ORACLE_SERVICE = os.getenv("ORACLE_SERVICE", "orclpdb1")
+ORACLE_USER = os.getenv("ORACLE_USER", "myuser")
+ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "mypassword")
+
+def get_oracle_connection():
+    dsn = cx_Oracle.makedsn(ORACLE_HOST, ORACLE_PORT, service_name=ORACLE_SERVICE)
+    return cx_Oracle.connect(user=ORACLE_USER, password=ORACLE_PASSWORD, dsn=dsn)
+
+@app.route(f"{API_URL_PREFIX}/get_current_slot_limit", methods=['GET'])
+@cross_origin()
+def get_current_slot_limit():
+    user_id = request.args.get('userID')
+    slot_type = request.args.get('SLOT_TYPE')
+    cluster_name = request.args.get('CLUSTER_NAME')
+
+    if not user_id or not slot_type or not cluster_name:
+        return jsonify({'error': 'Missing required query parameters'}), 400
+
+    try:
+        conn = get_oracle_connection()
+        cursor = conn.cursor()
+
+        query = """
+            SELECT current_slot_limit FROM slot_limits
+            WHERE user_id = :user_id
+              AND slot_type = :slot_type
+              AND cluster_name = :cluster_name
+        """
+        cursor.execute(query, {
+            "user_id": user_id,
+            "slot_type": slot_type,
+            "cluster_name": cluster_name
+        })
+
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if result:
+            current_slot_limit = int(result[0])
+            return jsonify({
+                "user_id": user_id,
+                "slot_type": slot_type,
+                "cluster_name": cluster_name,
+                "current_slot_limit": current_slot_limit
+            }), 200
+        else:
+            return jsonify({'error_message': 'No slot limit data found for provided parameters'}), 404
+
+    except Exception as e:
+        print("Oracle DB error:", traceback.format_exc())
+        return jsonify({'error_message': 'Internal server error occurred while fetching slot limit'}), 500
+
+
+---
+
+3. Sample Oracle DB Insertion Script
+
+INSERT INTO slot_limits (user_id, slot_type, cluster_name, current_slot_limit)
+VALUES ('user123', 'batch', 'clusterA', 20);
+COMMIT;
+
+
+---
+
+4. Dockerfile Notes
+
+Make sure Oracle Instant Client is in your container:
+
+RUN apt-get update && apt-get install -y libaio1
+COPY instantclient /opt/oracle/instantclient
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
+ENV ORACLE_HOME=/opt/oracle/instantclient
+
+
+---
+
+Next Steps:
+
+I can help you create test data and validate DB connections if you share the schema.
+
+If you’re using SQLAlchemy or want ORM instead of raw queries, I can adapt it.
+
+
+Would you like a version with SQLAlchemy + better config separation?
+
