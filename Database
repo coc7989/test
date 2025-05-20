@@ -373,4 +373,134 @@ Maintains consistency with your previous update logic
 
 Would you like this moved into a utility function for reuse? I can help create a shared method like upsert_slot_limit(user_id, slot_type, cluster_name, limit) if that helps cleanup your codebase.
 
+Great — let's design both options:
+
+
+---
+
+Option 1: Single Reusable Function
+
+This version handles both update after slot increase and reset to default on removal. It checks for whether the value to apply is passed directly or derived from the DEFAULT_SLOT_LIMITS.
+
+Helper: Default Slot Limits
+
+DEFAULT_SLOT_LIMITS = {
+    'GUI': {
+        'INDIA': 10,
+        'DALLAS': 20
+    },
+    'REGRESS': {
+        'INDIA': 200,
+        'DALLAS': 250
+    }
+}
+
+Reusable Function: upsert_slot_limit
+
+def upsert_slot_limit(db, user_id, slot_type, cluster_name, new_limit=None):
+    slot_type = slot_type.upper()
+    cluster_name = cluster_name.upper()
+
+    if new_limit is None:
+        # Use default if no new limit is provided (for removal)
+        new_limit = DEFAULT_SLOT_LIMITS.get(slot_type, {}).get(cluster_name)
+
+    if new_limit is None:
+        print(f"[WARN] No default slot limit found for SLOT_TYPE={slot_type}, CLUSTER_NAME={cluster_name}")
+        return
+
+    cursor = db.cursor()
+
+    update_query = """
+        UPDATE slot_limits
+        SET current_slot_limit = :limit,
+            updated_at = sysdate
+        WHERE user_id = :user_id
+          AND slot_type = :slot_type
+          AND cluster_name = :cluster_name
+    """
+    cursor.execute(update_query, {
+        "limit": new_limit,
+        "user_id": user_id,
+        "slot_type": slot_type,
+        "cluster_name": cluster_name
+    })
+
+    if cursor.rowcount == 0:
+        insert_query = """
+            INSERT INTO slot_limits (user_id, slot_type, cluster_name, current_slot_limit, updated_at)
+            VALUES (:user_id, :slot_type, :cluster_name, :limit, sysdate)
+        """
+        cursor.execute(insert_query, {
+            "user_id": user_id,
+            "slot_type": slot_type,
+            "cluster_name": cluster_name,
+            "limit": new_limit
+        })
+
+    db.commit()
+    cursor.close()
+
+Usage in Trigger Jenkins (Enhancement):
+
+if build_result == 'COMPLETED' and request_data['CATEGORY_NAME'].upper() == 'SLOT':
+    upsert_slot_limit(db, 
+                      user_id=additional_data.get("USER_AID"),
+                      slot_type=additional_data.get("SLOT_TYPE"),
+                      cluster_name=additional_data.get("CLUSTER_NAME"),
+                      new_limit=additional_data.get("REQUESTED_SLOT"))
+
+Usage in Removal Jenkins:
+
+if build_result == 'ACCESS ENDED' and query_result['CATEGORY_NAME'].upper() == 'SLOT':
+    upsert_slot_limit(db,
+                      user_id=query_result.get("USER_AID"),
+                      slot_type=query_result.get("REQUEST_TYPE"),
+                      cluster_name=query_result.get("CLUSTER_NAME"))
+
+
+---
+
+Option 2: Two Separate Functions
+
+If you prefer more separation:
+
+Function 1: For Enhancement
+
+def update_enhanced_slot_limit(db, user_id, slot_type, cluster_name, requested_limit):
+    upsert_slot_limit(db, user_id, slot_type, cluster_name, new_limit=requested_limit)
+
+Function 2: For Removal
+
+def reset_slot_limit_to_default(db, user_id, slot_type, cluster_name):
+    upsert_slot_limit(db, user_id, slot_type, cluster_name, new_limit=None)
+
+Usage:
+
+In enhancement flow:
+
+
+update_enhanced_slot_limit(db, user_id, slot_type, cluster_name, requested_limit)
+
+In removal flow:
+
+
+reset_slot_limit_to_default(db, user_id, slot_type, cluster_name)
+
+
+---
+
+Summary
+
+Option	Pros	Cons
+
+Single Function (upsert_slot_limit)	- DRY and minimal code<br>- Easy to maintain	- Slightly more logic branching inside
+Two Functions	- Explicit and semantically clear	- Minor duplication, more to maintain
+
+
+
+---
+
+Would you like me to wrap this in a Python module file (slot_limit_utils.py) for clean imports?
+
 
