@@ -181,3 +181,77 @@ If you’re using SQLAlchemy or want ORM instead of raw queries, I can adapt it.
 
 Would you like a version with SQLAlchemy + better config separation?
 
+
+build_result = trigger_jenkins_job(additional_data, request_data['CATEGORY_NAME'])
+
+print("User AId:", additional_data.get("USER_AID"))
+print("CLUSTER_NAME:", additional_data.get("CLUSTER_NAME"))
+print("SLOT_TYPE:", additional_data.get("SLOT_TYPE"))
+print("REQUESTED_SLOT:", additional_data.get("REQUESTED_SLOT"))
+
+if build_result == 'SUCCESS':
+    build_result = 'COMPLETED'
+elif build_result == 'UNSTABLE':
+    build_result = 'QUEUED FOR RETRY'
+else:
+    build_result = 'AWAITING ADMIN REVIEW'
+
+print("build_result", build_result)
+print("request_data['CATEGORY_NAME']", request_data['CATEGORY_NAME'])
+print("request_data['REQUEST_ID']", request_data['REQUEST_ID'])
+
+# Step 1: Update status of the request
+update_status_query = f"""
+    UPDATE {dbCfg['QUEUE_ACCESS'] if request_data['CATEGORY_NAME'] == 'QUEUE' else dbCfg['SLOT_REQUEST']}
+    SET UPDATED_DATE = sysdate,
+        REQUEST_STATUS = :REQUEST_STATUS
+    WHERE REQUEST_ID = :REQUEST_ID
+"""
+
+db = get_db()
+cursor = db.cursor()
+cursor.execute(update_status_query, {
+    "REQUEST_STATUS": build_result,
+    "REQUEST_ID": request_data['REQUEST_ID'],
+})
+db.commit()
+
+# Step 2: If it's a successful SLOT update, also update the slot_limits table
+if build_result == 'COMPLETED' and request_data['CATEGORY_NAME'].upper() == 'SLOT':
+    user_id = additional_data.get("USER_AID")
+    slot_type = additional_data.get("SLOT_TYPE")
+    cluster_name = additional_data.get("CLUSTER_NAME")
+    new_limit = additional_data.get("REQUESTED_SLOT")
+
+    # First try to update
+    update_slot_limit_query = """
+        UPDATE slot_limits
+        SET current_slot_limit = :new_limit,
+            updated_at = sysdate
+        WHERE user_id = :user_id
+          AND slot_type = :slot_type
+          AND cluster_name = :cluster_name
+    """
+    cursor.execute(update_slot_limit_query, {
+        "new_limit": new_limit,
+        "user_id": user_id,
+        "slot_type": slot_type,
+        "cluster_name": cluster_name
+    })
+
+    # If no row was updated, insert a new one
+    if cursor.rowcount == 0:
+        insert_slot_limit_query = """
+            INSERT INTO slot_limits (user_id, slot_type, cluster_name, current_slot_limit, updated_at)
+            VALUES (:user_id, :slot_type, :cluster_name, :new_limit, sysdate)
+        """
+        cursor.execute(insert_slot_limit_query, {
+            "user_id": user_id,
+            "slot_type": slot_type,
+            "cluster_name": cluster_name,
+            "new_limit": new_limit
+        })
+
+    db.commit()
+
+cursor.close()
