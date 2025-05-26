@@ -99,3 +99,25 @@ def runComparison(...) { ... }
 def prepareComparisonOutput(...) { ... }
 def failureEmail
 def successEmail
+
+
+Setting_env pipeline
+
+No validation of parameters: BUILD_NUMBER and mappedlicense
+Add checks to ensure they are not empty or invalid.
+
+statusCode("mkdir -p $licenseDirectory")
+If any part of $licenseDirectory contains spaces or special characters, it will break.
+statusCode("mkdir -p \"$licenseDirectory\"")
+statusCode("cp \"/home/flames/data/$mappedlicense\" \"$licenseDirectory/old/\"")
+
+Redundant mkdir -p calls
+make one line shell command to create all directories
+
+Change ALL params name to capital in all pipelines ex: mappedlicense to MAPPED_LICENSE
+
+Break things into stages for better defining what each stage does rather than having everything into one stage. 
+
+Use ansicolors to make the console output more human friendly
+
+No post failure stages available in Pipeline?
