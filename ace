@@ -121,3 +121,32 @@ Break things into stages for better defining what each stage does rather than ha
 Use ansicolors to make the console output more human friendly
 
 No post failure stages available in Pipeline?
+
+Sync_validation pipeline
+
+def errorList = [] declared globally: Declare errorList inside a script block and pass it as a local variable between stages if needed.
+
+error = "${output.split('\n')[-2]}"
+Overwrites error, which is a Jenkins built-in step (used to fail the build). Use a different variable name like errorMsg.
+
+Add input validation for SERVER_NAME, mappedlicense, and all parameters
+if (!params.SERVER_NAME?.trim()) {
+    error("SERVER_NAME is required")
+}
+
+def output = sh(script:"ssh -tT -o StrictHostKeyChecking=no $servers '/home/flames/data/sync_and_validate.sh $vendors $mappedlicense $backupFile $buildNum $port1 $port2 $vendorDaemon || true '", returnStdout: true).trim()
+why ssh ... 'script || true' ? Can leads to false positives
+if (output != 0) {
+   error "Remote execution failed"
+}
+
+Instead of doing 4 rsyncs separately, batch them with &&
+
+Use vendorName instead of vendors 
+
+rsync -v /opt/license_files/license_requests/${buildNum}/old/${mappedlicense}
+Use this rsync -v "/opt/license_files/license_requests/${buildNum}/old/${mappedlicense}"
+
+emailext can be as a function?
+
+failure success email functions
