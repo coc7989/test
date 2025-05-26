@@ -65,3 +65,37 @@ disabled={isSubmitDisabled || loading || (compareData.length > 0 && true) || fil
 
 validationResults[id].fileSclVersion > version
 Use this validationResults[id]?.fileSclVersion > version
+
+Compare_lic
+
+Issue: Paths like /opt/license_files/... and /home/flames/bin/... are hardcoded. Also check if path available 
+def licenseBasePath = "/opt/license_files/license_requests"
+def compareScript = "/opt/license_files/scripts/compare_lic"
+def verifyScript = "/home/flames/bin/sssverify"
+
+Sometimes you use params.VENDOR, sometimes ${my_vendor}. Stick with params.X unless transformation is necessary
+
+If a line in dataLines has fewer than 3 columns, columns[1] or columns[2]
+
+if (columns.length >= 3) {
+    // parse
+} else {
+    echo "Error: ${dataLines[i]}"
+}
+
+Add a try-catch block
+try {
+    def file1Value = columns[1].toInteger()
+    def file2Value = columns[2].toInteger()
+    ...
+} catch (e) {
+    echo "Error parsing integers in line: ${dataLines[i]}"
+    continue
+}
+
+Break things into smaller chunks
+def verifyLicense(...) { ... }
+def runComparison(...) { ... }
+def prepareComparisonOutput(...) { ... }
+def failureEmail
+def successEmail
