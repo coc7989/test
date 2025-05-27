@@ -10,6 +10,14 @@ POLL_INTERVAL = 5  # seconds
 
 logger = logging.getLogger(__name__)
 
+def wait_for_jenkins_completion(username, password, job_status_url, max_retries=10, interval=5):
+    for _ in range(max_retries):
+        if not get_job_status(username, password, job_status_url):
+            return True
+        time.sleep(interval)
+    return False
+
+
 def trigger_jenkins_job(approved_requests, category):
     try:
         logger.info("Approved Requests: %s", approved_requests)
@@ -41,14 +49,10 @@ def trigger_jenkins_job(approved_requests, category):
 
         job_status_url = f"{JENKINS_URL}/job/LSF_UED/job/{branch_name}/job/{job_name}/{current_build_id}/api/json"
 
-        # Poll build status
-        for _ in range(MAX_RETRIES):
-            if not get_job_status(JENKINS_USERNAME, JENKINS_PASSWORD, job_status_url):
-                break
-            time.sleep(POLL_INTERVAL)
-        else:
+        if not wait_for_jenkins_completion(JENKINS_USERNAME, JENKINS_PASSWORD, job_status_url):
             logger.error("Jenkins build did not complete in time")
             return {'error_message': "Jenkins build timeout"}, 504
+
 
         job_result = get_job_result(JENKINS_USERNAME, JENKINS_PASSWORD, job_status_url)
         logger.info("Jenkins job result: %s", job_result)
