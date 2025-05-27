@@ -1,132 +1,90 @@
-import logging
-import time
-import os
-import requests
+from datetime import date
+import cx_Oracle  # ensure this is imported somewhere
 import traceback
 
-# Constants
-MAX_RETRIES = 10
-POLL_INTERVAL = 5  # seconds
+def scheduled_database_removal_query():
+    write_to_cron_log("Job started: daily_database_removal_query")
+    conn = None
+    cursor = None
 
-logger = logging.getLogger(__name__)
-
-def wait_for_jenkins_completion(username, password, job_status_url, max_retries=10, interval=5):
-    for _ in range(max_retries):
-        if not get_job_status(username, password, job_status_url):
-            return True
-        time.sleep(interval)
-    return False
-
-
-def trigger_jenkins_job(approved_requests, category):
     try:
-        logger.info("Approved Requests: %s", approved_requests)
-        branch_name = os.getenv('BRANCH_NAME', 'dev')
-        logger.info("Triggering Jenkins for branch: %s", branch_name)
+        conn = get_oracle_connection()
+        cursor = conn.cursor()
 
-        job_name, jenkins_params = get_jenkins_params(category, approved_requests, branch_name)
-        logger.debug("Jenkins Parameters: %s", jenkins_params)
+        today = date.today().isoformat()
+        tables = [
+            {"name": dbCfg['QUEUE_ACCESS'], "category": "QUEUE", "extra_filter": "AND QUEUE='priority'"},
+            {"name": dbCfg['SLOT_REQUEST'], "category": "SLOT", "extra_filter": ""}
+        ]
 
-        response = requests.post(
-            f"{JENKINS_URL}/job/LSF_UED/job/{branch_name}/job/{job_name}/buildWithParameters",
-            auth=(JENKINS_USERNAME, JENKINS_PASSWORD),
-            params=jenkins_params,
-            timeout=10
-        )
+        query_results = []
+        for table in tables:
+            rows = fetch_expired_requests(cursor, table["name"], table["extra_filter"], today)
+            for row in rows:
+                row["CATEGORY_NAME"] = table["category"]
+                query_results.append(row)
 
-        if response.status_code != 201:
-            logger.error("Jenkins trigger failed: %s", response.text)
-            return {'error_message': "Automation triggering failed"}, 500
+        for request in query_results:
+            process_removal_request(request, conn)
 
-        logger.info("Jenkins job triggered successfully")
-        time.sleep(12)
+        write_to_cron_log("Job completed: daily_database_removal_query")
 
-        build_info_url = f"{JENKINS_URL}/job/LSF_UED/job/{branch_name}/job/{job_name}/api/json?tree=builds[number,displayName,id]"
-        current_build_id = get_build_num(JENKINS_USERNAME, JENKINS_PASSWORD, approved_requests.get("REQUEST_ID"), build_info_url)
-        
-        if not current_build_id:
-            raise RuntimeError("Could not determine current Jenkins build ID")
+    except cx_Oracle.Error as error:
+        write_to_api_log(f"[scheduled_database_removal_query] Error: {str(error)}")
+        print(f"Database query error: {error}")
+        write_to_cron_log(f"Failed with error: {error}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
-        job_status_url = f"{JENKINS_URL}/job/LSF_UED/job/{branch_name}/job/{job_name}/{current_build_id}/api/json"
+def fetch_expired_requests(cursor, table_name, extra_filter, specific_date):
+    sql = f"""
+        SELECT REQUEST_ID, USER_AID, CLUSTER_NAME, ACCESS_END_DATE, REQUEST_STATUS, { 'QUEUE' if 'QUEUE_ACCESS' in table_name else 'SLOT_TYPE' } 
+        FROM {table_name}
+        WHERE REQUEST_STATUS='COMPLETED'
+        {extra_filter}
+        AND TRUNC(ACCESS_END_DATE) <= TO_DATE(:today, 'YYYY-MM-DD')
+    """
+    cursor.execute(sql, today=specific_date)
+    columns = [col[0] for col in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-        if not wait_for_jenkins_completion(JENKINS_USERNAME, JENKINS_PASSWORD, job_status_url):
-            logger.error("Jenkins build did not complete in time")
-            return {'error_message': "Jenkins build timeout"}, 504
+def process_removal_request(request, conn):
+    print("Processing request:", request)
+    build_result = trigger_jenkins_job_removal(request)
 
-
-        job_result = get_job_result(JENKINS_USERNAME, JENKINS_PASSWORD, job_status_url)
-        logger.info("Jenkins job result: %s", job_result)
-        return job_result
-
-    except Exception as e:
-        logger.exception("[trigger_jenkins_job] Unexpected error: %s", str(e))
-        write_to_api_log(f"[trigger_jenkins_job] Error: {str(e)}")
-        return {'error_message': "Automation triggering failed"}, 500
-
-def get_jenkins_params(category, data, branch_name):
-    if category == 'QUEUE':
-        return 'queue', {
-            'REQUEST_ID': data.get("REQUEST_ID"),
-            'USER_ID': data.get("USER_AID"),
-            'CLUSTER_NAME': data.get('CLUSTER_NAME'),
-            'GROUP_AID': data.get('GROUP_AID'),
-            'ACCESS_END_DATE': data.get('ACCESS_END_DATE'),
-            'REVIEWED_BY': data.get('REVIEWED_BY'),
-            'PROJECT_NAME': data.get('PROJECT_NAME'),
-            'LSB_OPTION': 'true' if data.get('LSB_OPTION') == 1 else 'false',
-            'SLOT_POOL': data.get('SLOT_POOL'),
-            'QUEUE': data.get('QUEUE'),
-            'PLM_AID': data.get('PLM_AID'),
-            'BRANCH_NAME': branch_name
-        }
-    elif category == 'SLOT':
-        return 'slot', {
-            'REQUEST_ID': data.get("REQUEST_ID"),
-            'USER_ID': data.get('USER_AID'),
-            'PROJECT_NAME': data.get('PROJECT_NAME'),
-            'SLOT_TYPE': data.get('SLOT_TYPE'),
-            'CURRENT_SLOT_LIMIT': data.get('CURRENT_SLOT_LIMIT'),
-            'CLUSTER_NAME': data.get('CLUSTER_NAME'),
-            'REQUESTED_SLOT': data.get('REQUESTED_SLOT'),
-            'ACCESS_END_DATE': data.get('ACCESS_END_DATE'),
-            'REVIEWED_BY': data.get('REVIEWED_BY'),
-            'BRANCH_NAME': branch_name
-        }
+    # Normalize build result
+    if build_result == 'SUCCESS':
+        final_status = 'ACCESS ENDED'
+    elif build_result == 'UNSTABLE':
+        final_status = 'QUEUED FOR RETRY'
     else:
-        raise ValueError(f"Invalid category: {category}")
+        final_status = 'AWAITING ADMIN REVIEW'
 
-import logging
-import requests
+    print(f"Build result: {build_result}, Final status: {final_status}")
 
-logger = logging.getLogger(__name__)
+    category = request.get("CATEGORY_NAME", "").upper()
+    table_name = dbCfg['QUEUE_ACCESS'] if category == 'QUEUE' else dbCfg['SLOT_REQUEST']
 
-def get_job_status(username, password, url):
-    try:
-        response = requests.get(url, auth=(username, password), timeout=10)
-        response.raise_for_status()
-        job_info = response.json()
-        status = job_info.get('building')
-        logger.debug('Building status: %s', status)
-        return status
-    except requests.RequestException as e:
-        logger.error("Error while fetching build status from Jenkins: %s", str(e))
-        raise
-    except ValueError:
-        logger.error("Failed to decode JSON response from Jenkins")
-        raise
+    update_sql = f"""
+        UPDATE {table_name}
+        SET UPDATED_DATE = sysdate,
+            REQUEST_STATUS = :REQUEST_STATUS
+        WHERE REQUEST_ID = :REQUEST_ID
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(update_sql, {
+            "REQUEST_STATUS": final_status,
+            "REQUEST_ID": request["REQUEST_ID"]
+        })
+        conn.commit()
 
-def get_job_result(username, password, url):
-    try:
-        response = requests.get(url, auth=(username, password), timeout=10)
-        response.raise_for_status()
-        job_info = response.json()
-        job_result = job_info.get('result')
-        logger.debug('Job result: %s', job_result)
-        return job_result
-    except requests.RequestException as e:
-        logger.error("Error while fetching job result from Jenkins: %s", str(e))
-        raise
-    except ValueError:
-        logger.error("Failed to decode JSON response from Jenkins")
-        raise
-
+    if final_status == 'ACCESS ENDED' and category == 'SLOT':
+        upsert_slot_limit(
+            conn,
+            user_id=request.get("USER_AID"),
+            slot_type=request.get("SLOT_TYPE"),
+            cluster_name=request.get("CLUSTER_NAME")
+        )
