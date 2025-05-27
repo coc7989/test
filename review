@@ -1,18 +1,92 @@
-{
-  "_notes": [
-    "Slot Queue Configuration - Golden Source",
-    "Format: <queue_name>: [ { slots, file }, ... ]",
-    "To add a new slot group, add entries under queue name.",
-    "Update Jenkins + UI consumers after changes."
-  ],
-  "gui": [
-    { "slots": 12, "file": "gui_12_grp" },
-    { "slots": 20, "file": "gui_20_grp" }
-  ],
-  "api": [
-    { "slots": 10, "file": "api_10_grp" }
-  ],
-  "default": [
-    { "slots": 5, "file": "default_5_grp" }
-  ]
-}
+import logging
+import time
+import os
+import requests
+import traceback
+
+# Constants
+MAX_RETRIES = 10
+POLL_INTERVAL = 5  # seconds
+
+logger = logging.getLogger(__name__)
+
+def trigger_jenkins_job(approved_requests, category):
+    try:
+        logger.info("Approved Requests: %s", approved_requests)
+        branch_name = os.getenv('BRANCH_NAME', 'dev')
+        logger.info("Triggering Jenkins for branch: %s", branch_name)
+
+        job_name, jenkins_params = get_jenkins_params(category, approved_requests, branch_name)
+        logger.debug("Jenkins Parameters: %s", jenkins_params)
+
+        response = requests.post(
+            f"{JENKINS_URL}/job/LSF_UED/job/{branch_name}/job/{job_name}/buildWithParameters",
+            auth=(JENKINS_USERNAME, JENKINS_PASSWORD),
+            params=jenkins_params,
+            timeout=10
+        )
+
+        if response.status_code != 201:
+            logger.error("Jenkins trigger failed: %s", response.text)
+            return {'error_message': "Automation triggering failed"}, 500
+
+        logger.info("Jenkins job triggered successfully")
+        time.sleep(12)
+
+        build_info_url = f"{JENKINS_URL}/job/LSF_UED/job/{branch_name}/job/{job_name}/api/json?tree=builds[number,displayName,id]"
+        current_build_id = get_build_num(JENKINS_USERNAME, JENKINS_PASSWORD, approved_requests.get("REQUEST_ID"), build_info_url)
+        
+        if not current_build_id:
+            raise RuntimeError("Could not determine current Jenkins build ID")
+
+        job_status_url = f"{JENKINS_URL}/job/LSF_UED/job/{branch_name}/job/{job_name}/{current_build_id}/api/json"
+
+        # Poll build status
+        for _ in range(MAX_RETRIES):
+            if not get_job_status(JENKINS_USERNAME, JENKINS_PASSWORD, job_status_url):
+                break
+            time.sleep(POLL_INTERVAL)
+        else:
+            logger.error("Jenkins build did not complete in time")
+            return {'error_message': "Jenkins build timeout"}, 504
+
+        job_result = get_job_result(JENKINS_USERNAME, JENKINS_PASSWORD, job_status_url)
+        logger.info("Jenkins job result: %s", job_result)
+        return job_result
+
+    except Exception as e:
+        logger.exception("[trigger_jenkins_job] Unexpected error: %s", str(e))
+        write_to_api_log(f"[trigger_jenkins_job] Error: {str(e)}")
+        return {'error_message': "Automation triggering failed"}, 500
+
+def get_jenkins_params(category, data, branch_name):
+    if category == 'QUEUE':
+        return 'queue', {
+            'REQUEST_ID': data.get("REQUEST_ID"),
+            'USER_ID': data.get("USER_AID"),
+            'CLUSTER_NAME': data.get('CLUSTER_NAME'),
+            'GROUP_AID': data.get('GROUP_AID'),
+            'ACCESS_END_DATE': data.get('ACCESS_END_DATE'),
+            'REVIEWED_BY': data.get('REVIEWED_BY'),
+            'PROJECT_NAME': data.get('PROJECT_NAME'),
+            'LSB_OPTION': 'true' if data.get('LSB_OPTION') == 1 else 'false',
+            'SLOT_POOL': data.get('SLOT_POOL'),
+            'QUEUE': data.get('QUEUE'),
+            'PLM_AID': data.get('PLM_AID'),
+            'BRANCH_NAME': branch_name
+        }
+    elif category == 'SLOT':
+        return 'slot', {
+            'REQUEST_ID': data.get("REQUEST_ID"),
+            'USER_ID': data.get('USER_AID'),
+            'PROJECT_NAME': data.get('PROJECT_NAME'),
+            'SLOT_TYPE': data.get('SLOT_TYPE'),
+            'CURRENT_SLOT_LIMIT': data.get('CURRENT_SLOT_LIMIT'),
+            'CLUSTER_NAME': data.get('CLUSTER_NAME'),
+            'REQUESTED_SLOT': data.get('REQUESTED_SLOT'),
+            'ACCESS_END_DATE': data.get('ACCESS_END_DATE'),
+            'REVIEWED_BY': data.get('REVIEWED_BY'),
+            'BRANCH_NAME': branch_name
+        }
+    else:
+        raise ValueError(f"Invalid category: {category}")
