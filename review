@@ -1,49 +1,62 @@
-import os
-import smtplib
-from flask import request, jsonify
-from flask_cors import cross_origin
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-
-@app.route(f"{API_URL_PREFIX}/send_rejection_email_for_admin_panel_request", methods=['POST'])
 @cross_origin()
-def send_rejection_email_for_admin_panel_request():
+def identify_users():
     sso_active = check_sso_status(request)
     if not sso_active:
         return jsonify({'message': 'SSO Timeout'}), 401
 
-    if not request.is_json or not request.json:
-        return jsonify({"error": "Invalid or missing JSON"}), 400
-
     try:
-        data = request.json
-        user_id = data.get('USER_AID')
-        if not user_id:
-            return jsonify({"error": "Missing USER_AID"}), 400
+        ping_data = sso_data()
+        branch_name = os.getenv('BRANCH_NAME', 'local')
+        userid = request.args.get('user') if branch_name == "local" else ping_data.get('userID')
 
-        # Load configs from environment
-        branch_name = os.getenv('BRANCH_NAME', 'dev')
-        smtp_server = os.getenv("SMTP_SERVER", "smtp.mail.ti.com")
-        smtp_port = int(os.getenv("SMTP_PORT", 25))
-        sender_email = os.getenv("EMAIL_SENDER", "noreply-mylsf@ti.com")
-        to_email = os.getenv("TEST_EMAIL_OVERRIDE") if branch_name == "dev" else f"{user_id}@ti.com"
+        if not userid:
+            return jsonify({'error': 'User ID not provided'}), 400
 
-        # Generate subject and email HTML
-        subject = f"{data.get('REQUEST_TYPE', '').upper()} Request Rejected for Project: {data.get('PROJECT_NAME', '')}"
-        html_content = generate_rejection_email_html(data)
+        conn = get_oracle_connection()
+        cursor = conn.cursor()
 
-        # Create and send the email
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(html_content, "html"))
+        try:
+            user_map_tbl = dbCfg.get('USER_MAP_TBL')
+            cursor.execute(f'''SELECT CLUSTER_NAME FROM {user_map_tbl} WHERE USERID LIKE :userid''', {'userid': userid})
+            cluster_result = cursor.fetchone()
 
-        with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
-            server.sendmail(sender_email, to_email, msg.as_string())
+            if not cluster_result:
+                return Response(response="Unauthorized", status=401)
 
-        return jsonify({"message": "Rejection email sent successfully"}), 200
+            cluster_name = cluster_result[0]
+            query_results = {}
+
+            queries = {
+                'tii-shared': f"SELECT COUNT(*) FROM {dbCfg['tii-shared-bjobs']} WHERE USERID LIKE :userid",
+                'dal-design': f"SELECT COUNT(*) FROM {dbCfg['dal-design-bjobs']} WHERE USERID LIKE :userid",
+            }
+
+            for cluster_key, sql in queries.items():
+                cursor.execute(sql, {'userid': userid})
+                count = cursor.fetchone()[0]
+                if count > 0 or cluster_key == cluster_name:
+                    query_results[cluster_key] = count
+
+            query_results['default'] = cluster_name
+
+            # Fetch service accounts
+            cursor.execute(f'''
+                SELECT /*+ PARALLEL(4) */ SRV_ACTS 
+                FROM {dbCfg['USER_SACCT_TBL']} 
+                WHERE USERID LIKE :userid
+            ''', {'userid': userid})
+            svc_result = cursor.fetchone()
+            query_results['service_account'] = ','.join(svc_result[0].split(';')) if svc_result else ''
+
+            combined = {**ping_data, **query_results}
+            return jsonify(combined), 200
+
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                release_oracle_connection(conn)
 
     except Exception as e:
-        write_to_api_log(f"[/send_rejection_email_for_admin_panel_request] Error: {str(e)}")
-        return jsonify({"error": "Failed to send rejection email"}), 500
+        write_to_api_log(f"[identify_users] Error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
