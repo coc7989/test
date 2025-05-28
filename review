@@ -1,90 +1,229 @@
-from datetime import date
-import cx_Oracle  # ensure this is imported somewhere
-import traceback
+from datetime import datetime
+from flask import jsonify
+import html
 
-def scheduled_database_removal_query():
-    write_to_cron_log("Job started: daily_database_removal_query")
-    conn = None
-    cursor = None
+# Constants
+LSF_SUPPORT_EMAIL = "lsfued@list.ti.com"
+ESCALATION_EMAIL = "rajath@ti.com"
 
+# Column mapping
+COLUMN_NAME_MAPPING = {
+    "REQUEST_ID": "Request ID",
+    "USER_AID": "Requested By",
+    "GROUP_AID": "Requested For",
+    "PROJECT_NAME": "Project Name",
+    "SLOT_TYPE": "Slot Type",
+    "REQUEST_TYPE": "Request Type",
+    "CURRENT_SLOT_LIMIT": "Current Slot Limit",
+    "CLUSTER_NAME": "Cluster Name",
+    "REQUESTED_SLOT": "Requested Slot",
+    "SUBMISSION_DATE": "Submission Date",
+    "LSB_OPTION": "Group Sharing",
+    "SLOT_POOL": "Slots",
+    "REVIEWED_BY": "Reviewed By",
+    "ACCESS_END_DATE": "Access End Date",
+}
+
+COLUMN_ORDER = [
+    "REQUEST_ID", "PROJECT_NAME", "CURRENT_SLOT_LIMIT", "REQUESTED_SLOT",
+    "GROUP_AID", "USER_AID", "LSB_OPTION", "SLOT_POOL", "ACCESS_END_DATE",
+    "CLUSTER_NAME", "REVIEWED_BY"
+]
+
+# === Helper Functions ===
+
+def sanitize_and_format_data(data):
+    if "LSB_OPTION" in data:
+        data["LSB_OPTION"] = "Yes" if data["LSB_OPTION"] == '1' else "No"
+
+    for date_field in ["ACCESS_END_DATE", "SUBMISSION_DATE"]:
+        if date_field in data:
+            try:
+                data[date_field] = datetime.strptime(
+                    data[date_field], "%a, %d %b %Y %H:%M:%S %Z"
+                ).strftime("%d %b %Y")
+            except ValueError:
+                pass  # fallback if parsing fails
+
+def build_html_table(data):
+    rows = []
+    for key in COLUMN_ORDER:
+        if key in data and data[key]:
+            label = COLUMN_NAME_MAPPING.get(key, key)
+            rows.append(
+                f"<tr><td><strong>{label}</strong></td><td>{html.escape(str(data[key]))}</td></tr>"
+            )
+    return ''.join(rows)
+
+def format_recipients(*aid_fields):
+    recipients = []
+    for aid in aid_fields:
+        if aid:
+            recipients += [f"{a.strip()}@ti.com" for a in aid.split(",") if a.strip()]
+    return ",".join(recipients)
+
+# === Email Builders ===
+
+def build_queue_access_email(data, rows):
+    subject = f"{data.get('REQUEST_TYPE', '').upper()} Queue Access for Project: {data.get('PROJECT_NAME', '')}"
+    recipients = format_recipients(data.get('GROUP_AID', ''), data.get('PLM_AID', ''))
+
+    html_content = f"""
+    <html>
+    <head>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            padding: 10px;
+        }}
+        .container {{
+            max-width: 600px;
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            box-shadow: 0px 0px 5px rgba(0,0,0,0.1);
+            border-left: 4px solid green;
+        }}
+        h2 {{
+            font-size: 16px;
+            color: #2C3E50;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 12px;
+        }}
+        th, td {{
+            padding: 5px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }}
+        th {{
+            background-color: #f4f4f4;
+        }}
+        .highlight {{
+            background-color: #fff3cd;
+            padding: 8px;
+            border-left: 4px solid #d9534f;
+            margin-top: 8px;
+        }}
+        .footer {{
+            margin-top: 10px;
+            font-size: 10px;
+            color: #555;
+            text-align: center;
+        }}
+        .code {{
+            font-family: monospace;
+            font-size: 11px;
+            background: #f8f9fa;
+            padding: 3px;
+            border-radius: 3px;
+            border: 1px solid #ddd;
+            display: inline-block;
+        }}
+        pre.code {{
+            padding: 5px;
+            font-size: 11px;
+        }}
+    </style>
+    </head>
+    <body>
+    <div class="container">
+        <h2>You have been granted access to the {html.escape(data.get("CLUSTER_NAME", "").upper())} LSF {html.escape(data.get("REQUEST_TYPE", ""))} queue</h2>
+        <table>{rows}</table>
+
+        <div class="highlight">
+            <h3>Important Guidelines for Using the Priority Queue</h3>
+            <p><strong>Please use the priority queue only when you need to escalate a small volume of jobs.</strong></p>
+            <h4>Guidelines:</h4>
+            <ul>
+                <li><strong>Submit jobs to the <span class="code">priority</span> queue using:</strong></li>
+                <pre class="code">bsub -q priority</pre>
+                <li><strong>Move jobs to the <span class="code">priority</span> queue using:</strong></li>
+                <pre class="code">bswitch priority JOBID</pre>
+            </ul>
+        </div>
+
+        <p><strong>For any issues, contact:</strong></p>
+        <p><a href="mailto:{LSF_SUPPORT_EMAIL}">{LSF_SUPPORT_EMAIL}</a></p>
+
+        <p><strong>For escalations, contact:</strong></p>
+        <p><a href="mailto:{ESCALATION_EMAIL}">{ESCALATION_EMAIL}</a></p>
+
+        <div class="footer">
+            <p>Automated Notification | myLSF</p>
+        </div>
+    </div>
+    </body>
+    </html>
+    """
+    return html_content, subject, recipients
+
+def build_slot_change_email(data, rows):
+    subject = f"{data.get('REQUEST_TYPE', '').upper()} Slot Change Completed for Project: {data.get('PROJECT_NAME', '')}"
+    recipients = format_recipients(data.get('USER_AID'))
+
+    html_content = f"""
+    <html>
+    <body>
+        <div style="border: 4px solid green; padding: 10px;">
+            <h2>Slot Change Completed for {html.escape(data.get("REQUEST_TYPE", ""))} on {html.escape(data.get("CLUSTER_NAME", ""))}</h2>
+            <div style="background-color: green; padding: 10px;">
+                <h3 style="color: white;">Slot Change Status: COMPLETED</h3>
+            </div>
+            <table border="1" style="border-collapse: collapse; width: 50%;">{rows}</table>
+            <hr style="border:none; border-top:1px solid #ccc;"/>
+            <p style="font-size:14px; color:#333;">For any issues, contact:</p>
+            <p><a href="mailto:{LSF_SUPPORT_EMAIL}">{LSF_SUPPORT_EMAIL}</a></p>
+            <p style="font-size:14px; color:#333;">For any escalation, contact:</p>
+            <p><a href="mailto:{ESCALATION_EMAIL}">{ESCALATION_EMAIL}</a></p>
+        </div>
+    </body>
+    </html>
+    """
+    return html_content, subject, recipients
+
+def build_access_expired_email(data, rows):
+    subject = f"{data.get('REQUEST_TYPE', '').upper()} Access Expired For Project: {data.get('PROJECT_NAME', '')}"
+    recipients = format_recipients(data.get("GROUP_AID", ""), data.get("PLM_AID", "")) or format_recipients(data.get("USER_AID"))
+
+    html_content = f"""
+    <html>
+    <body>
+        <div style="border: 4px solid green; padding: 10px;">
+            <h2>Your {html.escape(data.get("REQUEST_TYPE", ""))} access on {html.escape(data.get("CLUSTER_NAME", ""))} is expired</h2>
+            <table border="1" style="border-collapse: collapse; width: 50%;">{rows}</table>
+            <hr style="border:none; border-top:1px solid #ccc;"/>
+            <p style="font-size:14px; color:#333;">For any issues, contact:</p>
+            <p><a href="mailto:{LSF_SUPPORT_EMAIL}">{LSF_SUPPORT_EMAIL}</a></p>
+            <p style="font-size:14px; color:#333;">For any escalation, contact:</p>
+            <p><a href="mailto:{ESCALATION_EMAIL}">{ESCALATION_EMAIL}</a></p>
+        </div>
+    </body>
+    </html>
+    """
+    return html_content, subject, recipients
+
+# === Main Function ===
+
+def generate_super_admin_html_table(data):
     try:
-        conn = get_oracle_connection()
-        cursor = conn.cursor()
+        sanitize_and_format_data(data)
+        rows = build_html_table(data)
 
-        today = date.today().isoformat()
-        tables = [
-            {"name": dbCfg['QUEUE_ACCESS'], "category": "QUEUE", "extra_filter": "AND QUEUE='priority'"},
-            {"name": dbCfg['SLOT_REQUEST'], "category": "SLOT", "extra_filter": ""}
-        ]
+        if data.get("REQUEST_STATUS") == "COMPLETED" and data.get("CATEGORY_NAME") == "QUEUE":
+            return build_queue_access_email(data, rows)
+        elif data.get("REQUEST_STATUS") == "COMPLETED" and data.get("CATEGORY_NAME") == "SLOT":
+            return build_slot_change_email(data, rows)
+        elif data.get("REQUEST_STATUS") == "ACCESS ENDED":
+            return build_access_expired_email(data, rows)
+        else:
+            return None, None, None  # No action defined for other statuses
 
-        query_results = []
-        for table in tables:
-            rows = fetch_expired_requests(cursor, table["name"], table["extra_filter"], today)
-            for row in rows:
-                row["CATEGORY_NAME"] = table["category"]
-                query_results.append(row)
-
-        for request in query_results:
-            process_removal_request(request, conn)
-
-        write_to_cron_log("Job completed: daily_database_removal_query")
-
-    except cx_Oracle.Error as error:
-        write_to_api_log(f"[scheduled_database_removal_query] Error: {str(error)}")
-        print(f"Database query error: {error}")
-        write_to_cron_log(f"Failed with error: {error}")
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-def fetch_expired_requests(cursor, table_name, extra_filter, specific_date):
-    sql = f"""
-        SELECT REQUEST_ID, USER_AID, CLUSTER_NAME, ACCESS_END_DATE, REQUEST_STATUS, { 'QUEUE' if 'QUEUE_ACCESS' in table_name else 'SLOT_TYPE' } 
-        FROM {table_name}
-        WHERE REQUEST_STATUS='COMPLETED'
-        {extra_filter}
-        AND TRUNC(ACCESS_END_DATE) <= TO_DATE(:today, 'YYYY-MM-DD')
-    """
-    cursor.execute(sql, today=specific_date)
-    columns = [col[0] for col in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
-
-def process_removal_request(request, conn):
-    print("Processing request:", request)
-    build_result = trigger_jenkins_job_removal(request)
-
-    # Normalize build result
-    if build_result == 'SUCCESS':
-        final_status = 'ACCESS ENDED'
-    elif build_result == 'UNSTABLE':
-        final_status = 'QUEUED FOR RETRY'
-    else:
-        final_status = 'AWAITING ADMIN REVIEW'
-
-    print(f"Build result: {build_result}, Final status: {final_status}")
-
-    category = request.get("CATEGORY_NAME", "").upper()
-    table_name = dbCfg['QUEUE_ACCESS'] if category == 'QUEUE' else dbCfg['SLOT_REQUEST']
-
-    update_sql = f"""
-        UPDATE {table_name}
-        SET UPDATED_DATE = sysdate,
-            REQUEST_STATUS = :REQUEST_STATUS
-        WHERE REQUEST_ID = :REQUEST_ID
-    """
-    with conn.cursor() as cursor:
-        cursor.execute(update_sql, {
-            "REQUEST_STATUS": final_status,
-            "REQUEST_ID": request["REQUEST_ID"]
-        })
-        conn.commit()
-
-    if final_status == 'ACCESS ENDED' and category == 'SLOT':
-        upsert_slot_limit(
-            conn,
-            user_id=request.get("USER_AID"),
-            slot_type=request.get("SLOT_TYPE"),
-            cluster_name=request.get("CLUSTER_NAME")
-        )
+    except Exception as e:
+        write_to_api_log(f"[generate_super_admin_html_table] Error: {str(e)}")
+        print(f"Failed to generate html table: {str(e)}")
+        return jsonify({"error_message": "Failed to generate html table"}), 500
