@@ -1,285 +1,121 @@
-const QueueRequestForm = () => {
-  const { userID, selectedCluster } = useContext(ClusterContext);
-  const {
-    control,
-    handleSubmit,
-    reset,
-    watch,
-    unregister,
-    setValue,
-    formState: { errors },
-  } = useForm({
-    shouldUnregister: true,
-    mode: 'onChange',
-    defaultValues: {
-      QUEUE: 'priority',
-    },
-  });
+gYes, your observation is absolutely correct. Accessing values using hardcoded index positions like record[2] or request[5] is not very readable, error-prone, and makes the code harder to maintain.
 
-  const [openSnackbar, setOpenSnackbar] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedPLMItem, setSelectedPLMItem] = useState(null); 
-  const [selectedGroupItems, setSelectedGroupItems] = useState([]); 
-  const [inputValue, setInputValue] = useState('');
-  const [debouncedInputValue, setDebouncedInputValue] = useDebounce(inputValue, 1000);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [clusterSelected, setClusterSelected] = useState(false);
-  const [ldapError, setLdapError] = useState(null); // For PLM_AID errors
-  const [ldapUnixError, setLdapUnixError] = useState(null); // For GROUP_AID errors
+✅ Better Way: Use cursor.description + Dictionary Conversion
 
-  const handleQueueChange = (e, field) => {
-    const selectedValue = e.target.value;
-    field.onChange(e);
-    setValue('LSB_OPTION', false);
+You can convert each row fetched from the database into a dictionary by using the column names provided by cursor.description. This will allow you to access fields by their names instead of numeric indices, making your code more readable and robust.
 
-    if (selectedValue === 'hwsim' && selectedCluster === 'dal-design') {
-      setOpenDialog(true);
-    }
-  };
 
-  const handleDialogClose = () => {
-    setOpenDialog(false);
-    setValue('QUEUE', 'priority');
-  };
+---
 
-  const handleSnackbarClose = (event, reason) => {
-    if (reason === 'clickaway') {
-      return;
-    }
-    setOpenSnackbar(false);
-  };
+✅ Revised scheduled_remainder_query() (with dicts)
 
-  const today = dayjs();
+def scheduled_remainder_query():
+    conn = get_oracle_connection()
+    cursor = conn.cursor()
 
-  const onSubmit = async (data) => {
-    setIsSubmitting(true);
-    if (data.QUEUE === 'priority') {
-      if (data.PG_DATE) {
-        data.PG_DATE = dayjs(data.PG_DATE).format('YYYY-MM-DD');
-      }
-      data.PLM_AID = data.PLM_AID ? data.PLM_AID.uid : '';
-    }
-    data.REQUEST_STATUS = 'PENDING';
-    data.USER_AID = userID;
-    data.SUBMISSION_DATE = today.format('YYYY-MM-DD');
+    target_date = (date.today() + timedelta(days=3)).isoformat()  # 3 days from today
 
-    data.GROUP_AID = data.GROUP_AID ? data.GROUP_AID.map((item) => item.uid).join(',') : '';
+    query = f"""
+        SELECT REQUEST_ID, CLUSTER_NAME, USER_AID, GROUP_AID,
+               TO_CHAR(ACCESS_END_DATE, 'YYYY-MM-DD') AS ACCESS_END_DATE,
+               PROJECT_NAME, LSB_OPTION, SLOT_POOL, PLM_AID
+        FROM {dbCfg['QUEUE_ACCESS']}
+        WHERE REQUEST_STATUS='COMPLETED'
+          AND QUEUE='priority'
+          AND TRUNC(ACCESS_END_DATE) = TO_DATE(:target_date, 'YYYY-MM-DD')
+    """
 
-    data.LSB_OPTION = data.LSB_OPTION || false;
-    data.SLOT_POOL = data.LSB_OPTION ? data.SLOT_POOL : 50;
-    try {
-      const response = await apiInstance.post('/queue_request', data);
-      if (response.status === 200) {
-        setSnackbarSeverity('success');
-        setSnackbarMessage('Request submitted successfully!');
-        setOpenSnackbar(true);
-        handleReset();
-      }
-    } catch (error) {
-      console.error('Submission failed:', error);
-      setSnackbarSeverity('error');
-      setSnackbarMessage('Failed to submit request. Please try again.');
-      setOpenSnackbar(true);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    cursor.execute(query, target_date=target_date)
 
-  const handleReset = () => {
-    setSelectedGroupItems([]);
-    setSelectedPLMItem(null);
-    reset();
-  };
+    columns = [col[0].lower() for col in cursor.description]
+    records = [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-  const handlePLMSelectionChange = (e, value) => {
-    setSelectedPLMItem(value); 
-    setValue('PLM_AID', value);
-    console.log(value, 'PLM_AID onChange');
-  };
+    user_records = {}
+    for record in records:
+        user_aid = record['user_aid']
+        if user_aid not in user_records:
+            user_records[user_aid] = []
+        user_records[user_aid].append(record)
 
-  const handleGroupSelectionChange = (e, value) => {
-    setSelectedGroupItems(value);
-    setValue('GROUP_AID', value);
-    console.log(value, 'GROUP_AID onChange');
-  };
+    for user_aid, user_requests in user_records.items():
+        send_remainder_email_for_priority_queue(user_aid, user_requests)
 
-  const fetchLDAP = async (inputValue) => {
-    try {
-      const res = await apiInstance.get(`/ldap?userInput=${inputValue}`);
-      setLdapError(null); // Clear any previous errors
-      return res.data || [];
-    } catch (error) {
-      setLdapError(error.response?.data?.error_message || 'Failed to fetch LDAP data.');
-      return [];
-    }
-  };
 
-  const fetchLDAPUnix = async (inputValue, clusterName) => {
-    try {
-      const res = await apiInstance.get(`/unix_ldap?userInput=${inputValue}&clusterName=${clusterName}`);
-      setLdapUnixError(null); // Clear any previous errors
-      return res.data || [];
-    } catch (error) {
-      setLdapUnixError(error.response?.data?.error_message || 'Failed to fetch Unix LDAP data.');
-      return [];
-    }
-  };
+---
 
-  const isQueryEnabled = !!debouncedInputValue.trim();
-  const { data: ldapData = [], isLoading: queryLoading } = useQuery(
-    ['ldap', debouncedInputValue],
-    () => fetchLDAP(debouncedInputValue),
-    {
-      enabled: isQueryEnabled,
-    }
-  );
+✅ Revised send_remainder_email_for_priority_queue() (with dicts)
 
-  const { data: ldapUnixData = [], isLoading: queryUnixLoading } = useQuery(
-    ['ldap_unix', debouncedInputValue, watch('CLUSTER_NAME')],
-    () => fetchLDAPUnix(debouncedInputValue, watch('CLUSTER_NAME')),
-    {
-      enabled: isQueryEnabled && clusterSelected,
-    }
-  );
+def send_remainder_email_for_priority_queue(user_aid, user_requests):
+    branch_name = os.getenv('BRANCH_NAME', 'dev')
+    to_email = f"{user_aid}@ti.com"
+    cc_email = f"{user_requests[0]['plm_aid']}@ti.com"
+    subject = "Reminder: Your Priority Queue Access Requests Expiring in 2 Days"
+    recipients = [to_email] + ([cc_email] if cc_email else [])
+    portal_link = f"{PORTAL_LINK}/queue"
 
-  const isLoading = isQueryEnabled && (queryLoading || queryUnixLoading);
+    tables_html = ""
+    for request in user_requests:
+        group_sharing = "Yes" if request['lsb_option'] == '1' else "No"
+        access_end_date = datetime.strptime(request['access_end_date'], "%Y-%m-%d").strftime("%d %b %Y")
 
-  return (
-    <>
-      <Paper elevation={24} square={false}>
-        <form onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Grid
-            container
-            borderRadius={2}
-            ml={0}
-            rowSpacing={1}
-            pb={1}
-            pr={1}
-            columnSpacing={1}
-            justifyContent={'center'}
-            alignItems={'center'}
-          >
-            {/* Existing code for QUEUE, PROJECT_NAME, etc. */}
+        table_html = f"""
+        <table border="1" style="border-collapse:collapse;">
+            <tr><th>Field</th><th>Value</th></tr>
+            <tr><td>Request ID</td><td>{request['request_id']}</td></tr>
+            <tr><td>Cluster Name</td><td>{request['cluster_name']}</td></tr>
+            <tr><td>Requested For</td><td>{request['group_aid']}</td></tr>
+            <tr><td>Access End Date</td><td>{access_end_date}</td></tr>
+            <tr><td>Project Name</td><td>{request['project_name']}</td></tr>
+            <tr><td>Group Sharing</td><td>{group_sharing}</td></tr>
+            <tr><td>Slots</td><td>{request['slot_pool']}</td></tr>
+        </table><br/>
+        """
+        tables_html += table_html
 
-            {/* PLM_AID Autocomplete */}
-            {watch('QUEUE') === 'priority' && (
-              <Grid
-                item
-                xs={watch('LSB_OPTION') && watch('QUEUE') === 'priority' ? 6 : 12}
-                md={watch('LSB_OPTION') && watch('QUEUE') === 'priority' ? 6 : 12}
-              >
-                <FormControl fullWidth variant="outlined">
-                  <Controller
-                    name="PLM_AID"
-                    control={control}
-                    rules={{
-                      required: 'PLM AID is required',
-                      pattern: {
-                        value: /^[aA]\d{7}$/, // Regex pattern for AID only
-                        message: 'Please enter a valid AID.',
-                      },
-                    }}
-                    defaultValue={null}
-                    render={({ field }) => (
-                      <Autocomplete
-                        {...field}
-                        id="PLM_AID"
-                        loading={isLoading}
-                        loadingText={'Searching ...'}
-                        options={ldapData || []}
-                        getOptionLabel={(option) => `${option.cn} (${option.uid})`}
-                        onChange={(e, value) => {
-                          handlePLMSelectionChange(e, value);
-                        }}
-                        value={selectedPLMItem}
-                        isOptionEqualToValue={(option, value) => option.uid === value?.uid}
-                        filterOptions={(x) => x}
-                        noOptionsText={ldapError || 'No options found'} // Display error message if no options
-                        renderInput={(params) => (
-                          <TextField
-                            {...params}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            label="Enter PLM AID"
-                            placeholder="Enter PLM AID"
-                            InputProps={{
-                              ...params.InputProps,
-                              endAdornment: (
-                                <>
-                                  {isLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                                  {params.InputProps.endAdornment}
-                                </>
-                              ),
-                            }}
-                            error={!!errors.PLM_AID || !!ldapError}
-                            helperText={errors?.PLM_AID?.message || ldapError}
-                          />
-                        )}
-                      />
-                    )}
-                  />
-                </FormControl>
-              </Grid>
-            )}
+    email_body = f"""
+    <html>
+        <body>
+            <p><strong>Your priority queue access requests are expiring in 3 days:</strong></p>
+            {tables_html}
+            <p>If there is a critical business need to extend the access, please extend your access for another 10 days by visiting: <a href="{portal_link}">{portal_link}</a></p>
+            <p>Click on access requests -> Locate your request -> Click on extend button</p>
+            <p><strong>Access can be extended only 1 or 2 days prior to ending date and not on the ending date.</strong></p>
+        </body>
+    </html>
+    """
 
-            {/* GROUP_AID Autocomplete */}
-            <Grid item md={12}>
-              <FormControl fullWidth variant="outlined">
-                <Controller
-                  name="GROUP_AID"
-                  control={control}
-                  rules={{
-                    validate: (value) => (value && value.length > 0 ? true : 'At least one Group Aid is required'),
-                  }}
-                  render={({ field }) => (
-                    <Autocomplete
-                      {...field}
-                      multiple
-                      id="GROUP_AID"
-                      disableCloseOnSelect
-                      loading={isLoading}
-                      loadingText={'Searching ...'}
-                      options={ldapUnixData || []}
-                      getOptionLabel={(option) => `${option.cn} (${option.uid})`}
-                      onChange={(e, value) => {
-                        handleGroupSelectionChange(e, value);
-                        field.onChange(value);
-                      }}
-                      value={selectedGroupItems}
-                      isOptionEqualToValue={(option, value) => option.uid === value?.uid}
-                      filterOptions={(x) => x}
-                      noOptionsText={ldapUnixError || 'No options found'} // Display error message if no options
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          onChange={(e) => setInputValue(e.target.value)}
-                          label="Requesting For(AIDs)"
-                          placeholder="Group AIDs"
-                          InputProps={{
-                            ...params.InputProps,
-                            endAdornment: (
-                              <>
-                                {isLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                                {params.InputProps.endAdornment}
-                              </>
-                            ),
-                          }}
-                          error={!!errors.GROUP_AID || !!ldapUnixError}
-                          helperText={errors?.GROUP_AID?.message || ldapUnixError}
-                        />
-                      )}
-                    />
-                  )}
-                />
-              </FormControl>
-            </Grid>
+    try:
+        smtp_server = 'smtp.mail.tf.com'
+        smtp_port = 25
+        sender_email = "noreply-mylsf@tf.com"
 
-            {/* Existing code for JUSTIFICATION, buttons, etc. */}
-          </Grid>
-        </form>
-      </Paper>
-    </>
-  );
-};
-export default QueueRequestForm;
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = to_email
+        msg['Cc'] = cc_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(email_body, "html"))
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.sendmail(sender_email, recipients, msg.as_string())
+        server.quit()
+
+        return jsonify({'message': 'Email sent successfully'}), 200
+    except Exception as e:
+        write_to_api_log(f"[send_remainder_email_for_priority_queue] Error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+---
+
+✅ Benefits of This Change
+
+✅ Readability: Column names make it much easier to understand what's being accessed.
+
+✅ Maintainability: If the column order changes in SQL, your code still works.
+
+✅ Safety: Less risk of using a wrong index.
+
+
+Let me know if you'd like this wrapped as a utility function (e.g., rows_to_dicts(cursor)), or want to apply it in other places.
+
