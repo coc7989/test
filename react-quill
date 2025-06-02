@@ -1,82 +1,79 @@
-ydef sendSuccessEmail(){
-    def jobName = env.JOB_NAME
-    def buildNumber = env.BUILD_NUMBER
-    def buildLog = sh(script: "echo '\${BUILD_LOG, maxLines=50, escapeHtml=false}'", returnStdout: true).trim()
-    def pipelineStatus = currentBuild.result ?: 'UNKNOWN'
-    def bannerColor = pipelineStatus.toUpperCase() == 'SUCCESS' ? 'green' : 'red'
+tGreat point — hardcoding emails like lsfued@list.tf.com and rajath@tf.com makes the code less flexible and harder to maintain.
 
-    def accessType = (params.REQUEST_TYPE in ['gui', 'regress']) ? "${params.REQUEST_TYPE} elevated access" : "${params.REQUEST_TYPE} access"
+To avoid hardcoding, you can do the following:
 
-    def htmlBody = """
-    <html>
-    <body>
-    <div style="border: 4px solid ${bannerColor}; padding: 10px;">
-    <h2>Your ${accessType} on ${params.CLUSTER_NAME ?: ''} is expired</h2>
-    <table border="1" style="border-collapse: collapse; width: 80%; margin-bottom: 10px;">
-    """
 
-    if (params.REQUEST_ID) {
-        htmlBody += """
-        <tr>
-        <th style="padding: 8px;">Request ID</th>
-        <td style="padding: 8px;">${params.REQUEST_ID}</td>
-        </tr>
-        """
-    }
-    if (params.PROJECT_NAME) {
-        htmlBody += """
-        <tr>
-        <th style="padding: 8px;">Project Name</th>
-        <td style="padding: 8px;">${params.PROJECT_NAME}</td>
-        </tr>
-        """
-    }
+---
 
-    htmlBody += "</table>"
+✅ Step 1: Add Parameters to Your Pipeline
 
-    // 🟡 Conditional: Show extra section if REQUEST_TYPE is "priority"
-    if (params.REQUEST_TYPE?.toLowerCase() == 'priority') {
-        htmlBody += """
-        <div style="background-color: #fff8dc; padding: 15px; border: 2px dashed #ffa500; margin-top: 20px;">
-            <h3 style="color: #cc6600;">⚠️ Priority Access Ended — Action Needed for Pending Jobs</h3>
-            <p>Your running jobs will <b>not</b> be affected, but you must manage your <b>pending jobs</b> to avoid delays.</p>
-            <ul style="font-size: 14px; color: #333;">
-                <li><b>Switching a single job to another queue:</b><br/>
-                Use <code>bswitch</code> or <code>bmod</code> to move a job. Example:<br/>
-                <code>bswitch priority 5309</code>
-                </li><br/>
-                <li><b>Switching all jobs in a queue:</b><br/>
-                Use <code>bswitch -q from_queue to_queue 0</code>.<br/>
-                Example:<br/>
-                <code>bswitch -q night idle 0</code>
-                </li>
-            </ul>
-            <p style="color: #cc0000; font-weight: bold;">Please take immediate action to avoid job delays!</p>
-        </div>
-        """
-    }
+Modify your Jenkins pipeline to accept these email addresses as parameters (either through params or as environment variables).
 
-    htmlBody += """
-    <hr style="border:none; border-top:1px solid #ccc;"/>
-    <p style="font-size:14px; color:#333;">For any issues, contact:</p>
-    <p style="font-size:14px; color:#555;">
-    <a href="mailto:lsfued@list.tf.com">lsfued@list.tf.com</a>
-    </p>
-    <p style="font-size:14px; color:#333;">For any escalation, contact:</p>
-    <p style="font-size:14px; color:#555;">
-    <a href="mailto:rajath@tf.com">rajath@tf.com</a>,
-    </p>
-    </div>
-    </body>
-    </html>
-    """
+Example:
 
-    emailext(
-        mimeType: 'text/html',
-        body: htmlBody,
-        from: "noreply-mylsf@tf.com",
-        to: recipients,
-        replyTo: 'noreply-mylsf@tf.com',
-        subject: "${params.REQUEST_TYPE?.toUpperCase() ?: ''} Access Expired For Project ${params.PROJECT_NAME ?: ''}",
-    )
-}
+properties([
+  parameters([
+    string(name: 'SUPPORT_EMAIL', defaultValue: 'lsfued@list.tf.com', description: 'Support contact email'),
+    string(name: 'ESCALATION_EMAIL', defaultValue: 'rajath@tf.com', description: 'Escalation contact email')
+  ])
+])
+
+
+---
+
+✅ Step 2: Update the Email Body to Use Parameters
+
+Modify your sendSuccessEmail() function to use those parameter values instead of hardcoded emails.
+
+🔧 Replace this:
+
+<a href="mailto:lsfued@list.tf.com">lsfued@list.tf.com</a>
+
+✅ With this:
+
+<a href="mailto:${params.SUPPORT_EMAIL}">${params.SUPPORT_EMAIL}</a>
+
+🔧 And this:
+
+<a href="mailto:rajath@tf.com">rajath@tf.com</a>
+
+✅ With this:
+
+<a href="mailto:${params.ESCALATION_EMAIL}">${params.ESCALATION_EMAIL}</a>
+
+
+---
+
+✅ Final Section (Modified Email Footer)
+
+Here's how your email footer would look dynamically:
+
+htmlBody += """
+<hr style="border:none; border-top:1px solid #ccc;"/>
+<p style="font-size:14px; color:#333;">For any issues, contact:</p>
+<p style="font-size:14px; color:#555;">
+<a href="mailto:${params.SUPPORT_EMAIL}">${params.SUPPORT_EMAIL}</a>
+</p>
+<p style="font-size:14px; color:#333;">For any escalation, contact:</p>
+<p style="font-size:14px; color:#555;">
+<a href="mailto:${params.ESCALATION_EMAIL}">${params.ESCALATION_EMAIL}</a>
+</p>
+"""
+
+
+---
+
+✅ Benefits:
+
+You can change recipients without editing code.
+
+Works great for different teams or environments (dev, prod).
+
+Encourages DRY (Don’t Repeat Yourself) practices.
+
+
+
+---
+
+Let me know if you also want to support multiple escalation contacts or pull them from a config file or Jenkins shared library.
+
