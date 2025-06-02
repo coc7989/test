@@ -1,79 +1,62 @@
-tGreat point — hardcoding emails like lsfued@list.tf.com and rajath@tf.com makes the code less flexible and harder to maintain.
+himport html
 
-To avoid hardcoding, you can do the following:
+def build_access_expired_email(data, rows):
+    subject = f"{data.get('REQUEST_TYPE', '').upper()} Access Expired For Project: {data.get('PROJECT_NAME', '')}"
+    
+    recipients = format_recipients(data.get("GROUP_AID", ""), data.get("PLM_AID", "")) or format_recipients(data.get("USER_AID"))
 
+    request_type = data.get('REQUEST_TYPE', '').lower()
+    access_type = f"{data.get('REQUEST_TYPE', '')} elevated access" if request_type in ['gui', 'regress'] else f"{data.get('REQUEST_TYPE', '')} access"
 
----
+    cluster_name = html.escape(data.get("CLUSTER_NAME", ""))
+    support_email = html.escape(data.get("LSF_SUPPORT_EMAIL", "lsfued@list.tf.com"))
+    escalation_email = html.escape(data.get("ESCALATION_EMAIL", "rajath@tf.com"))
 
-✅ Step 1: Add Parameters to Your Pipeline
+    # Base email content
+    html_content = f"""
+    <html>
+    <body>
+    <div style="border: 4px solid green; padding: 10px;">
+        <h2>Your {access_type} on {cluster_name} is expired</h2>
+        <table border="1" style="border-collapse: collapse; width: 80%; margin-bottom: 10px;">
+            {rows}
+        </table>
+    """
 
-Modify your Jenkins pipeline to accept these email addresses as parameters (either through params or as environment variables).
+    # Add priority-specific instructions if applicable
+    if request_type == "priority":
+        html_content += """
+        <div style="background-color: #fff8dc; padding: 15px; border: 2px dashed #ffa500; margin-top: 20px;">
+            <h3 style="color: #cc6600;">⚠️ Priority Access Ended — Action Needed for Pending Jobs</h3>
+            <p>Your running jobs will <b>not</b> be affected, but you must manage your <b>pending jobs</b> to avoid delays.</p>
+            <ul style="font-size: 14px; color: #333;">
+                <li><b>Switching a single job to another queue:</b><br/>
+                    Use <code>bswitch</code> or <code>bmod</code> to move a job. Example:<br/>
+                    <code>bswitch priority job_id</code>
+                </li><br/>
+                <li><b>Switching all jobs in a queue:</b><br/>
+                    Use <code>bswitch -q from_queue to_queue 0</code>. Example:<br/>
+                    <code>bswitch -q night idle 0</code>
+                </li>
+            </ul>
+            <p style="color: #cc0000; font-weight: bold;">Please take immediate action to avoid job delays!</p>
+        </div>
+        """
 
-Example:
+    # Add support and escalation contact info
+    html_content += f"""
+        <hr style="border:none; border-top:1px solid #ccc;"/>
+        <p style="font-size:14px; color:#333;">For any issues, contact:</p>
+        <p style="font-size:14px; color:#555;">
+            <a href="mailto:{support_email}">{support_email}</a>
+        </p>
+        <p style="font-size:14px; color:#333;">For any escalation, contact:</p>
+        <p style="font-size:14px; color:#555;">
+            <a href="mailto:{escalation_email}">{escalation_email}</a>
+        </p>
+    </div>
+    </body>
+    </html>
+    """
 
-properties([
-  parameters([
-    string(name: 'SUPPORT_EMAIL', defaultValue: 'lsfued@list.tf.com', description: 'Support contact email'),
-    string(name: 'ESCALATION_EMAIL', defaultValue: 'rajath@tf.com', description: 'Escalation contact email')
-  ])
-])
-
-
----
-
-✅ Step 2: Update the Email Body to Use Parameters
-
-Modify your sendSuccessEmail() function to use those parameter values instead of hardcoded emails.
-
-🔧 Replace this:
-
-<a href="mailto:lsfued@list.tf.com">lsfued@list.tf.com</a>
-
-✅ With this:
-
-<a href="mailto:${params.SUPPORT_EMAIL}">${params.SUPPORT_EMAIL}</a>
-
-🔧 And this:
-
-<a href="mailto:rajath@tf.com">rajath@tf.com</a>
-
-✅ With this:
-
-<a href="mailto:${params.ESCALATION_EMAIL}">${params.ESCALATION_EMAIL}</a>
-
-
----
-
-✅ Final Section (Modified Email Footer)
-
-Here's how your email footer would look dynamically:
-
-htmlBody += """
-<hr style="border:none; border-top:1px solid #ccc;"/>
-<p style="font-size:14px; color:#333;">For any issues, contact:</p>
-<p style="font-size:14px; color:#555;">
-<a href="mailto:${params.SUPPORT_EMAIL}">${params.SUPPORT_EMAIL}</a>
-</p>
-<p style="font-size:14px; color:#333;">For any escalation, contact:</p>
-<p style="font-size:14px; color:#555;">
-<a href="mailto:${params.ESCALATION_EMAIL}">${params.ESCALATION_EMAIL}</a>
-</p>
-"""
-
-
----
-
-✅ Benefits:
-
-You can change recipients without editing code.
-
-Works great for different teams or environments (dev, prod).
-
-Encourages DRY (Don’t Repeat Yourself) practices.
-
-
-
----
-
-Let me know if you also want to support multiple escalation contacts or pull them from a config file or Jenkins shared library.
-
+    return html_content, subject, recipients
