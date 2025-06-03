@@ -1,160 +1,81 @@
-ydef scheduled_retry_query():
-    with app.app_context():
-        conn = None
-        cursor = None
-        write_to_cron_log("Job started: every_hour_retry_query")
-        try:
-            tables = [
-                {"table_name": dbCfg.get('QUEUE_ACCESS'), "request_type_column": "QUEUE"},
-                # {"table_name": dbCfg.get('SLOT_REQUEST'), "request_type_column": "SLOT_TYPE"},
-            ]
-            query_results = []
+rTo make your log files persistent even after deploying a new version of your Flask app via Jenkins and Docker, you need to store logs outside the Docker container—otherwise, they'll be overwritten every time the container is rebuilt or restarted.
 
-            conn = get_oracle_connection()
-            if not conn:
-                raise RuntimeError("Failed to obtain Oracle connection")
-            cursor = conn.cursor()
-            if not cursor:
-                raise RuntimeError("Failed to obtain Oracle cursor")
-            write_to_cron_log("Step 1: Connected to Oracle DB")
+Here's how to do it:
 
-            for table in tables:
-                table_name = table.get("table_name")
-                request_type_column = table.get("request_type_column")
 
-                if not table_name or not request_type_column:
-                    write_to_cron_log("Skipped a table due to missing table_name or request_type_column")
-                    continue
+---
 
-                if table_name == dbCfg.get('QUEUE_ACCESS'):
-                    columns = [
-                        "REQUEST_ID", "USER_AID", "CLUSTER_NAME", "GROUP_AID", 
-                        "TO_CHAR(ACCESS_END_DATE, 'YYYY-MM-DD') AS ACCESS_END_DATE",
-                        "REVIEWED_BY", "PROJECT_NAME", "QUEUE", "CPU", "JOBS", "MEMORY", 
-                        "RUN_TIME", "LSB_OPTION", "SLOT_POOL", "PLM_AID", "CATEGORY_NAME"
-                    ]
-                    query = f"SELECT {', '.join(columns)} FROM {table_name} WHERE REQUEST_STATUS='QUEUED FOR RETRY' AND QUEUE='priority'"
+✅ Solution: Use Docker Volume for Log Persistence
 
-                elif table_name == dbCfg.get('SLOT_REQUEST'):
-                    columns = [
-                        "REQUEST_ID", "USER_AID", "PROJECT_NAME", "SLOT_TYPE", 
-                        "CURRENT_SLOT_LIMIT", "CLUSTER_NAME", "REQUESTED_SLOT", 
-                        "TO_CHAR(ACCESS_END_DATE, 'YYYY-MM-DD') AS ACCESS_END_DATE", 
-                        "REVIEWED_BY", "CATEGORY_NAME"
-                    ]
-                    query = f"SELECT {', '.join(columns)} FROM {table_name} WHERE REQUEST_STATUS='QUEUED FOR RETRY'"
+1. Create a Volume Mount for the Logs
 
-                else:
-                    write_to_cron_log(f"Unknown table: {table_name}, skipping")
-                    continue
+Mount a directory from the host system into the container so logs live on the host.
 
-                try:
-                    cursor.execute(query)
-                    raw_rows = cursor.fetchall()
-                except Exception as e:
-                    write_to_cron_log(f"Query failed for table {table_name}: {e}")
-                    continue
+In your docker run command (or docker-compose.yml, or Jenkins pipeline), add:
 
-                if not raw_rows:
-                    write_to_cron_log(f"No records found for retry in table: {table_name}")
-                    continue
+-v /var/logs/my_flask_app:/app/log
 
-                column_names = [col.split(" AS ")[-1] for col in columns]
+This binds the host path /var/logs/my_flask_app to the container path /app/log.
 
-                for row in raw_rows:
-                    row_dict = dict(zip(column_names, row))
-                    row_dict["REQUEST_TYPE"] = row_dict.get(request_type_column)
-                    row_dict.pop(request_type_column, None)
-                    query_results.append(row_dict)
+2. Update Your Flask App to Write Logs to /app/log
 
-            if not query_results:
-                write_to_cron_log("No retry requests found. Job completed.")
-                return
+Your current LOG_DIR = 'log' is fine as long as that resolves to /app/log inside the container.
 
-            today_date = datetime.now(timezone.utc).date()
+Your LOG_FILES definition is already correct because it uses os.path.join(LOG_DIR, ...).
 
-            for query_result in query_results:
-                print("Processing retry:", query_result)
-                access_end_date_str = query_result.get("ACCESS_END_DATE")
-                access_end_date = datetime.strptime(access_end_date_str, "%Y-%m-%d").date() if access_end_date_str else None
-                build_result = ''
+3. Ensure Log Directory Exists
 
-                try:
-                    if access_end_date and access_end_date <= today_date:
-                        print("Removal Request for retry:", query_result)
-                        build_result = trigger_jenkins_job_removal(query_result)
-                        build_result = {
-                            'SUCCESS': 'ACCESS ENDED',
-                            'UNSTABLE': 'QUEUED FOR RETRY'
-                        }.get(build_result, 'AWAITING ADMIN REVIEW')
-                    else:
-                        print("Access Request for retry:", query_result)
-                        build_result = trigger_jenkins_job(query_result, query_result['CATEGORY_NAME'])
-                        build_result = {
-                            'SUCCESS': 'COMPLETED',
-                            'UNSTABLE': 'QUEUED FOR RETRY'
-                        }.get(build_result, 'AWAITING ADMIN REVIEW')
-                except Exception as e:
-                    write_to_cron_log(f"Jenkins job failed for request {query_result.get('REQUEST_ID')}: {e}")
-                    build_result = 'AWAITING ADMIN REVIEW'
+Before writing logs, ensure the log directory exists in the container (which will now be the mounted volume):
 
-                update_status_query = f"""
-                UPDATE {dbCfg.get('QUEUE_ACCESS') if query_result.get('CATEGORY_NAME') == 'QUEUE' else dbCfg.get('SLOT_REQUEST')}
-                SET UPDATED_DATE = sysdate, 
-                    REQUEST_STATUS = :REQUEST_STATUS
-                WHERE REQUEST_ID = :REQUEST_ID
-                """
+import os
 
-                try:
-                    conn = get_oracle_connection()
-                    if not conn:
-                        raise RuntimeError("Failed to reconnect to DB")
-                    cursor = conn.cursor()
-                    cursor.execute(update_status_query, {
-                        "REQUEST_STATUS": build_result,
-                        "REQUEST_ID": query_result['REQUEST_ID'],
-                    })
-                    conn.commit()
-                    write_to_cron_log(f"Request {query_result['REQUEST_ID']} updated to {build_result}")
-                except Exception as e:
-                    write_to_cron_log(f"Failed to update status for request {query_result.get('REQUEST_ID')}: {e}")
-                    continue
+LOG_DIR = 'log'
+os.makedirs(LOG_DIR, exist_ok=True)  # Add this before any logging happens
 
-                # Slot management
-                try:
-                    if build_result == 'COMPLETED' and query_result.get('CATEGORY_NAME', '').upper() == 'SLOT':
-                        upsert_slot_limit(
-                            conn,
-                            user_id=query_result.get("USER_AID"),
-                            slot_type=query_result.get("REQUEST_TYPE"),
-                            cluster_name=query_result.get("CLUSTER_NAME"),
-                            new_limit=query_result.get("REQUESTED_SLOT"),
-                        )
-                    elif build_result == 'ACCESS ENDED' and query_result.get('CATEGORY_NAME', '').upper() == 'SLOT':
-                        upsert_slot_limit(
-                            conn,
-                            user_id=query_result.get("USER_AID"),
-                            slot_type=query_result.get("REQUEST_TYPE"),
-                            cluster_name=query_result.get("CLUSTER_NAME")
-                        )
-                except Exception as e:
-                    write_to_cron_log(f"Slot limit update failed for {query_result.get('REQUEST_ID')}: {e}")
+4. Ensure Permissions Are Set Properly
 
-                print(f"Retry request {query_result['REQUEST_ID']} processed as {build_result}")
+Make sure that the container user has write permissions on /var/logs/my_flask_app on the host.
 
-            write_to_cron_log("Job completed: every_hour_retry_query")
+You might need to do:
 
-        except Exception as error:
-            write_to_api_log(f"[scheduled_retry_query] General Error: {str(error)}")
-            write_to_cron_log(f"Failed with general error: {error}")
-        finally:
-            if cursor:
-                try:
-                    cursor.close()
-                except:
-                    pass
-            if conn:
-                try:
-                    release_oracle_connection(conn)
-                except:
-                    pass
+sudo chown -R 1000:1000 /var/logs/my_flask_app
+
+Replace 1000:1000 with the UID/GID used by your Docker container if needed.
+
+
+---
+
+🧪 Example Jenkinsfile (Snippet)
+
+pipeline {
+  agent {
+    docker {
+      image 'your-image-name'
+      args '-v /var/logs/my_flask_app:/app/log'
+    }
+  }
+  stages {
+    stage('Deploy') {
+      steps {
+        sh 'docker run -d -v /var/logs/my_flask_app:/app/log your-image-name'
+      }
+    }
+  }
+}
+
+
+---
+
+✅ Summary
+
+Task	Implementation
+
+Log persistence	Use Docker volume mount
+Log path in Flask	Keep using 'log' (mapped to /app/log)
+Avoid log wipe on deploy	Logs stored on host, not overwritten with container
+Ensure dir exists	os.makedirs(LOG_DIR, exist_ok=True)
+Permissions	chown on host folder if needed
+
+
+Would you like help modifying your Dockerfile or docker-compose.yml to reflect this setup?
+
