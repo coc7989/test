@@ -1,62 +1,160 @@
-himport html
+ydef scheduled_retry_query():
+    with app.app_context():
+        conn = None
+        cursor = None
+        write_to_cron_log("Job started: every_hour_retry_query")
+        try:
+            tables = [
+                {"table_name": dbCfg.get('QUEUE_ACCESS'), "request_type_column": "QUEUE"},
+                # {"table_name": dbCfg.get('SLOT_REQUEST'), "request_type_column": "SLOT_TYPE"},
+            ]
+            query_results = []
 
-def build_access_expired_email(data, rows):
-    subject = f"{data.get('REQUEST_TYPE', '').upper()} Access Expired For Project: {data.get('PROJECT_NAME', '')}"
-    
-    recipients = format_recipients(data.get("GROUP_AID", ""), data.get("PLM_AID", "")) or format_recipients(data.get("USER_AID"))
+            conn = get_oracle_connection()
+            if not conn:
+                raise RuntimeError("Failed to obtain Oracle connection")
+            cursor = conn.cursor()
+            if not cursor:
+                raise RuntimeError("Failed to obtain Oracle cursor")
+            write_to_cron_log("Step 1: Connected to Oracle DB")
 
-    request_type = data.get('REQUEST_TYPE', '').lower()
-    access_type = f"{data.get('REQUEST_TYPE', '')} elevated access" if request_type in ['gui', 'regress'] else f"{data.get('REQUEST_TYPE', '')} access"
+            for table in tables:
+                table_name = table.get("table_name")
+                request_type_column = table.get("request_type_column")
 
-    cluster_name = html.escape(data.get("CLUSTER_NAME", ""))
-    support_email = html.escape(data.get("LSF_SUPPORT_EMAIL", "lsfued@list.tf.com"))
-    escalation_email = html.escape(data.get("ESCALATION_EMAIL", "rajath@tf.com"))
+                if not table_name or not request_type_column:
+                    write_to_cron_log("Skipped a table due to missing table_name or request_type_column")
+                    continue
 
-    # Base email content
-    html_content = f"""
-    <html>
-    <body>
-    <div style="border: 4px solid green; padding: 10px;">
-        <h2>Your {access_type} on {cluster_name} is expired</h2>
-        <table border="1" style="border-collapse: collapse; width: 80%; margin-bottom: 10px;">
-            {rows}
-        </table>
-    """
+                if table_name == dbCfg.get('QUEUE_ACCESS'):
+                    columns = [
+                        "REQUEST_ID", "USER_AID", "CLUSTER_NAME", "GROUP_AID", 
+                        "TO_CHAR(ACCESS_END_DATE, 'YYYY-MM-DD') AS ACCESS_END_DATE",
+                        "REVIEWED_BY", "PROJECT_NAME", "QUEUE", "CPU", "JOBS", "MEMORY", 
+                        "RUN_TIME", "LSB_OPTION", "SLOT_POOL", "PLM_AID", "CATEGORY_NAME"
+                    ]
+                    query = f"SELECT {', '.join(columns)} FROM {table_name} WHERE REQUEST_STATUS='QUEUED FOR RETRY' AND QUEUE='priority'"
 
-    # Add priority-specific instructions if applicable
-    if request_type == "priority":
-        html_content += """
-        <div style="background-color: #fff8dc; padding: 15px; border: 2px dashed #ffa500; margin-top: 20px;">
-            <h3 style="color: #cc6600;">⚠️ Priority Access Ended — Action Needed for Pending Jobs</h3>
-            <p>Your running jobs will <b>not</b> be affected, but you must manage your <b>pending jobs</b> to avoid delays.</p>
-            <ul style="font-size: 14px; color: #333;">
-                <li><b>Switching a single job to another queue:</b><br/>
-                    Use <code>bswitch</code> or <code>bmod</code> to move a job. Example:<br/>
-                    <code>bswitch priority job_id</code>
-                </li><br/>
-                <li><b>Switching all jobs in a queue:</b><br/>
-                    Use <code>bswitch -q from_queue to_queue 0</code>. Example:<br/>
-                    <code>bswitch -q night idle 0</code>
-                </li>
-            </ul>
-            <p style="color: #cc0000; font-weight: bold;">Please take immediate action to avoid job delays!</p>
-        </div>
-        """
+                elif table_name == dbCfg.get('SLOT_REQUEST'):
+                    columns = [
+                        "REQUEST_ID", "USER_AID", "PROJECT_NAME", "SLOT_TYPE", 
+                        "CURRENT_SLOT_LIMIT", "CLUSTER_NAME", "REQUESTED_SLOT", 
+                        "TO_CHAR(ACCESS_END_DATE, 'YYYY-MM-DD') AS ACCESS_END_DATE", 
+                        "REVIEWED_BY", "CATEGORY_NAME"
+                    ]
+                    query = f"SELECT {', '.join(columns)} FROM {table_name} WHERE REQUEST_STATUS='QUEUED FOR RETRY'"
 
-    # Add support and escalation contact info
-    html_content += f"""
-        <hr style="border:none; border-top:1px solid #ccc;"/>
-        <p style="font-size:14px; color:#333;">For any issues, contact:</p>
-        <p style="font-size:14px; color:#555;">
-            <a href="mailto:{support_email}">{support_email}</a>
-        </p>
-        <p style="font-size:14px; color:#333;">For any escalation, contact:</p>
-        <p style="font-size:14px; color:#555;">
-            <a href="mailto:{escalation_email}">{escalation_email}</a>
-        </p>
-    </div>
-    </body>
-    </html>
-    """
+                else:
+                    write_to_cron_log(f"Unknown table: {table_name}, skipping")
+                    continue
 
-    return html_content, subject, recipients
+                try:
+                    cursor.execute(query)
+                    raw_rows = cursor.fetchall()
+                except Exception as e:
+                    write_to_cron_log(f"Query failed for table {table_name}: {e}")
+                    continue
+
+                if not raw_rows:
+                    write_to_cron_log(f"No records found for retry in table: {table_name}")
+                    continue
+
+                column_names = [col.split(" AS ")[-1] for col in columns]
+
+                for row in raw_rows:
+                    row_dict = dict(zip(column_names, row))
+                    row_dict["REQUEST_TYPE"] = row_dict.get(request_type_column)
+                    row_dict.pop(request_type_column, None)
+                    query_results.append(row_dict)
+
+            if not query_results:
+                write_to_cron_log("No retry requests found. Job completed.")
+                return
+
+            today_date = datetime.now(timezone.utc).date()
+
+            for query_result in query_results:
+                print("Processing retry:", query_result)
+                access_end_date_str = query_result.get("ACCESS_END_DATE")
+                access_end_date = datetime.strptime(access_end_date_str, "%Y-%m-%d").date() if access_end_date_str else None
+                build_result = ''
+
+                try:
+                    if access_end_date and access_end_date <= today_date:
+                        print("Removal Request for retry:", query_result)
+                        build_result = trigger_jenkins_job_removal(query_result)
+                        build_result = {
+                            'SUCCESS': 'ACCESS ENDED',
+                            'UNSTABLE': 'QUEUED FOR RETRY'
+                        }.get(build_result, 'AWAITING ADMIN REVIEW')
+                    else:
+                        print("Access Request for retry:", query_result)
+                        build_result = trigger_jenkins_job(query_result, query_result['CATEGORY_NAME'])
+                        build_result = {
+                            'SUCCESS': 'COMPLETED',
+                            'UNSTABLE': 'QUEUED FOR RETRY'
+                        }.get(build_result, 'AWAITING ADMIN REVIEW')
+                except Exception as e:
+                    write_to_cron_log(f"Jenkins job failed for request {query_result.get('REQUEST_ID')}: {e}")
+                    build_result = 'AWAITING ADMIN REVIEW'
+
+                update_status_query = f"""
+                UPDATE {dbCfg.get('QUEUE_ACCESS') if query_result.get('CATEGORY_NAME') == 'QUEUE' else dbCfg.get('SLOT_REQUEST')}
+                SET UPDATED_DATE = sysdate, 
+                    REQUEST_STATUS = :REQUEST_STATUS
+                WHERE REQUEST_ID = :REQUEST_ID
+                """
+
+                try:
+                    conn = get_oracle_connection()
+                    if not conn:
+                        raise RuntimeError("Failed to reconnect to DB")
+                    cursor = conn.cursor()
+                    cursor.execute(update_status_query, {
+                        "REQUEST_STATUS": build_result,
+                        "REQUEST_ID": query_result['REQUEST_ID'],
+                    })
+                    conn.commit()
+                    write_to_cron_log(f"Request {query_result['REQUEST_ID']} updated to {build_result}")
+                except Exception as e:
+                    write_to_cron_log(f"Failed to update status for request {query_result.get('REQUEST_ID')}: {e}")
+                    continue
+
+                # Slot management
+                try:
+                    if build_result == 'COMPLETED' and query_result.get('CATEGORY_NAME', '').upper() == 'SLOT':
+                        upsert_slot_limit(
+                            conn,
+                            user_id=query_result.get("USER_AID"),
+                            slot_type=query_result.get("REQUEST_TYPE"),
+                            cluster_name=query_result.get("CLUSTER_NAME"),
+                            new_limit=query_result.get("REQUESTED_SLOT"),
+                        )
+                    elif build_result == 'ACCESS ENDED' and query_result.get('CATEGORY_NAME', '').upper() == 'SLOT':
+                        upsert_slot_limit(
+                            conn,
+                            user_id=query_result.get("USER_AID"),
+                            slot_type=query_result.get("REQUEST_TYPE"),
+                            cluster_name=query_result.get("CLUSTER_NAME")
+                        )
+                except Exception as e:
+                    write_to_cron_log(f"Slot limit update failed for {query_result.get('REQUEST_ID')}: {e}")
+
+                print(f"Retry request {query_result['REQUEST_ID']} processed as {build_result}")
+
+            write_to_cron_log("Job completed: every_hour_retry_query")
+
+        except Exception as error:
+            write_to_api_log(f"[scheduled_retry_query] General Error: {str(error)}")
+            write_to_cron_log(f"Failed with general error: {error}")
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            if conn:
+                try:
+                    release_oracle_connection(conn)
+                except:
+                    pass
