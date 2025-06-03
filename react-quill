@@ -1,69 +1,45 @@
-tTo support branch-based log file naming, with special handling where:
+Thanks for the clarification — since your scheduled_database_removal_query() (and other backend logic) uses write_to_cron_log() and write_to_api_log(), you’ll need to extend those functions to support dynamic log file paths based on the branch (i.e., dev, stage, or prod).
 
-dev ➝ dev_api_errors.log, dev_cron_jobs.log
-
-stage ➝ stage_api_errors.log, stage_cron_jobs.log
-
-prod ➝ api_errors.log, cron_jobs.log (no prefix for prod)
-
-
-You need to update both the frontend and backend to handle file naming logic based on the branch.
+Right now, they write to files determined once using the environment variable when the server starts — that won’t work if you want different branches writing to different files dynamically.
 
 
 ---
 
-✅ React (Frontend) Changes
+✅ What You Should Do
 
-Update fetchLogs to include BRANCH_NAME, so the backend knows what environment it’s fetching logs for:
-
-const fetchLogs = async () => {
-  try {
-    const response = await apiInstance.get(
-      `/get_log_viewer_data/${logType}?branch=${BRANCH_NAME}`
-    );
-    setLogContent(response.data);
-    setLastUpdated(new Date().toLocaleString());
-    setErrorMsg('');
-  } catch (error) {
-    if (error.response && error.response.status === 401) {
-      console.log('SSO Timeout');
-      setSessionTimeout(true);
-    } else {
-      setErrorMsg('Error fetching logs');
-      setLogContent('');
-    }
-  }
-};
-
-No other frontend change needed unless you're also planning on uploading/writing logs from the frontend (which currently isn't happening).
+Update your logging functions to dynamically determine the log file path based on the current branch, similar to the get_log_filepath() function you already used for reading logs.
 
 
 ---
 
-✅ Flask (Backend) Changes
+🔁 Step-by-step Code Changes
 
-Replace the current LOG_FILES dict with logic that dynamically builds filenames based on the branch from the request, not just from os.environ.
+1. Update write_to_api_log() and write_to_cron_log() to accept an optional branch_name:
 
-🔁 Replace this:
+def write_to_cron_log(message, branch_name=None):
+    filepath = get_log_filepath('cron', branch_name or os.getenv('BRANCH_NAME', 'dev'))
+    write_to_file(filepath, message)
 
-logs_branch_name = os.getenv('BRANCH_NAME', 'dev')
-is_dev = logs_branch_name in ['dev', 'local']
+def write_to_api_log(message, branch_name=None):
+    filepath = get_log_filepath('api', branch_name or os.getenv('BRANCH_NAME', 'dev'))
+    write_to_file(filepath, message)
 
-LOG_FILES = {
-    'api': os.path.join(LOG_DIR, 'dev_api_errors.log' if is_dev else 'api_errors.log'),
-    'cron': os.path.join(LOG_DIR, 'dev_cron_jobs.log' if is_dev else 'cron_jobs.log')
-}
+> If branch_name isn't provided explicitly, it falls back to the environment variable (BRANCH_NAME).
 
-✅ With this:
+
+
+
+---
+
+2. Your get_log_filepath() remains as described earlier:
 
 def get_log_filepath(log_type, branch_name):
     filename_prefix = ''
     branch_name = branch_name.lower()
-    
+
     if branch_name in ['dev', 'stage']:
-        filename_prefix = f"{branch_name}_"  # e.g., dev_api_errors.log
-    # prod: no prefix
-    
+        filename_prefix = f"{branch_name}_"
+
     if log_type == 'api':
         filename = f"{filename_prefix}api_errors.log"
     elif log_type == 'cron':
@@ -73,40 +49,47 @@ def get_log_filepath(log_type, branch_name):
 
     return os.path.join(LOG_DIR, filename)
 
-🔁 Update the route:
 
-@app.route(f'{API_URL_PREFIX}/get_log_viewer_data/<log_type>', methods=['GET'])
-def get_log_viewer_data(log_type):
-    try:
-        branch_name = request.args.get('branch', 'dev')  # default to dev
-        filepath = get_log_filepath(log_type, branch_name)
+---
 
-        if not filepath or not os.path.exists(filepath):
-            return jsonify({"error_message": f"Log file not found: {filepath}"}), 500
+3. Your write_to_file() stays the same:
 
-        with open(filepath, 'r') as file:
-            content = file.read()
-
-        return content, 200, {'Content-Type': 'text/plain'}
-    except Exception as e:
-        write_to_api_log(f"[/get_log_viewer_data] Error: {str(e)}")
-        return jsonify({"error_message": f"Error: {str(e)}"}), 500
-
-✍ Writing logs still uses os.environ (or you could also allow write_to_*_log functions to accept a branch param):
-
-If needed, update write_to_cron_log and write_to_api_log to also use get_log_filepath() based on current env.
+def write_to_file(filepath, message):
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    with open(filepath, 'a') as f:
+        f.write(f"[{timestamp}] {message}\n")
 
 
 ---
 
-✅ Summary
+4. Your scheduled_database_removal_query() remains unchanged (unless you want to make it explicit):
 
-Component	What to Update
+def scheduled_database_removal_query():
+    try:
+        write_to_cron_log("Job started: daily_database_removal_query")
+        print("some code ignore that..")
 
-React	Pass branch in API call
-Flask (Read logs)	Dynamically generate log filenames using query param
-Flask (Write logs)	Optional: Also apply dynamic naming, or use env var
+    except Exception as error:
+        write_to_api_log(f"[scheduled_database_removal_query] Error: {str(error)}")
+        write_to_cron_log(f"Failed with general error: {error}")
+
+If you'd prefer to be more explicit, you could do:
+
+write_to_cron_log("Job started", branch_name='stage')
+
+But that's optional if your BRANCH_NAME environment variable is correct.
 
 
-Let me know if you want me to modify the write logic as well or support fallback behaviors.
+---
+
+✅ Final Notes
+
+This setup ensures you write logs to the correct files dynamically — based on branch.
+
+No need to hardcode filenames.
+
+For prod, logs will go to api_errors.log and cron_jobs.log automatically (no prefix).
+
+
+Let me know if you're using multiple branches in parallel (e.g., multi-tenancy) — that would require passing the branch name explicitly everywhere.
 
