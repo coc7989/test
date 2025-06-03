@@ -1,81 +1,112 @@
-rTo make your log files persistent even after deploying a new version of your Flask app via Jenkins and Docker, you need to store logs outside the Docker container—otherwise, they'll be overwritten every time the container is rebuilt or restarted.
+tTo support branch-based log file naming, with special handling where:
 
-Here's how to do it:
+dev ➝ dev_api_errors.log, dev_cron_jobs.log
+
+stage ➝ stage_api_errors.log, stage_cron_jobs.log
+
+prod ➝ api_errors.log, cron_jobs.log (no prefix for prod)
 
 
----
-
-✅ Solution: Use Docker Volume for Log Persistence
-
-1. Create a Volume Mount for the Logs
-
-Mount a directory from the host system into the container so logs live on the host.
-
-In your docker run command (or docker-compose.yml, or Jenkins pipeline), add:
-
--v /var/logs/my_flask_app:/app/log
-
-This binds the host path /var/logs/my_flask_app to the container path /app/log.
-
-2. Update Your Flask App to Write Logs to /app/log
-
-Your current LOG_DIR = 'log' is fine as long as that resolves to /app/log inside the container.
-
-Your LOG_FILES definition is already correct because it uses os.path.join(LOG_DIR, ...).
-
-3. Ensure Log Directory Exists
-
-Before writing logs, ensure the log directory exists in the container (which will now be the mounted volume):
-
-import os
-
-LOG_DIR = 'log'
-os.makedirs(LOG_DIR, exist_ok=True)  # Add this before any logging happens
-
-4. Ensure Permissions Are Set Properly
-
-Make sure that the container user has write permissions on /var/logs/my_flask_app on the host.
-
-You might need to do:
-
-sudo chown -R 1000:1000 /var/logs/my_flask_app
-
-Replace 1000:1000 with the UID/GID used by your Docker container if needed.
+You need to update both the frontend and backend to handle file naming logic based on the branch.
 
 
 ---
 
-🧪 Example Jenkinsfile (Snippet)
+✅ React (Frontend) Changes
 
-pipeline {
-  agent {
-    docker {
-      image 'your-image-name'
-      args '-v /var/logs/my_flask_app:/app/log'
+Update fetchLogs to include BRANCH_NAME, so the backend knows what environment it’s fetching logs for:
+
+const fetchLogs = async () => {
+  try {
+    const response = await apiInstance.get(
+      `/get_log_viewer_data/${logType}?branch=${BRANCH_NAME}`
+    );
+    setLogContent(response.data);
+    setLastUpdated(new Date().toLocaleString());
+    setErrorMsg('');
+  } catch (error) {
+    if (error.response && error.response.status === 401) {
+      console.log('SSO Timeout');
+      setSessionTimeout(true);
+    } else {
+      setErrorMsg('Error fetching logs');
+      setLogContent('');
     }
   }
-  stages {
-    stage('Deploy') {
-      steps {
-        sh 'docker run -d -v /var/logs/my_flask_app:/app/log your-image-name'
-      }
-    }
-  }
+};
+
+No other frontend change needed unless you're also planning on uploading/writing logs from the frontend (which currently isn't happening).
+
+
+---
+
+✅ Flask (Backend) Changes
+
+Replace the current LOG_FILES dict with logic that dynamically builds filenames based on the branch from the request, not just from os.environ.
+
+🔁 Replace this:
+
+logs_branch_name = os.getenv('BRANCH_NAME', 'dev')
+is_dev = logs_branch_name in ['dev', 'local']
+
+LOG_FILES = {
+    'api': os.path.join(LOG_DIR, 'dev_api_errors.log' if is_dev else 'api_errors.log'),
+    'cron': os.path.join(LOG_DIR, 'dev_cron_jobs.log' if is_dev else 'cron_jobs.log')
 }
+
+✅ With this:
+
+def get_log_filepath(log_type, branch_name):
+    filename_prefix = ''
+    branch_name = branch_name.lower()
+    
+    if branch_name in ['dev', 'stage']:
+        filename_prefix = f"{branch_name}_"  # e.g., dev_api_errors.log
+    # prod: no prefix
+    
+    if log_type == 'api':
+        filename = f"{filename_prefix}api_errors.log"
+    elif log_type == 'cron':
+        filename = f"{filename_prefix}cron_jobs.log"
+    else:
+        return None
+
+    return os.path.join(LOG_DIR, filename)
+
+🔁 Update the route:
+
+@app.route(f'{API_URL_PREFIX}/get_log_viewer_data/<log_type>', methods=['GET'])
+def get_log_viewer_data(log_type):
+    try:
+        branch_name = request.args.get('branch', 'dev')  # default to dev
+        filepath = get_log_filepath(log_type, branch_name)
+
+        if not filepath or not os.path.exists(filepath):
+            return jsonify({"error_message": f"Log file not found: {filepath}"}), 500
+
+        with open(filepath, 'r') as file:
+            content = file.read()
+
+        return content, 200, {'Content-Type': 'text/plain'}
+    except Exception as e:
+        write_to_api_log(f"[/get_log_viewer_data] Error: {str(e)}")
+        return jsonify({"error_message": f"Error: {str(e)}"}), 500
+
+✍ Writing logs still uses os.environ (or you could also allow write_to_*_log functions to accept a branch param):
+
+If needed, update write_to_cron_log and write_to_api_log to also use get_log_filepath() based on current env.
 
 
 ---
 
 ✅ Summary
 
-Task	Implementation
+Component	What to Update
 
-Log persistence	Use Docker volume mount
-Log path in Flask	Keep using 'log' (mapped to /app/log)
-Avoid log wipe on deploy	Logs stored on host, not overwritten with container
-Ensure dir exists	os.makedirs(LOG_DIR, exist_ok=True)
-Permissions	chown on host folder if needed
+React	Pass branch in API call
+Flask (Read logs)	Dynamically generate log filenames using query param
+Flask (Write logs)	Optional: Also apply dynamic naming, or use env var
 
 
-Would you like help modifying your Dockerfile or docker-compose.yml to reflect this setup?
+Let me know if you want me to modify the write logic as well or support fallback behaviors.
 
