@@ -1,95 +1,200 @@
-Thanks for the clarification — since your scheduled_database_removal_query() (and other backend logic) uses write_to_cron_log() and write_to_api_log(), you’ll need to extend those functions to support dynamic log file paths based on the branch (i.e., dev, stage, or prod).
-
-Right now, they write to files determined once using the environment variable when the server starts — that won’t work if you want different branches writing to different files dynamically.
+tThanks for confirming! Here's the updated code using Option 2 (single context), where we manage two separate cluster lists in the same ClusterContext:
 
 
 ---
 
-✅ What You Should Do
+✅ Updated ClusterContext.js
 
-Update your logging functions to dynamically determine the log file path based on the current branch, similar to the get_log_filepath() function you already used for reading logs.
+import { createContext, useContext, useEffect, useState } from 'react';
+import apiInstance from './apiInstance'; // Update path if needed
+
+const ClusterContext = createContext();
+export const useCluster = () => useContext(ClusterContext);
+
+export const ClusterProvider = ({ children }) => {
+  const BRANCH_NAME = process.env.REACT_APP_BRANCH_NAME || 'dev';
+  const isDev = BRANCH_NAME === 'dev';
+
+  const [userID, setUserID] = useState(isDev ? 'a0510342' : '');
+  const [isAdmin, setIsAdmin] = useState(null);
+
+  // Separate states
+  const [adminClusterList, setAdminClusterList] = useState({});
+  const [selectedAdminCluster, setSelectedAdminCluster] = useState('');
+  const [userClusterList, setUserClusterList] = useState({});
+  const [selectedUserCluster, setSelectedUserCluster] = useState('');
+
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      try {
+        const response = await apiInstance.get(`/check_admin/${userID}`);
+        if (response.status === 200) {
+          setIsAdmin(response.data.isAdmin);
+        }
+      } catch (error) {
+        console.error('Error checking admin status:', error);
+        setIsAdmin(false);
+      }
+    };
+
+    if (userID) checkAdminStatus();
+  }, [userID]);
+
+  const fetchClusters = async () => {
+    try {
+      const endpoint = isAdmin ? `/admin_idusers?user=${userID}` : `/idusers?user=${userID}`;
+      const response = await apiInstance.get(endpoint);
+
+      const {
+        default: defaultCluster,
+        service_account: serviceAccount,
+        userName,
+        userID: ssoUserID,
+        ...clusters
+      } = response.data;
+
+      if (!isDev) setUserID(ssoUserID);
+
+      if (isAdmin) {
+        setAdminClusterList(clusters);
+        setSelectedAdminCluster(defaultCluster);
+      } else {
+        setUserClusterList(clusters);
+        setSelectedUserCluster(defaultCluster);
+      }
+
+    } catch (error) {
+      console.error('Error fetching clusters:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (userID && isAdmin !== null) {
+      fetchClusters();
+    }
+  }, [userID, isAdmin]);
+
+  return (
+    <ClusterContext.Provider
+      value={{
+        // common
+        userID,
+        isAdmin,
+
+        // for admin dashboard
+        adminClusterList,
+        selectedAdminCluster,
+        setSelectedAdminCluster,
+
+        // for user dashboard
+        userClusterList,
+        selectedUserCluster,
+        setSelectedUserCluster,
+      }}
+    >
+      {children}
+    </ClusterContext.Provider>
+  );
+};
 
 
 ---
 
-🔁 Step-by-step Code Changes
+✅ In AdminDashboard.js
 
-1. Update write_to_api_log() and write_to_cron_log() to accept an optional branch_name:
+Update to use adminClusterList and selectedAdminCluster:
 
-def write_to_cron_log(message, branch_name=None):
-    filepath = get_log_filepath('cron', branch_name or os.getenv('BRANCH_NAME', 'dev'))
-    write_to_file(filepath, message)
+import { useContext } from 'react';
+import { ClusterContext } from './ClusterContext'; // Adjust path
 
-def write_to_api_log(message, branch_name=None):
-    filepath = get_log_filepath('api', branch_name or os.getenv('BRANCH_NAME', 'dev'))
-    write_to_file(filepath, message)
+export default function AdminDashboard() {
+  const {
+    adminClusterList,
+    selectedAdminCluster,
+    setSelectedAdminCluster,
+  } = useContext(ClusterContext);
 
-> If branch_name isn't provided explicitly, it falls back to the environment variable (BRANCH_NAME).
+  const handleClusterChange = (event) => {
+    setSelectedAdminCluster(event.target.value);
+  };
 
-
-
-
----
-
-2. Your get_log_filepath() remains as described earlier:
-
-def get_log_filepath(log_type, branch_name):
-    filename_prefix = ''
-    branch_name = branch_name.lower()
-
-    if branch_name in ['dev', 'stage']:
-        filename_prefix = f"{branch_name}_"
-
-    if log_type == 'api':
-        filename = f"{filename_prefix}api_errors.log"
-    elif log_type == 'cron':
-        filename = f"{filename_prefix}cron_jobs.log"
-    else:
-        return None
-
-    return os.path.join(LOG_DIR, filename)
-
-
----
-
-3. Your write_to_file() stays the same:
-
-def write_to_file(filepath, message):
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    with open(filepath, 'a') as f:
-        f.write(f"[{timestamp}] {message}\n")
+  return (
+    <Grid item md={6}>
+      <FormControl fullWidth sx={{ minWidth: 400 }} size="medium">
+        <InputLabel id="admin-cluster-label">Cluster</InputLabel>
+        <Select
+          labelId="admin-cluster-label"
+          value={selectedAdminCluster}
+          label="Cluster"
+          onChange={handleClusterChange}
+        >
+          {Object.entries(adminClusterList).map(([key, value]) => (
+            <MenuItem key={key} value={key} disabled={key === 'service_account'}>
+              {`${key} (${value})`}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+    </Grid>
+  );
+}
 
 
 ---
 
-4. Your scheduled_database_removal_query() remains unchanged (unless you want to make it explicit):
+✅ In DashboardAppPage.js
 
-def scheduled_database_removal_query():
-    try:
-        write_to_cron_log("Job started: daily_database_removal_query")
-        print("some code ignore that..")
+Use userClusterList and selectedUserCluster:
 
-    except Exception as error:
-        write_to_api_log(f"[scheduled_database_removal_query] Error: {str(error)}")
-        write_to_cron_log(f"Failed with general error: {error}")
+import { useContext } from 'react';
+import { ClusterContext } from './ClusterContext'; // Adjust path
+import clusterNameToLabel from './utils'; // optional mapping
 
-If you'd prefer to be more explicit, you could do:
+export default function DashboardAppPage() {
+  const {
+    userClusterList,
+    selectedUserCluster,
+    setSelectedUserCluster,
+  } = useContext(ClusterContext);
 
-write_to_cron_log("Job started", branch_name='stage')
+  const handleClusterChange = (event) => {
+    setSelectedUserCluster(event.target.value);
+  };
 
-But that's optional if your BRANCH_NAME environment variable is correct.
+  return (
+    <Grid item sm={4} md={4.5} lg={4.5}>
+      <FormControl fullWidth size="medium">
+        <InputLabel id="user-cluster-label">Cluster</InputLabel>
+        <Select
+          className="clusterBOX"
+          labelId="user-cluster-label"
+          value={selectedUserCluster}
+          label="Cluster"
+          onChange={handleClusterChange}
+        >
+          {Object.entries(userClusterList).map(([key, value]) => (
+            <MenuItem key={key} value={key} disabled={key === 'service_account'}>
+              {`${clusterNameToLabel?.[key] || key} (${value} Jobs)`}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+    </Grid>
+  );
+}
 
 
 ---
 
-✅ Final Notes
+✅ Summary
 
-This setup ensures you write logs to the correct files dynamically — based on branch.
+Component	Uses Cluster Data From
 
-No need to hardcode filenames.
+AdminDashboard	adminClusterList, selectedAdminCluster
+DashboardAppPage	userClusterList, selectedUserCluster
 
-For prod, logs will go to api_errors.log and cron_jobs.log automatically (no prefix).
 
+You now have isolated admin and user views without separating providers, and with minimal changes to your structure.
 
-Let me know if you're using multiple branches in parallel (e.g., multi-tenancy) — that would require passing the branch name explicitly everywhere.
+Let me know if you’d like to lazy-load data or optimize further (e.g., fetching only when the dashboard is viewed).
 
