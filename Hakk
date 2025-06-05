@@ -1,126 +1,99 @@
-rThis block from the sudoers file defines a command alias named LSF_RECONFIG_CMDS and lists a set of commands that users or groups can be allowed to run with sudo privileges.
+tTo implement the fallback logic where the current_slot_limit is fetched from config.json if it's not found in the database, you'll need to:
 
-Here's a breakdown of what's happening:
-
-
----
-
-Cmnd_Alias definition:
-
-Cmnd_Alias LSF_RECONFIG_CMDS = /apps/lsf/10.1/.../lsadmin ckconfig -v, ...
-
-Cmnd_Alias is a directive in the sudoers file used to group commands under a single alias for cleaner and more maintainable rules.
-
-LSF_RECONFIG_CMDS is the name of this alias.
-
-The list following it includes specific command-line executions, mostly related to LSF (Load Sharing Facility) utilities, across two different base directories:
-
-/apps/lsf/10.1/... (likely the production path)
-
-/apps/lsftest/10.1/... (likely a test/staging path)
+1. Load config.json at the application startup (or on demand).
 
 
-Each command includes both the path and specific arguments (e.g., ckconfig -v, reconfig -v, etc.).
+2. Parse and access the appropriate value based on slot_type and cluster_name.
 
+
+3. Modify the existing logic in the get_current_slot_limit route to use this fallback.
+
+
+
+Here’s how you can adjust your main.py:
 
 
 ---
 
-Noteworthy part:
+✅ Step 1: Load config.json (at the top of your main.py)
 
-/bin/bash -c *
+import json
+import os
 
-This is a very broad and risky entry. It allows execution of any command passed via /bin/bash -c, which defeats the purpose of fine-grained command control and could lead to security concerns. It essentially allows a user to run arbitrary commands with sudo, bypassing restrictions.
-
-
-
----
-
-About replicating it to other regions:
-
-Yes, you can replicate this block if:
-
-The LSF version and directory structure (/apps/lsf/10.1/...) are the same across regions.
-
-The same set of LSF admin actions are needed in those regions.
-
-
-Caution:
-
-Do not replicate /bin/bash -c * unless there's a clear reason and you're fully aware of the security implications. It essentially negates all command restrictions in this alias.
-
-It’s best to remove or replace that line with more specific allowed scripts or commands if possible.
-
+# Load config.json
+with open(os.path.join(os.path.dirname(__file__), 'config.json')) as f:
+    config_data = json.load(f)
 
 
 ---
 
-Would you like help refactoring this block to be more secure or tailored for a different region?
+✅ Step 2: Modify the get_current_slot_limit route
 
-Great question — you can absolutely still parse the output and status code separately in your Jenkins pipeline when using a script.
+Update the else block to check config_data based on slot_type and cluster_name.
 
-Here's how to adjust both your script and Jenkins pipeline to make it easy and clean:
+@app.route(f"{API_URL_PREFIX}/get_current_slot_limit", methods=['GET'])
+@cross_origin()
+def get_current_slot_limit(): 
+    user_id = request.args.get('userID')
+    slot_type = request.args.get('SLOT_TYPE')
+    cluster_name = request.args.get('CLUSTER_NAME')
+    request_id = str(uuid.uuid4())
+
+    if not user_id or not slot_type or not cluster_name:
+        return jsonify({'error_message': 'Missing required query parameters'}), 500
+
+    try:
+        conn = get_oracle_connection()
+        cursor = conn.cursor()
+
+        query = """
+            SELECT current_slot_limit FROM CURRENT_SLOT_LIMIT
+            WHERE USERID = :user_id
+              AND SLOT_TYPE = :slot_type
+              AND CLUSTER_NAME = :cluster_name
+        """
+        cursor.execute(query, {
+            "user_id": user_id,
+            "slot_type": slot_type,
+            "cluster_name": cluster_name
+        })
+
+        result = cursor.fetchone()
+
+        if result:
+            current_slot_limit = int(result[0])
+        else:
+            # Fallback: try to get from config.json
+            slot_key = f"{slot_type.lower()}-default-slot-limit"
+            if slot_key in config_data and cluster_name in config_data[slot_key]:
+                current_slot_limit = config_data[slot_key][cluster_name]
+            else:
+                return jsonify({'error_message': 'No slot limit data found in DB or config'}), 500
+
+        print("get_current_slot_limit current_slot_limit:", current_slot_limit)
+        return jsonify({
+            "user_id": user_id,
+            "slot_type": slot_type,
+            "cluster_name": cluster_name,
+            "current_slot_limit": current_slot_limit,
+            "request_id": request_id
+        }), 200
+
+    except Exception as e:
+        print("Oracle DB error:", traceback.format_exc())
+        return jsonify({'error_message': 'Internal server error occurred while fetching slot limit'}), 500
 
 
 ---
 
-1. Modified Shell Script: /opt/scripts/lsf_ckconfig.sh
+✅ Optional: Add logging for fallback
 
-Ensure the script prints the output first, then the status code in a parseable format:
+You might want to log a message when falling back to config:
 
-#!/bin/bash
-. /data/lsf/conf/profile.lsf
-BADMIN=$(which badmin)
-output=$($BADMIN ckconfig -v 2>&1)
-status=$?
-echo "$output"
-echo "LSF_CMD_STATUS_CODE=$status"
-
-Make it executable:
-
-chmod 755 /opt/scripts/lsf_ckconfig.sh
+print(f"Slot limit not found in DB. Falling back to config for slot_type={slot_type}, cluster_name={cluster_name}")
 
 
 ---
 
-2. Jenkins Pipeline Groovy Snippet
-
-Here’s how you parse the output and status code cleanly:
-
-def rawOutput = sh(
-    script: """ssh ${masterServer} '/data/sudo/bin/sudo -u lsfadmin /opt/scripts/lsf_ckconfig.sh'""",
-    returnStdout: true
-).trim()
-
-// Split output into lines
-def lines = rawOutput.readLines()
-
-// Extract the status line and remove it from main output
-def statusLine = lines[-1]
-def commandOutput = lines[0..-2].join("\n")
-
-// Extract the numeric status code
-def statusCode = statusLine.replace("LSF_CMD_STATUS_CODE=", "").trim()
-
-// Use `commandOutput` and `statusCode` as needed
-println "LSF command output:\n${commandOutput}"
-println "Status code: ${statusCode}"
-
-if (statusCode != "0") {
-    error("LSF command failed with status ${statusCode}")
-}
-
-
----
-
-Why this works well:
-
-Keeps your sudoers file secure and minimal.
-
-Separates output from exit status cleanly.
-
-Your pipeline logic stays robust and readable.
-
-
-Would you like a full example pipeline step or integration into a shared library method?
+Let me know if you want to cache config.json dynamically (e.g., reload if updated) or validate the config format on load.
 
