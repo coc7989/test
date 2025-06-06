@@ -1,506 +1,80 @@
-eAbsolutely — shifting to Oracle SQL to fetch the current slot limit is a more reliable and scalable approach than relying on Jenkins and in-memory communication.
+tThanks — this confirms you're explicitly using a host bind mount in your Jenkins job:
+
+-v /data/lsf_ued/logs:/app/logs
+
+This is the exact reason you're seeing the UID mismatch inside the container — Docker mounts the host directory /data/lsf_ued/logs as-is, including the owner UID/GID (59218 in your case), and this overrides anything defined in the Dockerfile during image build.
 
 
 ---
 
-New Architecture Overview
+✅ Options to Fix This in Your Jenkins Setup
 
-Current (Old) Flow:
+🔧 Option 1: Align Container User UID with Host UID (Quick Fix)
 
-1. Frontend calls Flask API (/get_current_slot_limit)
+If the host's dockeruser has UID 59218, you can modify your Dockerfile like this:
 
+RUN usermod -u 59218 dockeruser
 
-2. Flask triggers a Jenkins job.
+This way, inside the container, UID 59218 resolves to dockeruser, and the directory ownership appears correct even with the volume mount.
 
-
-3. Jenkins computes the value and POSTs it back to Flask.
-
-
-4. Flask temporarily stores it in memory and returns it.
-
-
-
-Problems:
-
-Jenkins delay
-
-Volatile in-memory storage
-
-Multi-process inconsistencies
-
-Complex logging/troubleshooting
-
-
-
----
-
-Proposed (New) Flow with Oracle DB:
-
-1. Frontend calls Flask API (/get_current_slot_limit)
-
-
-2. Flask connects directly to Oracle DB
-
-
-3. It fetches current_slot_limit based on userID, SLOT_TYPE, and CLUSTER_NAME
-
-
-4. Flask returns the result to the frontend
+> ⚠️ Caveat: This can cause issues if the user already owns files in the image. Best used early in the Dockerfile, before creating/chowning many files.
 
 
 
 
 ---
 
-Assumptions:
+🛠️ Option 2: chown the mounted volume at runtime
 
-Oracle database has a table like:
+Since bind mounts override image ownership, you can reclaim it by chowning at container startup.
 
+1. Add an entrypoint.sh:
 
-CREATE TABLE slot_limits (
-    user_id VARCHAR2(100),
-    slot_type VARCHAR2(100),
-    cluster_name VARCHAR2(100),
-    current_slot_limit NUMBER,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+#!/bin/bash
+chown -R dockeruser:dockeruser /app/logs
+exec "$@"
 
 
----
+2. Update Dockerfile:
 
-Steps to Update Flask App
-
-1. Install Oracle Client Library
-
-In your Dockerfile or system:
-
-pip install cx_Oracle
-
-Ensure libclntsh.so and Oracle Instant Client are installed in your image or server.
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
 
 
----
 
-2. Updated Flask Code (with Oracle Integration)
+This ensures /app/logs is correctly owned regardless of the host UID.
 
-import cx_Oracle
-from flask import Flask, request, jsonify
-from flask_cors import cross_origin
-import os
-import traceback
+> ✅ Requires container to run as root, or at least have permission to chown the mounted folder.
 
-app = Flask(__name__)
-API_URL_PREFIX = "/api"
 
-# Oracle DB credentials (use env variables in real scenarios)
-ORACLE_HOST = os.getenv("ORACLE_HOST", "your_host")
-ORACLE_PORT = os.getenv("ORACLE_PORT", "1521")
-ORACLE_SERVICE = os.getenv("ORACLE_SERVICE", "orclpdb1")
-ORACLE_USER = os.getenv("ORACLE_USER", "myuser")
-ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "mypassword")
-
-def get_oracle_connection():
-    dsn = cx_Oracle.makedsn(ORACLE_HOST, ORACLE_PORT, service_name=ORACLE_SERVICE)
-    return cx_Oracle.connect(user=ORACLE_USER, password=ORACLE_PASSWORD, dsn=dsn)
-
-@app.route(f"{API_URL_PREFIX}/get_current_slot_limit", methods=['GET'])
-@cross_origin()
-def get_current_slot_limit():
-    user_id = request.args.get('userID')
-    slot_type = request.args.get('SLOT_TYPE')
-    cluster_name = request.args.get('CLUSTER_NAME')
-
-    if not user_id or not slot_type or not cluster_name:
-        return jsonify({'error': 'Missing required query parameters'}), 400
-
-    try:
-        conn = get_oracle_connection()
-        cursor = conn.cursor()
-
-        query = """
-            SELECT current_slot_limit FROM slot_limits
-            WHERE user_id = :user_id
-              AND slot_type = :slot_type
-              AND cluster_name = :cluster_name
-        """
-        cursor.execute(query, {
-            "user_id": user_id,
-            "slot_type": slot_type,
-            "cluster_name": cluster_name
-        })
-
-        result = cursor.fetchone()
-        cursor.close()
-        conn.close()
-
-        if result:
-            current_slot_limit = int(result[0])
-            return jsonify({
-                "user_id": user_id,
-                "slot_type": slot_type,
-                "cluster_name": cluster_name,
-                "current_slot_limit": current_slot_limit
-            }), 200
-        else:
-            return jsonify({'error_message': 'No slot limit data found for provided parameters'}), 404
-
-    except Exception as e:
-        print("Oracle DB error:", traceback.format_exc())
-        return jsonify({'error_message': 'Internal server error occurred while fetching slot limit'}), 500
 
 
 ---
 
-3. Sample Oracle DB Insertion Script
+🔁 Option 3: Use a Named Volume Instead (If Host Mapping Is Not Needed)
 
-INSERT INTO slot_limits (user_id, slot_type, cluster_name, current_slot_limit)
-VALUES ('user123', 'batch', 'clusterA', 20);
-COMMIT;
+If /data/lsf_ued/logs is not required to persist or be readable by the host, switch your Jenkins command to:
 
+docker run -d -v logs-volume:/app/logs --name ${DEV_IMAGE_NAME} \
+  -e BRANCH_NAME=dev -p 5000:5000 ${DEV_IMAGE_NAME}:${GIT_COMMIT}
 
----
+And pre-create the volume (optional):
 
-4. Dockerfile Notes
+docker volume create logs-volume
 
-Make sure Oracle Instant Client is in your container:
-
-RUN apt-get update && apt-get install -y libaio1
-COPY instantclient /opt/oracle/instantclient
-ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
-ENV ORACLE_HOME=/opt/oracle/instantclient
+This avoids all permission issues.
 
 
 ---
 
-Next Steps:
+🧩 Recommendation Based on Your Use Case
 
-I can help you create test data and validate DB connections if you share the schema.
+Do you need host access to logs?	Suggested Fix
 
-If you’re using SQLAlchemy or want ORM instead of raw queries, I can adapt it.
+✅ Yes	Use Option 1 (UID match) or Option 2 (entrypoint chown)
+❌ No	Use Option 3 (named volume)
 
 
-Would you like a version with SQLAlchemy + better config separation?
-
-
-build_result = trigger_jenkins_job(additional_data, request_data['CATEGORY_NAME'])
-
-print("User AId:", additional_data.get("USER_AID"))
-print("CLUSTER_NAME:", additional_data.get("CLUSTER_NAME"))
-print("SLOT_TYPE:", additional_data.get("SLOT_TYPE"))
-print("REQUESTED_SLOT:", additional_data.get("REQUESTED_SLOT"))
-
-if build_result == 'SUCCESS':
-    build_result = 'COMPLETED'
-elif build_result == 'UNSTABLE':
-    build_result = 'QUEUED FOR RETRY'
-else:
-    build_result = 'AWAITING ADMIN REVIEW'
-
-print("build_result", build_result)
-print("request_data['CATEGORY_NAME']", request_data['CATEGORY_NAME'])
-print("request_data['REQUEST_ID']", request_data['REQUEST_ID'])
-
-# Step 1: Update status of the request
-update_status_query = f"""
-    UPDATE {dbCfg['QUEUE_ACCESS'] if request_data['CATEGORY_NAME'] == 'QUEUE' else dbCfg['SLOT_REQUEST']}
-    SET UPDATED_DATE = sysdate,
-        REQUEST_STATUS = :REQUEST_STATUS
-    WHERE REQUEST_ID = :REQUEST_ID
-"""
-
-db = get_db()
-cursor = db.cursor()
-cursor.execute(update_status_query, {
-    "REQUEST_STATUS": build_result,
-    "REQUEST_ID": request_data['REQUEST_ID'],
-})
-db.commit()
-
-# Step 2: If it's a successful SLOT update, also update the slot_limits table
-if build_result == 'COMPLETED' and request_data['CATEGORY_NAME'].upper() == 'SLOT':
-    user_id = additional_data.get("USER_AID")
-    slot_type = additional_data.get("SLOT_TYPE")
-    cluster_name = additional_data.get("CLUSTER_NAME")
-    new_limit = additional_data.get("REQUESTED_SLOT")
-
-    # First try to update
-    update_slot_limit_query = """
-        UPDATE slot_limits
-        SET current_slot_limit = :new_limit,
-            updated_at = sysdate
-        WHERE user_id = :user_id
-          AND slot_type = :slot_type
-          AND cluster_name = :cluster_name
-    """
-    cursor.execute(update_slot_limit_query, {
-        "new_limit": new_limit,
-        "user_id": user_id,
-        "slot_type": slot_type,
-        "cluster_name": cluster_name
-    })
-
-    # If no row was updated, insert a new one
-    if cursor.rowcount == 0:
-        insert_slot_limit_query = """
-            INSERT INTO slot_limits (user_id, slot_type, cluster_name, current_slot_limit, updated_at)
-            VALUES (:user_id, :slot_type, :cluster_name, :new_limit, sysdate)
-        """
-        cursor.execute(insert_slot_limit_query, {
-            "user_id": user_id,
-            "slot_type": slot_type,
-            "cluster_name": cluster_name,
-            "new_limit": new_limit
-        })
-
-    db.commit()
-
-cursor.close()
-
-Thanks for the detailed info — here's a clean and fully integrated version of your function with the default slot limits logic, update/insert handling, and error-safe DB operations.
-
-
----
-
-Defaults Based on SLOT_TYPE and CLUSTER_NAME
-
-DEFAULT_SLOT_LIMITS = {
-    'GUI': {
-        'INDIA': 10,
-        'DALLAS': 20
-    },
-    'REGRESS': {
-        'INDIA': 200,
-        'DALLAS': 250
-    }
-}
-
-
----
-
-Updated Function: Enhanced User Slot Limit Removal
-
-build_result = trigger_jenkins_job_removal(query_result)
-
-if build_result == 'SUCCESS':
-    build_result = 'ACCESS ENDED'
-elif build_result == 'UNSTABLE':
-    build_result = 'QUEUED FOR RETRY'
-else:
-    build_result = 'AWAITING ADMIN REVIEW'
-
-print("build_result", build_result)
-print("query_result['REQUEST_ID']", query_result['REQUEST_ID'])
-print("query_result['REQUEST_TYPE']", query_result['REQUEST_TYPE'])  # This is SLOT_TYPE
-print("query_result['USER_AID']", query_result['USER_AID'])
-print("query_result['CLUSTER_NAME']", query_result['CLUSTER_NAME'])
-
-db = get_db()
-cursor = db.cursor()
-
-# Step 1: Update request status
-removal_status_query = f"""
-    UPDATE {dbCfg['QUEUE_ACCESS'] if query_result['CATEGORY_NAME'] == 'QUEUE' else dbCfg['SLOT_REQUEST']}
-    SET UPDATED_DATE = sysdate,
-        REQUEST_STATUS = :REQUEST_STATUS
-    WHERE REQUEST_ID = :REQUEST_ID
-"""
-cursor.execute(removal_status_query, {
-    "REQUEST_STATUS": build_result,
-    "REQUEST_ID": query_result['REQUEST_ID'],
-})
-db.commit()
-
-# Step 2: If it's a SLOT category and removal succeeded, reset to default limit
-if build_result == 'ACCESS ENDED' and query_result['CATEGORY_NAME'].upper() == 'SLOT':
-    user_id = query_result['USER_AID']
-    slot_type = query_result['REQUEST_TYPE'].upper()
-    cluster_name = query_result['CLUSTER_NAME'].upper()
-
-    # Get default slot limit
-    default_slot_limit = DEFAULT_SLOT_LIMITS.get(slot_type, {}).get(cluster_name, None)
-
-    if default_slot_limit is not None:
-        # Update existing slot limit
-        update_query = """
-            UPDATE slot_limits
-            SET current_slot_limit = :limit,
-                updated_at = sysdate
-            WHERE user_id = :user_id
-              AND slot_type = :slot_type
-              AND cluster_name = :cluster_name
-        """
-        cursor.execute(update_query, {
-            "limit": default_slot_limit,
-            "user_id": user_id,
-            "slot_type": slot_type,
-            "cluster_name": cluster_name
-        })
-
-        # If no update happened, insert new record
-        if cursor.rowcount == 0:
-            insert_query = """
-                INSERT INTO slot_limits (user_id, slot_type, cluster_name, current_slot_limit, updated_at)
-                VALUES (:user_id, :slot_type, :cluster_name, :limit, sysdate)
-            """
-            cursor.execute(insert_query, {
-                "user_id": user_id,
-                "slot_type": slot_type,
-                "cluster_name": cluster_name,
-                "limit": default_slot_limit
-            })
-        db.commit()
-    else:
-        print(f"No default limit configured for SLOT_TYPE: {slot_type}, CLUSTER_NAME: {cluster_name}")
-
-cursor.close()
-
-
----
-
-Features Included:
-
-Graceful handling for unknown SLOT_TYPE or CLUSTER_NAME
-
-Clean fallback insert if update didn't affect any rows
-
-Modular default config for easy future updates
-
-Maintains consistency with your previous update logic
-
-
-
----
-
-Would you like this moved into a utility function for reuse? I can help create a shared method like upsert_slot_limit(user_id, slot_type, cluster_name, limit) if that helps cleanup your codebase.
-
-Great — let's design both options:
-
-
----
-
-Option 1: Single Reusable Function
-
-This version handles both update after slot increase and reset to default on removal. It checks for whether the value to apply is passed directly or derived from the DEFAULT_SLOT_LIMITS.
-
-Helper: Default Slot Limits
-
-DEFAULT_SLOT_LIMITS = {
-    'GUI': {
-        'INDIA': 10,
-        'DALLAS': 20
-    },
-    'REGRESS': {
-        'INDIA': 200,
-        'DALLAS': 250
-    }
-}
-
-Reusable Function: upsert_slot_limit
-
-def upsert_slot_limit(db, user_id, slot_type, cluster_name, new_limit=None):
-    slot_type = slot_type.upper()
-    cluster_name = cluster_name.upper()
-
-    if new_limit is None:
-        # Use default if no new limit is provided (for removal)
-        new_limit = DEFAULT_SLOT_LIMITS.get(slot_type, {}).get(cluster_name)
-
-    if new_limit is None:
-        print(f"[WARN] No default slot limit found for SLOT_TYPE={slot_type}, CLUSTER_NAME={cluster_name}")
-        return
-
-    cursor = db.cursor()
-
-    update_query = """
-        UPDATE slot_limits
-        SET current_slot_limit = :limit,
-            updated_at = sysdate
-        WHERE user_id = :user_id
-          AND slot_type = :slot_type
-          AND cluster_name = :cluster_name
-    """
-    cursor.execute(update_query, {
-        "limit": new_limit,
-        "user_id": user_id,
-        "slot_type": slot_type,
-        "cluster_name": cluster_name
-    })
-
-    if cursor.rowcount == 0:
-        insert_query = """
-            INSERT INTO slot_limits (user_id, slot_type, cluster_name, current_slot_limit, updated_at)
-            VALUES (:user_id, :slot_type, :cluster_name, :limit, sysdate)
-        """
-        cursor.execute(insert_query, {
-            "user_id": user_id,
-            "slot_type": slot_type,
-            "cluster_name": cluster_name,
-            "limit": new_limit
-        })
-
-    db.commit()
-    cursor.close()
-
-Usage in Trigger Jenkins (Enhancement):
-
-if build_result == 'COMPLETED' and request_data['CATEGORY_NAME'].upper() == 'SLOT':
-    upsert_slot_limit(db, 
-                      user_id=additional_data.get("USER_AID"),
-                      slot_type=additional_data.get("SLOT_TYPE"),
-                      cluster_name=additional_data.get("CLUSTER_NAME"),
-                      new_limit=additional_data.get("REQUESTED_SLOT"))
-
-Usage in Removal Jenkins:
-
-if build_result == 'ACCESS ENDED' and query_result['CATEGORY_NAME'].upper() == 'SLOT':
-    upsert_slot_limit(db,
-                      user_id=query_result.get("USER_AID"),
-                      slot_type=query_result.get("REQUEST_TYPE"),
-                      cluster_name=query_result.get("CLUSTER_NAME"))
-
-
----
-
-Option 2: Two Separate Functions
-
-If you prefer more separation:
-
-Function 1: For Enhancement
-
-def update_enhanced_slot_limit(db, user_id, slot_type, cluster_name, requested_limit):
-    upsert_slot_limit(db, user_id, slot_type, cluster_name, new_limit=requested_limit)
-
-Function 2: For Removal
-
-def reset_slot_limit_to_default(db, user_id, slot_type, cluster_name):
-    upsert_slot_limit(db, user_id, slot_type, cluster_name, new_limit=None)
-
-Usage:
-
-In enhancement flow:
-
-
-update_enhanced_slot_limit(db, user_id, slot_type, cluster_name, requested_limit)
-
-In removal flow:
-
-
-reset_slot_limit_to_default(db, user_id, slot_type, cluster_name)
-
-
----
-
-Summary
-
-Option	Pros	Cons
-
-Single Function (upsert_slot_limit)	- DRY and minimal code<br>- Easy to maintain	- Slightly more logic branching inside
-Two Functions	- Explicit and semantically clear	- Minor duplication, more to maintain
-
-
-
----
-
-Would you like me to wrap this in a Python module file (slot_limit_utils.py) for clean imports?
-
+Let me know your preference, and I’ll tailor the Dockerfile or Jenkins pipeline command accordingly.
 
