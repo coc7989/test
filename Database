@@ -1,80 +1,100 @@
-tThanks — this confirms you're explicitly using a host bind mount in your Jenkins job:
-
--v /data/lsf_ued/logs:/app/logs
-
-This is the exact reason you're seeing the UID mismatch inside the container — Docker mounts the host directory /data/lsf_ued/logs as-is, including the owner UID/GID (59218 in your case), and this overrides anything defined in the Dockerfile during image build.
+yHere's a more structured, polished version of your Individual Development Plan (IDP) that aligns with your manager’s request. It breaks your objectives into clear categories like goals, projects, certifications, and innovation areas, with professional and actionable language:
 
 
 ---
 
-✅ Options to Fix This in Your Jenkins Setup
+Individual Development Plan (IDP) – [Your Name]
 
-🔧 Option 1: Align Container User UID with Host UID (Quick Fix)
-
-If the host's dockeruser has UID 59218, you can modify your Dockerfile like this:
-
-RUN usermod -u 59218 dockeruser
-
-This way, inside the container, UID 59218 resolves to dockeruser, and the directory ownership appears correct even with the volume mount.
-
-> ⚠️ Caveat: This can cause issues if the user already owns files in the image. Best used early in the Dockerfile, before creating/chowning many files.
-
-
+Goal for the Year:
+Enhance my technical and leadership capabilities by driving key infrastructure projects, achieving certification goals, and contributing innovative solutions in the compute space (LSF, Slurm). Focus will be on improving system performance, scalability, and reliability.
 
 
 ---
 
-🛠️ Option 2: chown the mounted volume at runtime
+1. Project Deliverables
 
-Since bind mounts override image ownership, you can reclaim it by chowning at container startup.
+Complete myLSF Phase 2:
+Successfully deliver enhancements and stability improvements in the myLSF Phase 2 release, ensuring improved user experience and functionality.
 
-1. Add an entrypoint.sh:
+Lead FLAMESHub Phase 2:
+Take end-to-end ownership of FLAMESHub Phase 2 development, ensuring timely delivery with improved performance and scalability features.
 
-#!/bin/bash
-chown -R dockeruser:dockeruser /app/logs
-exec "$@"
-
-
-2. Update Dockerfile:
-
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
-
-
-
-This ensures /app/logs is correctly owned regardless of the host UID.
-
-> ✅ Requires container to run as root, or at least have permission to chown the mounted folder.
-
+Design Complexity Project:
+Drive the design complexity initiative to explore architectural improvements and uncover optimization opportunities across compute workloads.
 
 
 
 ---
 
-🔁 Option 3: Use a Named Volume Instead (If Host Mapping Is Not Needed)
+2. Technical Upskilling and Certification
 
-If /data/lsf_ued/logs is not required to persist or be readable by the host, switch your Jenkins command to:
+RHCSA Certification:
+Complete Red Hat Certified System Administrator (RHCSA) training and certification to strengthen foundational Linux and system administration skills.
 
-docker run -d -v logs-volume:/app/logs --name ${DEV_IMAGE_NAME} \
-  -e BRANCH_NAME=dev -p 5000:5000 ${DEV_IMAGE_NAME}:${GIT_COMMIT}
-
-And pre-create the volume (optional):
-
-docker volume create logs-volume
-
-This avoids all permission issues.
 
 
 ---
 
-🧩 Recommendation Based on Your Use Case
+3. Innovation and Infrastructure Improvements
 
-Do you need host access to logs?	Suggested Fix
+Innovation in Compute Infrastructure:
 
-✅ Yes	Use Option 1 (UID match) or Option 2 (entrypoint chown)
-❌ No	Use Option 3 (named volume)
+Design and implement innovative compute solutions using Ansible and Kubernetes, particularly in LSF and Slurm environments.
+
+Create real-world job simulation environments by:
+
+Increasing CPU slots on test servers to emulate a scaled setup (e.g., 10 execution hosts with 8 slots each).
+
+Setting up multiple Docker-based execution hosts on a single server.
 
 
-Let me know your preference, and I’ll tailor the Dockerfile or Jenkins pipeline command accordingly.
+
+Observability Enhancements:
+
+Improve monitoring and observability in compute environments using Zabbix for both LSF and Slurm platforms.
+
+
+Infrastructure as Code (IaC):
+
+Implement solutions to auto-scale execution hosts during peak hours using IaC principles.
+
+Automate queue management by dynamically adjusting slot availability based on usage patterns (e.g., increase for busy queues, decrease for infrequently used ones).
+
+
+Resiliency and Fault Tolerance:
+
+Design auto-resubmission mechanisms for failed LSF jobs due to node issues, software errors, or resource limits.
+
+Investigate checkpointing or job migration strategies to avoid wasted compute time from failed long-running jobs.
+
+
+
+
+---
+
+4. DevOps and CI/CD Improvements
+
+Docker and Bitbucket Integration:
+
+Develop a Jenkins pipeline to build and push Docker images to Bitbucket, and sync images across all regions. Alternatively, explore compressed image delivery for efficiency.
+
+Evaluate use of Docker Hub private repositories for better control and access.
+
+
+
+
+---
+
+5. User Migration and Platform Upgrade
+
+WS70 to WS80 Migration:
+
+Lead or contribute to the migration of users from WS70 to WS80, ensuring minimal disruption and enhanced performance in the upgraded environment.
+
+
+
+
+---
+
+Let me know if you'd like this in a document format or if you'd like help converting it into a formal submission.
 
