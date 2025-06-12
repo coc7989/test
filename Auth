@@ -1,203 +1,151 @@
-Yes, you can create separate log files for React and Flask and write error logs to them in real-time. Here's how you can do it:
+To enhance your backend and frontend as described — fetching the ACCESS_END_DATE from a second table only when the current slot limit is found in the first table — here's how you can implement it:
 
 
 ---
 
-1. Logging Errors in Flask (Backend)
+✅ Backend Update
 
-You can create a dedicated flask_error.log file and configure Flask to write errors there.
+Add logic to fetch ACCESS_END_DATE from SLOT_REQUEST table using the given conditions.
 
-Steps:
+🔁 Updated Backend Code (get_current_slot_limit)
 
-1. Create a log file: flask_error.log
-
-
-2. Modify your Flask app to write errors to this file.
-
-
-
-Code:
-
-import logging
-from logging.handlers import RotatingFileHandler
-from flask import Flask
-
-app = Flask(__name__)
-
-# Create a rotating file handler (prevents logs from getting too big)
-log_file = "flask_error.log"
-handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=3)
-handler.setLevel(logging.ERROR)
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-
-# Attach handler to Flask's logger
-app.logger.addHandler(handler)
-app.logger.setLevel(logging.INFO)
-
-@app.route("/")
-def home():
+@app.route(f"{API_URL_PREFIX}/get_current_slot_limit", methods=['GET'])
+@cross_origin()
+def get_current_slot_limit():
+    user_id = request.args.get('userID')
+    slot_type = request.args.get('SLOT_TYPE')
+    cluster_name = request.args.get('CLUSTER_NAME')
+    request_id = str(uuid.uuid4())
+    
+    slot_limit_table = dbCfg['CURRENT_SLOT_LIMIT_TBL']
+    slot_request_table = dbCfg['SLOT_REQUEST']
+    
     try:
-        # Simulate an error
-        raise Exception("Test error in Flask")
+        conn = get_oracle_connection()
+        cursor = conn.cursor()
+        
+        # Step 1: Fetch current slot limit
+        query_slot_limit = f"""
+            SELECT CURRENT_SLOT_LIMIT FROM {slot_limit_table}
+            WHERE USERID = :user_id
+              AND SLOT_TYPE = :slot_type
+              AND CLUSTER_NAME = :cluster_name
+        """
+        cursor.execute(query_slot_limit, {
+            "user_id": user_id,
+            "slot_type": slot_type,
+            "cluster_name": cluster_name
+        })
+        result = cursor.fetchone()
+        
+        if result:
+            current_slot_limit = int(result[0])
+            access_end_date = None
+
+            # Step 2: Fetch access end date from SLOT_REQUEST table
+            query_access_end = f"""
+                SELECT ACCESS_END_DATE FROM {slot_request_table}
+                WHERE USERID = :user_id
+                  AND SLOT_TYPE = :slot_type
+                  AND CLUSTER_NAME = :cluster_name
+                  AND REQUEST_STATUS = 'COMPLETED'
+                  AND REQUESTED_SLOT_LIMIT = :current_slot_limit
+                ORDER BY ACCESS_END_DATE DESC FETCH FIRST 1 ROWS ONLY
+            """
+            cursor.execute(query_access_end, {
+                "user_id": user_id,
+                "slot_type": slot_type,
+                "cluster_name": cluster_name,
+                "current_slot_limit": current_slot_limit
+            })
+            access_result = cursor.fetchone()
+            if access_result:
+                access_end_date = access_result[0]  # Assumes it's a datetime/date object
+
+        else:
+            slot_key = f"{slot_type.lower()}-default-slot-limit"
+            if slot_key in config_data and cluster_name in config_data[slot_key]:
+                current_slot_limit = config_data[slot_key][cluster_name]
+                access_end_date = None
+            else:
+                return jsonify({'error_message': 'No slot limit data found in DB or config'}), 500
+        
+        return jsonify({
+            "user_id": user_id,
+            "slot_type": slot_type,
+            "cluster_name": cluster_name,
+            "current_slot_limit": current_slot_limit,
+            "access_end_date": access_end_date,
+            "request_id": request_id
+        }), 200
     except Exception as e:
-        app.logger.error("Error occurred: %s", str(e), exc_info=True)
-    return "Hello, World!"
-
-if __name__ == "__main__":
-    app.run(debug=True)
-
-How It Works:
-
-All errors will be written to flask_error.log.
-
-It automatically rotates logs when the file reaches 5MB.
-
-The log will contain timestamps and full error traces.
-
+        print("Oracle DB error:", traceback.format_exc())
+        return jsonify({'error_message': 'Internal server error occurred while fetching slot limit'}), 500
 
 
 ---
 
-2. Logging Errors in React (Frontend)
+✅ Frontend Update
 
-Since JavaScript runs in the browser, it doesn’t have direct file access, but you can:
+Update your UI to display the ACCESS_END_DATE if it's available.
 
-Capture errors and send them to an API.
+🔁 Changes in JSX
 
-Save logs to a file on the server.
+Update your React component like this:
 
+<Typography>
+  Current Slot Limit for <b>{SLOT_TYPE}</b>:{' '}
+  <Typography component="span" color="primary" fontWeight="bold">
+    {currentSlotLimit}
+  </Typography>
+  {accessEndDate && (
+    <>
+      {' '} (Ending on:{' '}
+      <Typography component="span" color="secondary" fontWeight="bold">
+        {new Date(accessEndDate).toLocaleDateString()}
+      </Typography>
+      )
+    </>
+  )}
+</Typography>
 
-Steps:
+✅ Also update state variables:
 
-1. Create a log file on the server: react_error.log
+Ensure you’re saving accessEndDate from API:
 
+const [accessEndDate, setAccessEndDate] = useState(null);
 
-2. Modify React to send errors to Flask.
-
-
-3. Flask will write React errors to react_error.log.
-
-
-
-Step 1: Create Flask API to Receive Logs
-
-Modify your Flask app to accept logs from React.
-
-from flask import request, jsonify
-
-@app.route("/log_error", methods=["POST"])
-def log_error():
-    try:
-        data = request.json
-        error_message = data.get("error_message")
-        log_file = "react_error.log"
-
-        # Write to the React log file
-        with open(log_file, "a") as file:
-            file.write(f"{datetime.datetime.now()} - ERROR - {error_message}\n")
-
-        return jsonify({"status": "logged"}), 200
-    except Exception as e:
-        app.logger.error("Failed to log error: %s", str(e), exc_info=True)
-        return jsonify({"status": "error"}), 500
-
-
----
-
-Step 2: Send Errors from React to Flask
-
-In React, use window.onerror or an ErrorBoundary to catch and send errors to Flask.
-
-Method 1: Global Error Listener
-
-Add this in index.js:
-
-window.onerror = function (message, source, lineno, colno, error) {
-  fetch("http://localhost:5000/log_error", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      error_message: `Message: ${message}, Source: ${source}, Line: ${lineno}, Column: ${colno}`,
-    }),
-  });
-};
-
-This sends JavaScript errors to Flask whenever they occur.
-
-Method 2: React Error Boundary
-
-Create an ErrorBoundary.js:
-
-import React from "react";
-
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    fetch("http://localhost:5000/log_error", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        error_message: `Error: ${error}, Info: ${JSON.stringify(errorInfo)}`,
-      }),
-    });
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return <h1>Something went wrong.</h1>;
+useEffect(() => {
+  const fetchLimit = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await apiInstance.get('/get_current_slot_limit', {
+        params: { userID, SLOT_TYPE, CLUSTER_NAME: clusterName },
+      });
+      setCurrentSlotLimit(response.data.current_slot_limit);
+      setAccessEndDate(response.data.access_end_date);  // <-- new line
+      setRequestId(response.data.request_id);
+    } catch (error) {
+      setError('Failed to fetch slot limit');
+    } finally {
+      setLoading(false);
     }
-    return this.props.children;
-  }
-}
-
-export default ErrorBoundary;
-
-Wrap your entire app in ErrorBoundary in App.js:
-
-import ErrorBoundary from "./ErrorBoundary";
-
-function App() {
-  return (
-    <ErrorBoundary>
-      <YourMainComponent />
-    </ErrorBoundary>
-  );
-}
-
-export default App;
+  };
+  fetchLimit();
+}, [userID, SLOT_TYPE, clusterName]);
 
 
 ---
 
-How This Works
+✅ Summary
 
-Flask writes backend errors to flask_error.log.
+You added logic in the backend to optionally fetch ACCESS_END_DATE when a CURRENT_SLOT_LIMIT exists.
 
-React errors are sent to Flask, which writes them to react_error.log.
+You send this value to the frontend.
 
-Both logs persist errors, even if multiple users access the app.
+You updated the frontend to show "Ending on: {date}" if the date exists.
 
 
-
----
-
-Bonus: Monitor Logs in Real-Time
-
-To see logs live, use:
-
-tail -f flask_error.log
-tail -f react_error.log
-
-This will show errors as they happen.
-
-Would you like to add automatic alerts when errors occur?
+Let me know if you want to format the date differently or handle time zones!
 
