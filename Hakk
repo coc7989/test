@@ -1,99 +1,181 @@
-tTo implement the fallback logic where the current_slot_limit is fetched from config.json if it's not found in the database, you'll need to:
-
-1. Load config.json at the application startup (or on demand).
-
-
-2. Parse and access the appropriate value based on slot_type and cluster_name.
-
-
-3. Modify the existing logic in the get_current_slot_limit route to use this fallback.
-
-
-
-Here’s how you can adjust your main.py:
-
-
----
-
-✅ Step 1: Load config.json (at the top of your main.py)
-
-import json
 import os
+import re
+import time
+import sqlite3
 
-# Load config.json
-with open(os.path.join(os.path.dirname(__file__), 'config.json')) as f:
-    config_data = json.load(f)
-
-
----
-
-✅ Step 2: Modify the get_current_slot_limit route
-
-Update the else block to check config_data based on slot_type and cluster_name.
-
-@app.route(f"{API_URL_PREFIX}/get_current_slot_limit", methods=['GET'])
-@cross_origin()
-def get_current_slot_limit(): 
-    user_id = request.args.get('userID')
-    slot_type = request.args.get('SLOT_TYPE')
-    cluster_name = request.args.get('CLUSTER_NAME')
-    request_id = str(uuid.uuid4())
-
-    if not user_id or not slot_type or not cluster_name:
-        return jsonify({'error_message': 'Missing required query parameters'}), 500
-
-    try:
-        conn = get_oracle_connection()
-        cursor = conn.cursor()
-
-        query = """
-            SELECT current_slot_limit FROM CURRENT_SLOT_LIMIT
-            WHERE USERID = :user_id
-              AND SLOT_TYPE = :slot_type
-              AND CLUSTER_NAME = :cluster_name
-        """
-        cursor.execute(query, {
-            "user_id": user_id,
-            "slot_type": slot_type,
-            "cluster_name": cluster_name
-        })
-
-        result = cursor.fetchone()
-
-        if result:
-            current_slot_limit = int(result[0])
-        else:
-            # Fallback: try to get from config.json
-            slot_key = f"{slot_type.lower()}-default-slot-limit"
-            if slot_key in config_data and cluster_name in config_data[slot_key]:
-                current_slot_limit = config_data[slot_key][cluster_name]
-            else:
-                return jsonify({'error_message': 'No slot limit data found in DB or config'}), 500
-
-        print("get_current_slot_limit current_slot_limit:", current_slot_limit)
-        return jsonify({
-            "user_id": user_id,
-            "slot_type": slot_type,
-            "cluster_name": cluster_name,
-            "current_slot_limit": current_slot_limit,
-            "request_id": request_id
-        }), 200
-
-    except Exception as e:
-        print("Oracle DB error:", traceback.format_exc())
-        return jsonify({'error_message': 'Internal server error occurred while fetching slot limit'}), 500
+# ==========================
+# CONFIGURABLE SETTINGS
+# ==========================
+CLUSTER_NAME = "default_cluster"           # Name of the cluster
+WATCH_DIR = "./files_dir"                  # Directory containing slot files
+POLL_INTERVAL = 2                           # Seconds between directory scans
+DB_PATH = "slot_management.db"             # Path to SQLite database
 
 
----
+# ==========================
+# DATABASE UTILITY FUNCTIONS
+# ==========================
+def db_connect(db_file=DB_PATH):
+    """Connect to the SQLite database."""
+    return sqlite3.connect(db_file)
 
-✅ Optional: Add logging for fallback
+def init_db(conn):
+    """Initialize database tables if not already present."""
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS CURRENT_SLOT_LIMIT (
+        USERID TEXT,
+        SLOT_TYPE TEXT,
+        CLUSTER_NAME TEXT,
+        CURRENT_SLOT_LIMIT INTEGER,
+        PRIMARY KEY (USERID, SLOT_TYPE, CLUSTER_NAME)
+    )
+    """)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS SLOT_REQUEST (
+        USERID TEXT,
+        SLOT_TYPE TEXT,
+        CLUSTER_NAME TEXT,
+        REQUESTED_SLOT_LIMIT INTEGER,
+        REQUEST_STATUS TEXT
+    )
+    """)
+    conn.commit()
 
-You might want to log a message when falling back to config:
 
-print(f"Slot limit not found in DB. Falling back to config for slot_type={slot_type}, cluster_name={cluster_name}")
+# ==========================
+# FILE PARSING UTILITY
+# ==========================
+def parse_filename(filename):
+    """Check if the filename is a valid slot file and extract slot_type and slot_number.
+       Returns ('gui' or 'regress', slot_num) or (None, None)."""
+    if filename.startswith("gui_") and filename.endswith("_slots_grp"):
+        match = re.search(r'gui_(\d+)_slots_grp', filename)
+        return ("gui", int(match.group(1))) if match else (None, None)
+
+    if filename.startswith("regress_") and filename.endswith("_grp"):
+        match = re.search(r'regress_(\d+)_grp', filename)
+        return ("regress", int(match.group(1))) if match else (None, None)
+
+    return None, None
+
+def extract_userids(file_path):
+    """Scan the file for user ids starting with 'a' or 'x' and exactly 8 chars long."""
+    ids = []
+    with open(file_path) as f:
+        for line in f:
+            match = re.search(r'\b([aAxX][0-9A-Za-z]{7})\b', line)
+            if match:
+                ids.append(match.group(1))
+    return ids
 
 
----
+# ==========================
+# DATABASE LOGIC
+# ==========================
+def get_existing_userids(conn, slot_type, cluster_name, current_slot_limit):
+    """Get user ids already present in CURRENT_SLOT_LIMIT for this slot_type, cluster_name, and slot number."""
+    c = conn.cursor()
+    c.execute("""
+        SELECT USERID FROM CURRENT_SLOT_LIMIT
+        WHERE SLOT_TYPE=? AND CLUSTER_NAME=? AND CURRENT_SLOT_LIMIT=?
+    """, (slot_type, cluster_name, current_slot_limit))
+    return set(row[0] for row in c.fetchall())
 
-Let me know if you want to cache config.json dynamically (e.g., reload if updated) or validate the config format on load.
+def update_db_for_user(conn, user_id, slot_type, cluster_name, current_slot_limit):
+    """Add or update user entry in CURRENT_SLOT_LIMIT and adjust SLOT_REQUEST status if needed."""
+    c = conn.cursor()
+    # Check if the user already has an entry
+    c.execute("""
+        SELECT CURRENT_SLOT_LIMIT 
+        FROM CURRENT_SLOT_LIMIT 
+        WHERE USERID=? AND SLOT_TYPE=? AND CLUSTER_NAME=? 
+    """, (user_id, slot_type, cluster_name))
+    result = c.fetchone()
 
+    if result:
+        old_limit = result[0]
+        if old_limit != current_slot_limit:
+            # Mark relevant slot requests as 'access ended'
+            c.execute("""
+                UPDATE SLOT_REQUEST
+                SET REQUEST_STATUS='access ended'
+                WHERE USERID=? AND SLOT_TYPE=? AND CLUSTER_NAME=? 
+                  AND REQUEST_STATUS='COMPLETED' 
+                  AND REQUESTED_SLOT_LIMIT=?
+            """, (user_id, slot_type, cluster_name, old_limit))
+            # Update CURRENT_SLOT_LIMIT
+            c.execute("""
+                UPDATE CURRENT_SLOT_LIMIT
+                SET CURRENT_SLOT_LIMIT=? 
+                WHERE USERID=? AND SLOT_TYPE=? AND CLUSTER_NAME=? 
+            """, (current_slot_limit, user_id, slot_type, cluster_name))
+    else:
+        # New entry
+        c.execute("""
+            INSERT INTO CURRENT_SLOT_LIMIT (USERID, SLOT_TYPE, CLUSTER_NAME, CURRENT_SLOT_LIMIT)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, slot_type, cluster_name, current_slot_limit))
+
+    conn.commit()
+
+
+# ==========================
+# MAIN FILE PROCESSING
+# ==========================
+def process_file(conn, file_path):
+    """Processes a modified slot file:
+       - Determines slot_type and slot_number
+       - Finds new user ids
+       - Updates database accordingly
+    """
+    filename = os.path.basename(file_path)
+    slot_type, slot_num = parse_filename(filename)
+
+    if slot_type:
+        file_user_ids = set(extract_userids(file_path))
+        existing_user_ids = get_existing_userids(conn, slot_type, CLUSTER_NAME, slot_num)
+
+        # New user ids are those NOT already in CURRENT_SLOT_LIMIT
+        new_user_ids = file_user_ids - existing_user_ids
+        if new_user_ids:
+            print(f"Processing {filename}: New user(s) found: {new_user_ids}")
+
+        for uid in new_user_ids:
+            update_db_for_user(conn, uid, slot_type, CLUSTER_NAME, slot_num)
+
+
+# ==========================
+# MAIN LOOP
+# ==========================
+def main():
+    """Main polling loop:
+       - Monitors the directory for new or modified slot files
+       - Processes files as needed
+    """
+    conn = db_connect()
+    init_db(conn)
+
+    file_mtimes = {}  # Track last modified times
+    print(f"👀 Monitoring directory '{WATCH_DIR}' for slot file changes...")
+
+    while True:
+        for filename in os.listdir(WATCH_DIR):
+            path = os.path.join(WATCH_DIR, filename)
+
+            if os.path.isfile(path):
+                slot_type, slot_num = parse_filename(filename)
+
+                if slot_type:
+                    mtime = os.path.getmtime(path)
+
+                    # Process if new or modified
+                    if path not in file_mtimes or file_mtimes[path] != mtime:
+                        process_file(conn, path)
+                        file_mtimes[path] = mtime
+
+        time.sleep(POLL_INTERVAL)
+
+
+if __name__ == "__main__":
+    main()
