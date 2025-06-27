@@ -1,205 +1,109 @@
+tGreat — we can absolutely do all of this within your Python script (slot.py) without needing a shell wrapper.
+
+
+---
+
+✅ Here's how to modify slot.py to:
+
+Run your normal logic
+
+Automatically log output to a date-wise log file
+
+Add a timestamp + delimiter at the start of each run
+
+
+
+---
+
+🔧 slot.py (Updated Example):
+
+#!/usr/bin/env python3
+
+import datetime
 import os
-import re
-import time
-import cx_Oracle
+import sys
 
-# ==========================
-# CONFIGURABLE SETTINGS
-# ==========================
-CLUSTER_NAME = "default_cluster"           # Name of the cluster
-WATCH_DIR = "./files_dir"                  # Directory containing slot files
-POLL_INTERVAL = 2                           # Seconds between directory scans
-DB_USER = "your_user"                      # Oracle username
-DB_PASSWORD = "your_password"              # Oracle password
-DB_DSN = "your_host:port/service_name"     # Oracle DSN
+# === Logging setup ===
+log_dir = "/path/to/logs"  # <-- Change this to your desired log directory
+os.makedirs(log_dir, exist_ok=True)
 
+today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+log_file_path = os.path.join(log_dir, f"cron_log_{today}.log")
 
-# ==========================
-# DATABASE UTILITY FUNCTIONS
-# ==========================
-def db_connect():
-    """Connect to the Oracle database."""
-    return cx_Oracle.connect(DB_USER, DB_PASSWORD, DB_DSN)
+# Redirect stdout and stderr to the log file
+sys.stdout = open(log_file_path, "a")
+sys.stderr = sys.stdout
 
-def init_db(conn):
-    """Initialize tables if not already present.
-       You can skip this if tables already exist in Oracle."""
-    cursor = conn.cursor()
-    cursor.execute("""
-    DECLARE
-      cnt NUMBER;
-    BEGIN
-      SELECT COUNT(*) INTO cnt FROM user_tables WHERE table_name = 'CURRENT_SLOT_LIMIT';
-      IF cnt = 0 THEN
-        EXECUTE IMMEDIATE '
-        CREATE TABLE CURRENT_SLOT_LIMIT (
-            USERID VARCHAR2(10),
-            SLOT_TYPE VARCHAR2(10),
-            CLUSTER_NAME VARCHAR2(100),
-            CURRENT_SLOT_LIMIT NUMBER,
-            CONSTRAINT PK_CSL PRIMARY KEY (USERID, SLOT_TYPE, CLUSTER_NAME)
-        )';
-      END IF;
+# Print timestamp delimiter
+now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+print("=" * 40)
+print(f"Cron Run at: {now}")
+print("=" * 40)
 
-      SELECT COUNT(*) INTO cnt FROM user_tables WHERE table_name = 'SLOT_REQUEST';
-      IF cnt = 0 THEN
-        EXECUTE IMMEDIATE '
-        CREATE TABLE SLOT_REQUEST (
-            USERID VARCHAR2(10),
-            SLOT_TYPE VARCHAR2(10),
-            CLUSTER_NAME VARCHAR2(100),
-            REQUESTED_SLOT_LIMIT NUMBER,
-            REQUEST_STATUS VARCHAR2(20)
-        )';
-      END IF;
-    END;
-    """)
-    conn.commit()
+# === Your actual logic starts here ===
+
+print("Running slot.py logic...")
+
+# Example:
+# result = do_something()
+# print(f"Result: {result}")
+
+# === Your actual logic ends here ===
+
+print()  # Just adds a newline for separation
 
 
-# ==========================
-# FILE PARSING UTILITY
-# ==========================
-def parse_filename(filename):
-    """Check if the filename is a valid slot file and extract slot_type and slot_number."""
-    if filename.startswith("gui_") and filename.endswith("_slots_grp"):
-        match = re.search(r'gui_(\d+)_slots_grp', filename)
-        return ("gui", int(match.group(1))) if match else (None, None)
+---
 
-    if filename.startswith("regress_") and filename.endswith("_grp"):
-        match = re.search(r'regress_(\d+)_grp', filename)
-        return ("regress", int(match.group(1))) if match else (None, None)
+✅ Step-by-step setup:
 
-    return None, None
-
-def extract_userids(file_path):
-    """Scan the file for user ids starting with 'a' or 'x' and exactly 8 chars long."""
-    ids = []
-    with open(file_path) as f:
-        for line in f:
-            match = re.search(r'\b([aAxX][0-9A-Za-z]{7})\b', line)
-            if match:
-                ids.append(match.group(1))
-    return ids
+1. Replace /path/to/logs with the directory where you want logs to be stored, e.g., /home/user/logs.
 
 
-# ==========================
-# DATABASE LOGIC
-# ==========================
-def get_existing_userids(conn, slot_type, cluster_name, current_slot_limit):
-    """Get user ids already present in CURRENT_SLOT_LIMIT for this slot_type, cluster_name, and slot number."""
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT USERID FROM CURRENT_SLOT_LIMIT
-        WHERE SLOT_TYPE=:slot_type AND CLUSTER_NAME=:cluster_name AND CURRENT_SLOT_LIMIT=:slot_num
-    """, {"slot_type": slot_type, "cluster_name": cluster_name, "slot_num": current_slot_limit})
-    return set(row[0] for row in cursor.fetchall())
-
-def update_db_for_user(conn, user_id, slot_type, cluster_name, current_slot_limit):
-    """Add or update user entry in CURRENT_SLOT_LIMIT and adjust SLOT_REQUEST status if needed."""
-    cursor = conn.cursor()
-    # Check if the user already has an entry
-    cursor.execute("""
-        SELECT CURRENT_SLOT_LIMIT 
-        FROM CURRENT_SLOT_LIMIT 
-        WHERE USERID=:user_id AND SLOT_TYPE=:slot_type AND CLUSTER_NAME=:cluster_name
-    """, {"user_id": user_id, "slot_type": slot_type, "cluster_name": cluster_name})
-    result = cursor.fetchone()
-
-    if result:
-        old_limit = result[0]
-        if old_limit != current_slot_limit:
-            # Mark relevant slot requests as 'access ended'
-            cursor.execute("""
-                UPDATE SLOT_REQUEST
-                SET REQUEST_STATUS='access ended'
-                WHERE USERID=:user_id AND SLOT_TYPE=:slot_type AND CLUSTER_NAME=:cluster_name
-                  AND REQUEST_STATUS='COMPLETED' AND REQUESTED_SLOT_LIMIT=:old_limit
-            """, {"user_id": user_id, "slot_type": slot_type, "cluster_name": cluster_name, "old_limit": old_limit})
-            
-            # Update CURRENT_SLOT_LIMIT
-            cursor.execute("""
-                UPDATE CURRENT_SLOT_LIMIT
-                SET CURRENT_SLOT_LIMIT=:new_limit
-                WHERE USERID=:user_id AND SLOT_TYPE=:slot_type AND CLUSTER_NAME=:cluster_name
-            """, {"new_limit": current_slot_limit, "user_id": user_id, "slot_type": slot_type, "cluster_name": cluster_name})
-    else:
-        # No change required
-        pass
-    conn.commit()
-    return
-
-def insert_new_user(conn, user_id, slot_type, cluster_name, current_slot_limit):
-    """Insert new user entry into CURRENT_SLOT_LIMIT."""
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO CURRENT_SLOT_LIMIT (USERID, SLOT_TYPE, CLUSTER_NAME, CURRENT_SLOT_LIMIT)
-        VALUES (:user_id, :slot_type, :cluster_name, :slot_limit)
-    """, {"user_id": user_id, "slot_type": slot_type, "cluster_name": cluster_name, "slot_limit": current_slot_limit})
-    conn.commit()
+2. Ensure the script is executable:
 
 
-# ==========================
-# MAIN FILE PROCESSING
-# ==========================
-def process_file(conn, file_path):
-    """Processes the modified slot file:
-       - Determines slot_type and slot_number
-       - Finds new user ids
-       - Updates database accordingly
-    """
-    filename = os.path.basename(file_path)
-    slot_type, slot_num = parse_filename(filename)
 
-    if slot_type:
-        file_user_ids = set(extract_userids(file_path))
-        existing_user_ids = get_existing_userids(conn, slot_type, CLUSTER_NAME, slot_num)
+chmod +x /path/to/slot.py
 
-        # New user ids are those NOT already in CURRENT_SLOT_LIMIT
-        new_user_ids = file_user_ids - existing_user_ids
-        if new_user_ids:
-            print(f"Processing {filename}: New user(s) found: {new_user_ids}")
-
-        for uid in new_user_ids:
-            # New user -> insert
-            insert_new_user(conn, uid, slot_type, CLUSTER_NAME, slot_num)
-
-        # Even for existing users, still call the `update_db_for_user` method
-        for uid in file_user_ids & existing_user_ids:
-            update_db_for_user(conn, uid, slot_type, CLUSTER_NAME, slot_num)
+3. Edit your crontab:
 
 
-# ==========================
-# MAIN LOOP
-# ==========================
-def main():
-    """Main polling loop:
-       - Monitors the directory for new or modified slot files
-       - Processes files as needed
-    """
-    conn = db_connect()
-    init_db(conn)
 
-    file_mtimes = {}  # Track last modified times
-    print(f"👀 Monitoring directory '{WATCH_DIR}' for slot file changes...")
+crontab -e
 
-    while True:
-        for filename in os.listdir(WATCH_DIR):
-            path = os.path.join(WATCH_DIR, filename)
+Add this line (to run at 7 AM UTC):
 
-            if os.path.isfile(path):
-                slot_type, slot_num = parse_filename(filename)
+0 7 * * * /usr/bin/env python3 /path/to/slot.py
 
-                if slot_type:
-                    mtime = os.path.getmtime(path)
+Add this one (to run at 11 PM UTC):
 
-                    # If it's a new or modified file, process it
-                    if path not in file_mtimes or file_mtimes[path] != mtime:
-                        process_file(conn, path)
-                        file_mtimes[path] = mtime
-
-        time.sleep(POLL_INTERVAL)
+0 23 * * * /usr/bin/env python3 /path/to/slot.py
 
 
-if __name__ == "__main__":
-    main()
+---
+
+✅ What you get:
+
+Logs saved as: /path/to/logs/cron_log_2025-06-27.log
+
+Each cron run logs like this:
+
+
+========================================
+Cron Run at: 2025-06-27 07:00:00 UTC
+========================================
+Running slot.py logic...
+
+
+---
+
+Let me know if you want:
+
+Rotating logs after N days
+
+Email alerts on error
+
+Appending timestamps to each log line (for debugging)
+
+
