@@ -114,3 +114,51 @@ Edit
 alias bsub='/usr/local/bin/bsub-smart'
 ⚠️ Only do this if the wrapper is thoroughly tested and allows manual overrides (--fixed mode).
 
+✅ 1. Integrate Efficiency Metrics into User Dashboards
+Most teams care about their:
+
+Turnaround times
+
+Tool success rates
+
+Queue wait times
+
+So, show them a dashboard (or send a weekly report to managers) like:
+
+“Your team’s average CPU efficiency this week: 28%
+Other teams in your group: 76%
+Jobs waiting longer than expected due to overrequesting: 132”
+
+This motivates team leads to take action, not individual users.
+
+Tools: Grafana + LSF job data → dashboards; custom reporting scripts.
+
+✅ 2. Make Job Efficiency Part of Resource Allocation or Priority
+This one’s powerful:
+
+Use LSF fairshare or priority decay:
+
+Users or groups with chronic inefficiency get lower scheduling priority.
+
+Teams with high efficiency get faster turnaround.
+
+This creates a feedback loop:
+
+“If you keep overrequesting, your jobs will take longer to run.”
+
+No email needed — the behavior is felt directly.
+
+✅ 3. Report to Engineering/CAD/IT Managers, Not Just Users
+Individual users often don’t care. But their team leads or managers do, especially when:
+
+They’re being compared to other teams.
+
+Their job throughput or SLA is impacted.
+
+Send job efficiency summaries weekly to managers:
+
+“Team Alpha: 22% CPU efficiency, 400 core-hours wasted
+Team Beta: 80% efficiency — great!”
+
+Managers will pressure teams to fix it.
+
