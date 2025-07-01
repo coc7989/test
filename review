@@ -1,62 +1,116 @@
-@cross_origin()
-def identify_users():
-    sso_active = check_sso_status(request)
-    if not sso_active:
-        return jsonify({'message': 'SSO Timeout'}), 401
+Setting up a bsub-smart wrapper in your IBM LSF environment is very feasible — and it can significantly improve cluster efficiency without sacrificing flexibility or performance.
 
-    try:
-        ping_data = sso_data()
-        branch_name = os.getenv('BRANCH_NAME', 'local')
-        userid = request.args.get('user') if branch_name == "local" else ping_data.get('userID')
+Below is a step-by-step guide to help you set up a basic version of bsub-smart, which:
 
-        if not userid:
-            return jsonify({'error': 'User ID not provided'}), 400
+Analyzes past job history of a user (via bacct).
 
-        conn = get_oracle_connection()
-        cursor = conn.cursor()
+Estimates "reasonable" CPU and memory needs.
 
-        try:
-            user_map_tbl = dbCfg.get('USER_MAP_TBL')
-            cursor.execute(f'''SELECT CLUSTER_NAME FROM {user_map_tbl} WHERE USERID LIKE :userid''', {'userid': userid})
-            cluster_result = cursor.fetchone()
+Automatically adjusts -n and -R options for under- or over-requested jobs.
 
-            if not cluster_result:
-                return Response(response="Unauthorized", status=401)
+Allows override if needed.
 
-            cluster_name = cluster_result[0]
-            query_results = {}
+✅ Step-by-Step: Setting Up bsub-smart
+🔧 1. Create a Wrapper Script
+You can place this in a shared directory like /opt/lsf/utils/bsub-smart or under users' home or /usr/local/bin.
 
-            queries = {
-                'tii-shared': f"SELECT COUNT(*) FROM {dbCfg['tii-shared-bjobs']} WHERE USERID LIKE :userid",
-                'dal-design': f"SELECT COUNT(*) FROM {dbCfg['dal-design-bjobs']} WHERE USERID LIKE :userid",
-            }
+Here’s a basic prototype in Bash:
 
-            for cluster_key, sql in queries.items():
-                cursor.execute(sql, {'userid': userid})
-                count = cursor.fetchone()[0]
-                if count > 0 or cluster_key == cluster_name:
-                    query_results[cluster_key] = count
+bash
+Copy
+Edit
+#!/bin/bash
 
-            query_results['default'] = cluster_name
+# bsub-smart: A smart wrapper for bsub based on job history
+# Usage: bsub-smart [options] script.sh
 
-            # Fetch service accounts
-            cursor.execute(f'''
-                SELECT /*+ PARALLEL(4) */ SRV_ACTS 
-                FROM {dbCfg['USER_SACCT_TBL']} 
-                WHERE USERID LIKE :userid
-            ''', {'userid': userid})
-            svc_result = cursor.fetchone()
-            query_results['service_account'] = ','.join(svc_result[0].split(';')) if svc_result else ''
+USER=$(whoami)
+CMD="$*"
+DEFAULT_CPUS=4
+DEFAULT_MEM=4096   # in MB
 
-            combined = {**ping_data, **query_results}
-            return jsonify(combined), 200
+# Optional: Accept override
+USE_AUTO=true
+while [[ "$1" == --* ]]; do
+    case "$1" in
+        --fixed) USE_AUTO=false ;;
+        --adaptive) USE_AUTO=true ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+    shift
+done
 
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                release_oracle_connection(conn)
+# Path to the job script
+SCRIPT="$1"
 
-    except Exception as e:
-        write_to_api_log(f"[identify_users] Error: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+# Estimate resources based on past jobs
+if $USE_AUTO; then
+    echo "[bsub-smart] Checking past usage for user: $USER..."
+
+    JOB_STATS=$(bacct -u "$USER" -d 3 | grep "Resources" | tail -n 10)
+
+    USED_CPUS=$(echo "$JOB_STATS" | awk '{sum += $6} END {if (NR>0) print int(sum/NR); else print 0}')
+    USED_MEM=$(echo "$JOB_STATS" | awk '{sum += $7} END {if (NR>0) print int(sum/NR); else print 0}')
+
+    CPUS=${USED_CPUS:-$DEFAULT_CPUS}
+    MEM_MB=${USED_MEM:-$DEFAULT_MEM}
+
+    # Add 25% safety margin
+    CPUS=$((CPUS + (CPUS / 4)))
+    MEM_MB=$((MEM_MB + (MEM_MB / 4)))
+
+    echo "[bsub-smart] Submitting with: -n $CPUS -R \"rusage[mem=${MEM_MB}]\""
+    bsub -n "$CPUS" -R "rusage[mem=${MEM_MB}]" "$SCRIPT"
+else
+    echo "[bsub-smart] Fixed mode — passing directly to bsub"
+    bsub "$@"
+fi
+💡 Notes:
+This script averages the last 10 jobs' CPU and memory usage.
+
+Adds a 25% buffer to avoid under-allocation.
+
+You can refine this using lsacct or more job metadata (e.g., job name, queue).
+
+Make it executable:
+
+bash
+Copy
+Edit
+chmod +x /usr/local/bin/bsub-smart
+🛠️ 2. Test It
+Run a sample job:
+
+bash
+Copy
+Edit
+bsub-smart --adaptive myjob.sh
+Try fixed mode:
+
+bash
+Copy
+Edit
+bsub-smart --fixed -n 12 -R "rusage[mem=30720]" myjob.sh
+🧠 3. Enhance (Optional)
+Here are some enhancements you can implement:
+
+Feature	Description
+Job name pattern matching	Use job script name to refine history search
+Percentile stats	Use 75th percentile instead of average
+YAML/JSON config	Allow per-user or per-group defaults
+Email user if job was underutilized	Educate users over time
+Logging	Track decisions made by bsub-smart
+
+🔒 4. Optional: Admin-Level Setup
+If you're an LSF admin, you can:
+
+Deploy to all users via PATH
+
+Enforce as a default bsub alias:
+
+bash
+Copy
+Edit
+alias bsub='/usr/local/bin/bsub-smart'
+⚠️ Only do this if the wrapper is thoroughly tested and allows manual overrides (--fixed mode).
+
