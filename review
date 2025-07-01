@@ -1,164 +1,208 @@
-Setting up a bsub-smart wrapper in your IBM LSF environment is very feasible — and it can significantly improve cluster efficiency without sacrificing flexibility or performance.
+tTo implement your IBM LSF job management logic — where users who have exhausted their job limits get their pending jobs moved to a "flexi" queue — we can approach this by creating a monitoring and control script. This script would periodically (e.g., via cron or a persistent daemon) check job statuses and take action accordingly.
 
-Below is a step-by-step guide to help you set up a basic version of bsub-smart, which:
+Here's a structured design for implementing this in IBM LSF:
 
-Analyzes past job history of a user (via bacct).
 
-Estimates "reasonable" CPU and memory needs.
+---
 
-Automatically adjusts -n and -R options for under- or over-requested jobs.
+🧠 Design Plan for Auto-Moving Jobs to Flexi Queue in LSF
 
-Allows override if needed.
 
-✅ Step-by-Step: Setting Up bsub-smart
-🔧 1. Create a Wrapper Script
-You can place this in a shared directory like /opt/lsf/utils/bsub-smart or under users' home or /usr/local/bin.
+---
 
-Here’s a basic prototype in Bash:
+✅ Problem Overview
 
-bash
-Copy
-Edit
+You want to:
+
+1. Detect if a user has hit their job slot or resource usage limit.
+
+
+2. Check if the user has pending jobs (PEND status).
+
+
+3. Move those pending jobs to a less restrictive queue (e.g., flexi queue).
+
+
+
+
+---
+
+1. Key LSF Concepts to Use
+
+bjobs: Get job info including status, queue, reason for pending.
+
+bqueues: Get queue configuration (limits).
+
+lsload / bhosts: To know current load/resources per host.
+
+bacct or bhist: For accounting/user historical usage.
+
+bmod: To modify a job (e.g., change its queue).
+
+lsadmin / badmin: For cluster or admin-level status.
+
+
+
+---
+
+2. Assumptions
+
+There's a soft or hard limit per user defined via:
+
+Queue-level limits (USER_SHARES, USER_JOB_LIMIT, RUN limits).
+
+Fairshare or SLA policies.
+
+
+The flexi queue is:
+
+Less restrictive.
+
+Can accept overflow jobs.
+
+Has capacity to run additional jobs.
+
+
+
+
+---
+
+3. High-Level Algorithm
+
+🔁 Periodic Script Loop (e.g., every 5–10 minutes):
+
+A. Enumerate All Users with Pending Jobs
+
+bjobs -u all -noheader -o "user stat" | awk '$2=="PEND"{print $1}' | sort | uniq
+
+B. For Each User:
+
+1. Check Running Job Count
+
+bjobs -u $USER -noheader -o "stat" | grep -c RUN
+
+
+2. Get User Limits (if applicable):
+
+Could parse from bqueues, if queues have USER_JOB_LIMIT, etc.
+
+Or assume static values configured in script.
+
+
+
+3. Check If Limit Is Reached
+
+If running jobs >= user’s job limit:
+
+Proceed to step C.
+
+
+Else: do nothing.
+
+
+
+
+C. For User's Pending Jobs:
+
+1. List all pending jobs for that user:
+
+bjobs -u $USER -noheader -o "jobid stat queue" | awk '$2=="PEND"{print $1, $3}'
+
+
+2. Filter only those not already in the flexi queue:
+
+if queue != "flexi" → candidate for moving.
+
+
+
+3. Use bmod to move them to flexi:
+
+bmod -q flexi <jobid>
+
+
+
+
+---
+
+4. Script Sample (Pseudo Bash/Python Hybrid)
+
+Here’s a rough Bash logic to demonstrate the key parts:
+
 #!/bin/bash
 
-# bsub-smart: A smart wrapper for bsub based on job history
-# Usage: bsub-smart [options] script.sh
+USER_JOB_LIMIT=50  # Or fetch dynamically
 
-USER=$(whoami)
-CMD="$*"
-DEFAULT_CPUS=4
-DEFAULT_MEM=4096   # in MB
-
-# Optional: Accept override
-USE_AUTO=true
-while [[ "$1" == --* ]]; do
-    case "$1" in
-        --fixed) USE_AUTO=false ;;
-        --adaptive) USE_AUTO=true ;;
-        *) echo "Unknown option: $1"; exit 1 ;;
-    esac
-    shift
+for user in $(bjobs -u all -noheader -o "user stat" | awk '$2=="PEND"{print $1}' | sort | uniq); do
+    RUNNING=$(bjobs -u $user -noheader -o "stat" | grep -c RUN)
+    if [ "$RUNNING" -ge "$USER_JOB_LIMIT" ]; then
+        echo "User $user has $RUNNING running jobs. Moving pending jobs to flexi queue."
+        for jobid in $(bjobs -u $user -noheader -o "jobid stat queue" | awk '$2=="PEND" && $3!="flexi"{print $1}'); do
+            echo "  Moving job $jobid to flexi queue"
+            bmod -q flexi $jobid
+        done
+    fi
 done
 
-# Path to the job script
-SCRIPT="$1"
 
-# Estimate resources based on past jobs
-if $USE_AUTO; then
-    echo "[bsub-smart] Checking past usage for user: $USER..."
+---
 
-    JOB_STATS=$(bacct -u "$USER" -d 3 | grep "Resources" | tail -n 10)
+5. Additional Checks to Add (Highly Recommended)
 
-    USED_CPUS=$(echo "$JOB_STATS" | awk '{sum += $6} END {if (NR>0) print int(sum/NR); else print 0}')
-    USED_MEM=$(echo "$JOB_STATS" | awk '{sum += $7} END {if (NR>0) print int(sum/NR); else print 0}')
+Check Type	Description
 
-    CPUS=${USED_CPUS:-$DEFAULT_CPUS}
-    MEM_MB=${USED_MEM:-$DEFAULT_MEM}
+🧭 Job Age	Only move jobs pending for >X minutes
+⛔ PEND Reason	bjobs -l shows reasons like “Not enough resources”, “User job limit”, etc. Only move if relevant
+🛡️ Job Type Filter	You may skip interactive jobs or certain project tags
+🔐 User Whitelist	You may want to restrict this to certain users/groups
+🔁 Avoid Thrashing	Prevent jobs from bouncing back and forth queues
+📝 Logging	Keep audit logs of which jobs were moved, when, and why
 
-    # Add 25% safety margin
-    CPUS=$((CPUS + (CPUS / 4)))
-    MEM_MB=$((MEM_MB + (MEM_MB / 4)))
 
-    echo "[bsub-smart] Submitting with: -n $CPUS -R \"rusage[mem=${MEM_MB}]\""
-    bsub -n "$CPUS" -R "rusage[mem=${MEM_MB}]" "$SCRIPT"
-else
-    echo "[bsub-smart] Fixed mode — passing directly to bsub"
-    bsub "$@"
-fi
-💡 Notes:
-This script averages the last 10 jobs' CPU and memory usage.
 
-Adds a 25% buffer to avoid under-allocation.
+---
 
-You can refine this using lsacct or more job metadata (e.g., job name, queue).
+6. Deployment Plan
 
-Make it executable:
+1. Test on One User: Hardcode a user and run script manually.
 
-bash
-Copy
-Edit
-chmod +x /usr/local/bin/bsub-smart
-🛠️ 2. Test It
-Run a sample job:
 
-bash
-Copy
-Edit
-bsub-smart --adaptive myjob.sh
-Try fixed mode:
+2. Audit Logging: Add logging before production use.
 
-bash
-Copy
-Edit
-bsub-smart --fixed -n 12 -R "rusage[mem=30720]" myjob.sh
-🧠 3. Enhance (Optional)
-Here are some enhancements you can implement:
 
-Feature	Description
-Job name pattern matching	Use job script name to refine history search
-Percentile stats	Use 75th percentile instead of average
-YAML/JSON config	Allow per-user or per-group defaults
-Email user if job was underutilized	Educate users over time
-Logging	Track decisions made by bsub-smart
+3. Add as Cronjob:
 
-🔒 4. Optional: Admin-Level Setup
-If you're an LSF admin, you can:
+*/10 * * * * /path/to/move_to_flexi.sh >> /var/log/lsf-flexi.log 2>&1
 
-Deploy to all users via PATH
 
-Enforce as a default bsub alias:
 
-bash
-Copy
-Edit
-alias bsub='/usr/local/bin/bsub-smart'
-⚠️ Only do this if the wrapper is thoroughly tested and allows manual overrides (--fixed mode).
 
-✅ 1. Integrate Efficiency Metrics into User Dashboards
-Most teams care about their:
+---
 
-Turnaround times
+7. Scaling Up
 
-Tool success rates
+Consider writing in Python or Go for performance/logging/control.
 
-Queue wait times
+Use LSF Python API (lsfPy or wrappers) if preferred.
 
-So, show them a dashboard (or send a weekly report to managers) like:
+Store user limits in config file or environment variables.
 
-“Your team’s average CPU efficiency this week: 28%
-Other teams in your group: 76%
-Jobs waiting longer than expected due to overrequesting: 132”
 
-This motivates team leads to take action, not individual users.
 
-Tools: Grafana + LSF job data → dashboards; custom reporting scripts.
+---
 
-✅ 2. Make Job Efficiency Part of Resource Allocation or Priority
-This one’s powerful:
+✅ Summary of Core Checks
 
-Use LSF fairshare or priority decay:
+Step	Check
 
-Users or groups with chronic inefficiency get lower scheduling priority.
+1	User has PEND jobs
+2	User has RUNNING jobs >= limit
+3	Job is NOT already in flexi
+4	Job is eligible (age, reason)
+5	Modify job: bmod -q flexi <job>
 
-Teams with high efficiency get faster turnaround.
 
-This creates a feedback loop:
 
-“If you keep overrequesting, your jobs will take longer to run.”
+---
 
-No email needed — the behavior is felt directly.
-
-✅ 3. Report to Engineering/CAD/IT Managers, Not Just Users
-Individual users often don’t care. But their team leads or managers do, especially when:
-
-They’re being compared to other teams.
-
-Their job throughput or SLA is impacted.
-
-Send job efficiency summaries weekly to managers:
-
-“Team Alpha: 22% CPU efficiency, 400 core-hours wasted
-Team Beta: 80% efficiency — great!”
-
-Managers will pressure teams to fix it.
+Would you like a production-ready Python version of the script, or integration with monitoring tools like Grafana or Slack alerts as well?
 
