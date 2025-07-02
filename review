@@ -1,208 +1,87 @@
-tTo implement your IBM LSF job management logic — where users who have exhausted their job limits get their pending jobs moved to a "flexi" queue — we can approach this by creating a monitoring and control script. This script would periodically (e.g., via cron or a persistent daemon) check job statuses and take action accordingly.
-
-Here's a structured design for implementing this in IBM LSF:
+Thanks for sharing the bjobs -l output — it's very informative. Here's a breakdown of why your job (500284) in the gui queue is pending, and what it means:
 
 
 ---
 
-🧠 Design Plan for Auto-Moving Jobs to Flexi Queue in LSF
+🔍 Summary of Pending Reasons
+
+> Candidate host pending reasons (0 of 712 hosts)
+
+
+
+This means zero hosts are currently eligible to run your job.
 
 
 ---
 
-✅ Problem Overview
+🧾 Detailed Reasons from Non-Candidate Hosts (712 total):
 
-You want to:
+Reason	Host Count	What It Means
 
-1. Detect if a user has hit their job slot or resource usage limit.
-
-
-2. Check if the user has pending jobs (PEND status).
-
-
-3. Move those pending jobs to a less restrictive queue (e.g., flexi queue).
-
-
-
-
----
-
-1. Key LSF Concepts to Use
-
-bjobs: Get job info including status, queue, reason for pending.
-
-bqueues: Get queue configuration (limits).
-
-lsload / bhosts: To know current load/resources per host.
-
-bacct or bhist: For accounting/user historical usage.
-
-bmod: To modify a job (e.g., change its queue).
-
-lsadmin / badmin: For cluster or admin-level status.
+Not specified in job submission	593 hosts	These hosts are excluded because your job request did not match their requirements. Possibly due to a -m (host model), queue-specific resource restrictions, or host groups not being matched.
+Load threshold reached (Resource: mem)	45 hosts	These hosts are currently too busy (memory usage too high) to accept new jobs.
+Closed by LSF administrator	31 hosts	These hosts are manually disabled or closed for maintenance or policy reasons.
+Load information unavailable	22 hosts	LSF cannot currently determine load on these hosts — often network or daemon issues.
+Job's resource requirements not satisfied	20 hosts	Your job's requested resources (like rusage[mem=], GPU, etc.) don't match what's available on these hosts.
+Unable to reach batch server	1 host	Possibly a temporary network issue or host down.
 
 
 
 ---
 
-2. Assumptions
+🚧 Root Cause Summary
 
-There's a soft or hard limit per user defined via:
+Your job is pending because no host satisfies all its requirements at the moment.
 
-Queue-level limits (USER_SHARES, USER_JOB_LIMIT, RUN limits).
+Most likely causes:
 
-Fairshare or SLA policies.
+Too many hosts excluded due to no specific model/resource match
 
+Memory usage too high on otherwise valid hosts
 
-The flexi queue is:
+Some hosts are down, under maintenance, or unreachable
 
-Less restrictive.
-
-Can accept overflow jobs.
-
-Has capacity to run additional jobs.
+No host currently meets your resource request
 
 
 
 
 ---
 
-3. High-Level Algorithm
+🛠️ What You Can Do
 
-🔁 Periodic Script Loop (e.g., every 5–10 minutes):
-
-A. Enumerate All Users with Pending Jobs
-
-bjobs -u all -noheader -o "user stat" | awk '$2=="PEND"{print $1}' | sort | uniq
-
-B. For Each User:
-
-1. Check Running Job Count
-
-bjobs -u $USER -noheader -o "stat" | grep -c RUN
+1. Check if you requested specific host/model
+If you used -m or -R "select[...] in your submission, try removing or relaxing that.
 
 
-2. Get User Limits (if applicable):
-
-Could parse from bqueues, if queues have USER_JOB_LIMIT, etc.
-
-Or assume static values configured in script.
+2. Reduce memory request
+If you used something like rusage[mem=8192], try lowering it if feasible.
 
 
-
-3. Check If Limit Is Reached
-
-If running jobs >= user’s job limit:
-
-Proceed to step C.
+3. Try again later
+Since some hosts are blocked due to high load, the job may run when resources free up.
 
 
-Else: do nothing.
-
-
-
-
-C. For User's Pending Jobs:
-
-1. List all pending jobs for that user:
-
-bjobs -u $USER -noheader -o "jobid stat queue" | awk '$2=="PEND"{print $1, $3}'
-
-
-2. Filter only those not already in the flexi queue:
-
-if queue != "flexi" → candidate for moving.
-
-
-
-3. Use bmod to move them to flexi:
-
-bmod -q flexi <jobid>
+4. Check with admins if it stays pending too long
+Especially if you didn't request anything special — they may need to free up resources or check host group assignments.
 
 
 
 
 ---
 
-4. Script Sample (Pseudo Bash/Python Hybrid)
+Optional: See full job resource request
 
-Here’s a rough Bash logic to demonstrate the key parts:
+To get full submission details:
 
-#!/bin/bash
+bjobs -l 500284
 
-USER_JOB_LIMIT=50  # Or fetch dynamically
+and look for the line:
 
-for user in $(bjobs -u all -noheader -o "user stat" | awk '$2=="PEND"{print $1}' | sort | uniq); do
-    RUNNING=$(bjobs -u $user -noheader -o "stat" | grep -c RUN)
-    if [ "$RUNNING" -ge "$USER_JOB_LIMIT" ]; then
-        echo "User $user has $RUNNING running jobs. Moving pending jobs to flexi queue."
-        for jobid in $(bjobs -u $user -noheader -o "jobid stat queue" | awk '$2=="PEND" && $3!="flexi"{print $1}'); do
-            echo "  Moving job $jobid to flexi queue"
-            bmod -q flexi $jobid
-        done
-    fi
-done
+RESOURCE REQUIREMENT: ...
 
 
 ---
 
-5. Additional Checks to Add (Highly Recommended)
-
-Check Type	Description
-
-🧭 Job Age	Only move jobs pending for >X minutes
-⛔ PEND Reason	bjobs -l shows reasons like “Not enough resources”, “User job limit”, etc. Only move if relevant
-🛡️ Job Type Filter	You may skip interactive jobs or certain project tags
-🔐 User Whitelist	You may want to restrict this to certain users/groups
-🔁 Avoid Thrashing	Prevent jobs from bouncing back and forth queues
-📝 Logging	Keep audit logs of which jobs were moved, when, and why
-
-
-
----
-
-6. Deployment Plan
-
-1. Test on One User: Hardcode a user and run script manually.
-
-
-2. Audit Logging: Add logging before production use.
-
-
-3. Add as Cronjob:
-
-*/10 * * * * /path/to/move_to_flexi.sh >> /var/log/lsf-flexi.log 2>&1
-
-
-
-
----
-
-7. Scaling Up
-
-Consider writing in Python or Go for performance/logging/control.
-
-Use LSF Python API (lsfPy or wrappers) if preferred.
-
-Store user limits in config file or environment variables.
-
-
-
----
-
-✅ Summary of Core Checks
-
-Step	Check
-
-1	User has PEND jobs
-2	User has RUNNING jobs >= limit
-3	Job is NOT already in flexi
-4	Job is eligible (age, reason)
-5	Modify job: bmod -q flexi <job>
-
-
-
----
-
-Would you like a production-ready Python version of the script, or integration with monitoring tools like Grafana or Slack alerts as well?
+Let me know if you want help modifying your job submission to improve scheduling chances!
 
