@@ -1,87 +1,77 @@
-Thanks for sharing the bjobs -l output — it's very informative. Here's a breakdown of why your job (500284) in the gui queue is pending, and what it means:
+yTo transfer the cx_Oracle package from one server (where it's already installed) to another server (where direct installation is blocked), you can manually copy the installed package directory or create a portable archive. Here's how you can do it step-by-step:
 
 
 ---
 
-🔍 Summary of Pending Reasons
+✅ Option 1: Copy the Installed Package Directory (Simple)
 
-> Candidate host pending reasons (0 of 712 hosts)
+1. Find where cx_Oracle is installed on the working server:
 
+python -c "import cx_Oracle; print(cx_Oracle.__file__)"
 
+This might return something like:
 
-This means zero hosts are currently eligible to run your job.
-
-
----
-
-🧾 Detailed Reasons from Non-Candidate Hosts (712 total):
-
-Reason	Host Count	What It Means
-
-Not specified in job submission	593 hosts	These hosts are excluded because your job request did not match their requirements. Possibly due to a -m (host model), queue-specific resource restrictions, or host groups not being matched.
-Load threshold reached (Resource: mem)	45 hosts	These hosts are currently too busy (memory usage too high) to accept new jobs.
-Closed by LSF administrator	31 hosts	These hosts are manually disabled or closed for maintenance or policy reasons.
-Load information unavailable	22 hosts	LSF cannot currently determine load on these hosts — often network or daemon issues.
-Job's resource requirements not satisfied	20 hosts	Your job's requested resources (like rusage[mem=], GPU, etc.) don't match what's available on these hosts.
-Unable to reach batch server	1 host	Possibly a temporary network issue or host down.
+/usr/local/lib/python3.10/site-packages/cx_Oracle/__init__.py
 
 
+2. Copy the entire cx_Oracle directory: Navigate to the parent directory (likely site-packages) and copy the whole cx_Oracle folder:
 
----
+cd /usr/local/lib/python3.10/site-packages/
+tar czvf cx_oracle.tar.gz cx_Oracle
 
-🚧 Root Cause Summary
 
-Your job is pending because no host satisfies all its requirements at the moment.
+3. Transfer the archive to the target server: Use scp or another secure transfer method:
 
-Most likely causes:
+scp cx_oracle.tar.gz user@target_server:/tmp/
 
-Too many hosts excluded due to no specific model/resource match
 
-Memory usage too high on otherwise valid hosts
+4. Extract it to the Python site-packages directory on the target server:
 
-Some hosts are down, under maintenance, or unreachable
+tar xzvf /tmp/cx_oracle.tar.gz -C /path/to/python/site-packages/
 
-No host currently meets your resource request
+You can find the correct site-packages directory with:
+
+python -m site
+
+
+5. Verify the installation: On the second server, try importing it:
+
+python -c "import cx_Oracle; print(cx_Oracle.__version__)"
 
 
 
 
 ---
 
-🛠️ What You Can Do
+✅ Option 2: Use pip download and install offline
 
-1. Check if you requested specific host/model
-If you used -m or -R "select[...] in your submission, try removing or relaxing that.
+If you still have access to pip in a different environment (e.g., your first server or a local machine), use:
 
+1. Download the package and dependencies:
 
-2. Reduce memory request
-If you used something like rusage[mem=8192], try lowering it if feasible.
-
-
-3. Try again later
-Since some hosts are blocked due to high load, the job may run when resources free up.
+mkdir cx_oracle_pkg
+pip download cx_Oracle -d cx_oracle_pkg
 
 
-4. Check with admins if it stays pending too long
-Especially if you didn't request anything special — they may need to free up resources or check host group assignments.
+2. Transfer the folder to the second server:
+
+scp -r cx_oracle_pkg user@target_server:/tmp/
+
+
+3. Install offline using pip:
+
+pip install --no-index --find-links=/tmp/cx_oracle_pkg cx_Oracle
 
 
 
+> ⚠️ Important: cx_Oracle depends on Oracle Instant Client libraries. Make sure these are installed and in your LD_LIBRARY_PATH on both servers:
 
----
 
-Optional: See full job resource request
 
-To get full submission details:
-
-bjobs -l 500284
-
-and look for the line:
-
-RESOURCE REQUIREMENT: ...
+export LD_LIBRARY_PATH=/opt/oracle/instantclient:$LD_LIBRARY_PATH
 
 
 ---
 
-Let me know if you want help modifying your job submission to improve scheduling chances!
+Would you like help checking whether the Instant Client is set up correctly as well?
 
