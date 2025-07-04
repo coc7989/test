@@ -1,131 +1,113 @@
-rThat's a great use case and a common challenge in shared HPC environments like those managed with IBM LSF. You want to ensure fair usage, maximize farm utilization, and prevent job starvation — all at once.
+""" LSF Flexi Queue Job Migrator
 
+This script intelligently migrates pending jobs from users who have hit their slot limits into a flexi queue, if the cluster has enough spare capacity. It uses scoring-based logic for fairness and prioritization, and records all job moves into an Oracle SQL database to avoid duplicate migrations and for auditing. """
 
----
+import argparse import subprocess import cx_Oracle import yaml import time from datetime import datetime from collections import defaultdict
 
-✅ Your Objective Recap:
+-------------------------------- CONFIGURATION --------------------------------
 
-Check if user A has pending jobs because they hit their quota.
+FLEXI_QUEUE = "flexi" FLEXI_QUEUE_CAP = 600 BUFFER_THRESHOLD_RATIO = 0.10  # 10% free capacity
 
-If farm has free capacity, move some of those jobs to a flexi queue.
+-------------------------------- DB CONNECTION --------------------------------
 
-But: be fair — don't favor just one user, and avoid overwhelming the flexi queue.
+def get_oracle_connection(): return cx_Oracle.connect(user='oracle_user', password='oracle_password', dsn='oracle_dsn')
 
-So: introduce an intelligent rule to decide whose and how many jobs get moved.
+----------------------------- LOAD CONFIGURATION ------------------------------
 
+def load_priority_config(): with open('config/user_priority.yaml') as f: user_config = yaml.safe_load(f)['priority_users'] with open('config/project_priority.yaml') as f: project_config = yaml.safe_load(f)['priority_projects'] return set(user_config), set(project_config)
 
+--------------------------- LSF SYSTEM INTERFACES -----------------------------
 
----
+def run_cmd(cmd): result = subprocess.run(cmd, shell=True, capture_output=True, text=True) if result.returncode != 0: raise RuntimeError(f"Command failed: {cmd}\n{result.stderr}") return result.stdout.strip()
 
-🎯 Smart Intelligence Mechanism: Hybrid Fairness + Opportunity Rule
+def get_cluster_slots(): output = run_cmd("bhosts") total, running = 0, 0 for line in output.splitlines()[1:]: fields = line.split() total += int(fields[3])  # max slots running += int(fields[4])  # used slots return total, running
 
-Let’s break it down.
+def get_user_usage(): output = run_cmd("busers") usage = {} for line in output.splitlines()[1:]: fields = line.split() user = fields[0] run_slots = int(fields[2]) pend_slots = int(fields[3]) quota = int(fields[5]) usage[user] = {'running': run_slots, 'pending': pend_slots, 'quota': quota} return usage
 
+def get_pending_jobs(): output = run_cmd("bjobs -w -p -noheader -J all -q normal -u all") jobs = [] for line in output.splitlines(): fields = line.split() job_id = fields[0] user = fields[1] queue = fields[2] status = fields[3] pend_time = int(time.time() - datetime.strptime(fields[15], '%c').timestamp()) project = fields[13] slots = int(fields[10]) jobs.append({ 'id': job_id, 'user': user, 'queue': queue, 'status': status, 'pend_time': pend_time, 'project': project, 'slots': slots }) return jobs
 
----
+--------------------------- ORACLE DB HISTORY CHECK ---------------------------
 
-🔹 Rule Components
+def is_job_already_moved(job_id): conn = get_oracle_connection() cur = conn.cursor() cur.execute("SELECT 1 FROM JOB_MOVE_HISTORY WHERE JOB_ID = :job_id", {'job_id': job_id}) result = cur.fetchone() conn.close() return bool(result)
 
-1. User Quota Check:
+def record_job_move(job, score, reason, rules_applied, cycle_id): conn = get_oracle_connection() cur = conn.cursor() cur.execute(""" INSERT INTO JOB_MOVE_HISTORY ( JOB_ID, USER_ID, MOVED_FROM_QUEUE, MOVED_TO_QUEUE, MOVE_TIME, MOVE_REASON, PEND_TIME_BEFORE, SCORE, RULES_APPLIED, CYCLE_ID ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10) """, ( job['id'], job['user'], job['queue'], FLEXI_QUEUE, datetime.now(), reason, job['pend_time'], score, ",".join(rules_applied), cycle_id )) conn.commit() conn.close()
 
-Each user has a configured quota (say, 100 slots).
+------------------------------- SCORING ENGINE -------------------------------
 
-If user.pending_slots > 0 and user.running_slots == user.quota, they are a candidate.
+def score_job(job, user_data, priority_users, priority_projects, args): score = 0 rules = []
 
+if not args.disable_project_priority and job['project'] in priority_projects:
+    score += 30
+    rules.append('project_priority')
 
+if not args.disable_user_priority and job['user'] in priority_users:
+    score += 25
+    rules.append('user_priority')
 
-2. Cluster Free Capacity:
+if not args.disable_quota_sort:
+    quota = user_data[job['user']]['quota']
+    if quota <= 50:
+        score += 15
+        rules.append('low_quota')
 
-available_slots = total_slots - total_running_slots
+if not args.disable_pending_age:
+    pend_score = min(job['pend_time'] / 21600, 1.0) * 20  # 6hr max
+    score += int(pend_score)
+    rules.append('pend_age')
 
-Only proceed if available_slots > buffer_threshold (e.g., 10% of total capacity).
+if not args.disable_utilization_check:
+    # Placeholder utilization - use real if available
+    utilization = 0.3  # Assume 30% used
+    score += int((1 - utilization) * 15)
+    rules.append('low_utilization')
 
+if not args.disable_long_pending_bonus and job['pend_time'] > 21600:
+    score += 5
+    rules.append('very_old_job')
 
+return score, rules
 
-3. Global Fair Share Weight (Recommended):
+------------------------------- JOB MOVER LOGIC -------------------------------
 
-Keep a moving average of how many slots each user has consumed over the past N hours/days.
+def move_job_to_flexi(job, dry_run=False): if dry_run: print(f"[DRY-RUN] Would move job {job['id']} to {FLEXI_QUEUE}") else: run_cmd(f"bmod -q {FLEXI_QUEUE} {job['id']}") print(f"Moved job {job['id']} to {FLEXI_QUEUE}")
 
-Avoid pushing users who already used a disproportionately high share.
+-------------------------------- MAIN FUNCTION --------------------------------
 
+def main(): parser = argparse.ArgumentParser(description="LSF Flexi Queue Job Migrator") parser.add_argument('--dry-run', action='store_true') parser.add_argument('--disable-project-priority', action='store_true') parser.add_argument('--disable-user-priority', action='store_true') parser.add_argument('--disable-quota-sort', action='store_true') parser.add_argument('--disable-pending-age', action='store_true') parser.add_argument('--disable-utilization-check', action='store_true') parser.add_argument('--disable-long-pending-bonus', action='store_true') args = parser.parse_args()
 
+cycle_id = f"cycle_{int(time.time())}"
+priority_users, priority_projects = load_priority_config()
+user_data = get_user_usage()
+total_slots, running_slots = get_cluster_slots()
+pending_jobs = get_pending_jobs()
+available_slots = total_slots - running_slots
 
-4. Pending Job Age Priority:
+if available_slots < BUFFER_THRESHOLD_RATIO * total_slots:
+    print("Cluster too full. Skipping flexi migration.")
+    return
 
-Pick oldest jobs first — helps avoid starvation.
+scored_jobs = []
+for job in pending_jobs:
+    if job['user'] not in user_data:
+        continue
+    user_info = user_data[job['user']]
+    if user_info['running'] < user_info['quota']:
+        continue
+    if is_job_already_moved(job['id']):
+        continue
 
+    score, rules = score_job(job, user_data, priority_users, priority_projects, args)
+    scored_jobs.append((score, job, rules))
 
+scored_jobs.sort(key=lambda x: x[0], reverse=True)
+moved_slots = 0
 
-5. Flexi Queue Cap:
+for score, job, rules in scored_jobs:
+    if moved_slots + job['slots'] > FLEXI_QUEUE_CAP:
+        break
+    move_job_to_flexi(job, dry_run=args.dry_run)
+    record_job_move(job, score, reason="score_based", rules_applied=rules, cycle_id=cycle_id)
+    moved_slots += job['slots']
 
-Don’t overload the flexi queue — define a per-user limit and a global one.
-
-
-
-6. Round-Robin Allocation:
-
-If multiple users are eligible, pick 1 job per user in a round-robin manner.
-
-This avoids favoring a single heavy user.
-
-
-
-
-
----
-
-🧠 Final Rule Logic (Pseudocode Style)
-
-For each user:
-    if user has pending jobs AND user is at quota:
-        if cluster has spare capacity:
-            if user has not exceeded recent usage threshold:
-                add user to eligible list
-
-While available_slots > 0 and flexi_queue not full:
-    For each eligible user (round-robin):
-        Pick their oldest pending job
-        Move to flexi queue
-        Update available_slots, user's moved job count
-
-
----
-
-⚖️ Optional Enhancements
-
-FairShare with Decay: Give credits to users who waited long without getting jobs.
-
-Dynamic User Limits: Increase flexi quota for users who were recently penalized due to high farm load.
-
-Time-based rules: Relax limits more aggressively at night or weekends when farm load is typically lower.
-
-
-
----
-
-🛠 Metrics You'll Need in Script
-
-bqueues, bjobs, busers or lsload output for:
-
-Job state, user, queue
-
-User quota usage
-
-System load & slots available
-
-
-Tracking DB or file (optional) to maintain:
-
-Per-user job usage history
-
-Fair-share credits
-
-Jobs recently moved
-
-
-
-
----
-
-Would you like help writing a prototype Python script based on this logic?
+if name == 'main': main()
 
