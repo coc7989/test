@@ -1,150 +1,239 @@
-""" LSF Flexi Queue Job Migrator (Updated)
+"""
+LSF Flexi Queue Job Migrator (Updated)
 
-This version uses mbjobs2 and blimits to intelligently migrate pending jobs into a flexi queue, scoring them for fairness and tracking moves in Oracle SQL. """
+This version uses `mbjobs2` and `blimits` to intelligently migrate pending jobs
+into a flexi queue, scoring them for fairness and tracking moves in Oracle SQL.
+"""
 
-import argparse import subprocess import cx_Oracle import yaml import time from datetime import datetime from collections import defaultdict
+import argparse
+import subprocess
+import cx_Oracle
+import yaml
+import time
+from datetime import datetime
+from collections import defaultdict
 
-FLEXI_QUEUE = "flexi" FLEXI_QUEUE_CAP = 600 BUFFER_THRESHOLD_RATIO = 0.10
+FLEXI_QUEUE = "flexi"
+FLEXI_QUEUE_CAP = 600
+BUFFER_THRESHOLD_RATIO = 0.10
 
--------------------------------- DB CONNECTION --------------------------------
+# -------------------------------- DB CONNECTION -------------------------------- #
+def get_oracle_connection():
+    return cx_Oracle.connect(user='oracle_user', password='oracle_password', dsn='oracle_dsn')
 
-def get_oracle_connection(): return cx_Oracle.connect(user='oracle_user', password='oracle_password', dsn='oracle_dsn')
+# ----------------------------- LOAD CONFIGURATION ------------------------------ #
+def load_priority_config():
+    with open('config/user_priority.yaml') as f:
+        user_config = yaml.safe_load(f)['priority_users']
+    with open('config/project_priority.yaml') as f:
+        project_config = yaml.safe_load(f)['priority_projects']
+    return set(user_config), set(project_config)
 
------------------------------ LOAD CONFIGURATION ------------------------------
+# ---------------------------- DATA COLLECTION LOGIC ---------------------------- #
+def run_cmd(cmd):
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: {cmd}\n{result.stderr}")
+    return result.stdout.strip()
 
-def load_priority_config(): with open('config/user_priority.yaml') as f: user_config = yaml.safe_load(f)['priority_users'] with open('config/project_priority.yaml') as f: project_config = yaml.safe_load(f)['priority_projects'] return set(user_config), set(project_config)
+def parse_mbjobs2():
+    output = run_cmd("/db/lsf/work/local/bin/mbjobs2 | grep PEND")
+    jobs = []
+    seen_users = {}
+    user_quota_cache = {}
+    user_running_cache = {}
 
----------------------------- DATA COLLECTION LOGIC ----------------------------
+    for line in output.splitlines():
+        fields = line.strip().split(',')
+        if len(fields) < 24:
+            continue
 
-def run_cmd(cmd): result = subprocess.run(cmd, shell=True, capture_output=True, text=True) if result.returncode != 0: raise RuntimeError(f"Command failed: {cmd}\n{result.stderr}") return result.stdout.strip()
+        job_id = fields[0]
+        user = fields[2]
+        queue = fields[14]
+        nproc = int(fields[17])
+        project = fields[18]
+        res_req = fields[15]
+        pend_time = int(fields[23])
 
-def parse_mbjobs2(): output = run_cmd("/db/lsf/work/local/bin/mbjobs2 | grep PEND") jobs = [] seen_users = {} user_quota_cache = {} user_running_cache = {}
+        key = (user, queue)
 
-for line in output.splitlines():
-    fields = line.strip().split(',')
-    if len(fields) < 24:
-        continue
+        if key not in user_quota_cache:
+            blimits_out = run_cmd(f"blimits -a -u {user} | grep {queue}")
+            quota = -1
+            for line in blimits_out.splitlines():
+                slot_info = line.split()[-1]
+                if '/' in slot_info:
+                    used, limit = slot_info.split('/')
+                    quota = int(limit)
+                    break
+            user_quota_cache[key] = quota
 
-    job_id = fields[0]
-    user = fields[2]
-    queue = fields[14]
-    nproc = int(fields[17])
-    project = fields[18]
-    res_req = fields[15]
-    pend_time = int(fields[23])
+        if key not in user_running_cache:
+            running_out = run_cmd(f"/db/lsf/work/local/bin/mbjobs2 | grep RUN | grep {user} | grep {queue}")
+            total_running = sum(
+                int(l.split(',')[17]) for l in running_out.splitlines() if len(l.split(',')) > 17
+            )
+            user_running_cache[key] = total_running
 
-    key = (user, queue)
+        jobs.append({
+            'id': job_id,
+            'user': user,
+            'queue': queue,
+            'slots': nproc,
+            'pend_time': pend_time,
+            'project': project,
+            'res_req': res_req,
+            'quota': user_quota_cache[key],
+            'running': user_running_cache[key]
+        })
 
-    if key not in user_quota_cache:
-        blimits_out = run_cmd(f"blimits -a -u {user} | grep {queue}")
-        quota = -1
-        for line in blimits_out.splitlines():
-            slot_info = line.split()[-1]
-            if '/' in slot_info:
-                used, limit = slot_info.split('/')
-                quota = int(limit)
-                break
-        user_quota_cache[key] = quota
+    return jobs
 
-    if key not in user_running_cache:
-        running_out = run_cmd(f"/db/lsf/work/local/bin/mbjobs2 | grep RUN | grep {user} | grep {queue}")
-        total_running = sum(
-            int(l.split(',')[17]) for l in running_out.splitlines() if len(l.split(',')) > 17
-        )
-        user_running_cache[key] = total_running
+def get_cluster_slots():
+    output = run_cmd("bhosts")
+    total, running = 0, 0
+    for line in output.splitlines()[1:]:
+        fields = line.split()
+        total += int(fields[3])
+        running += int(fields[4])
+    return total, running
 
-    jobs.append({
-        'id': job_id,
-        'user': user,
-        'queue': queue,
-        'slots': nproc,
-        'pend_time': pend_time,
-        'project': project,
-        'res_req': res_req,
-        'quota': user_quota_cache[key],
-        'running': user_running_cache[key]
-    })
+# ----------------------------- ORACLE DB TRACKING ----------------------------- #
+def is_job_already_moved(job_id):
+    conn = get_oracle_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM JOB_MOVE_HISTORY WHERE JOB_ID = :job_id", {'job_id': job_id})
+    result = cur.fetchone()
+    conn.close()
+    return bool(result)
 
-return jobs
+def record_job_move(job, score, reason, rules_applied, cycle_id):
+    conn = get_oracle_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO JOB_MOVE_HISTORY (
+            JOB_ID, USER_ID, MOVED_FROM_QUEUE, MOVED_TO_QUEUE,
+            MOVE_TIME, MOVE_REASON, PEND_TIME_BEFORE, SCORE,
+            RULES_APPLIED, CYCLE_ID
+        ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10)
+    """, (
+        job['id'], job['user'], job['queue'], FLEXI_QUEUE,
+        datetime.now(), reason, job['pend_time'], score,
+        ",".join(rules_applied), cycle_id
+    ))
+    conn.commit()
+    conn.close()
 
-def get_cluster_slots(): output = run_cmd("bhosts") total, running = 0, 0 for line in output.splitlines()[1:]: fields = line.split() total += int(fields[3]) running += int(fields[4]) return total, running
+# ------------------------------- SCORING ENGINE ------------------------------- #
+def score_job(job, priority_users, priority_projects, args):
+    score = 0
+    rules = []
 
------------------------------ ORACLE DB TRACKING -----------------------------
+    if not args.disable_project_priority and job['project'] in priority_projects:
+        score += 30
+        rules.append('project_priority')
 
-def is_job_already_moved(job_id): conn = get_oracle_connection() cur = conn.cursor() cur.execute("SELECT 1 FROM JOB_MOVE_HISTORY WHERE JOB_ID = :job_id", {'job_id': job_id}) result = cur.fetchone() conn.close() return bool(result)
+    if not args.disable_user_priority and job['user'] in priority_users:
+        score += 25
+        rules.append('user_priority')
 
-def record_job_move(job, score, reason, rules_applied, cycle_id): conn = get_oracle_connection() cur = conn.cursor() cur.execute(""" INSERT INTO JOB_MOVE_HISTORY ( JOB_ID, USER_ID, MOVED_FROM_QUEUE, MOVED_TO_QUEUE, MOVE_TIME, MOVE_REASON, PEND_TIME_BEFORE, SCORE, RULES_APPLIED, CYCLE_ID ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10) """, ( job['id'], job['user'], job['queue'], FLEXI_QUEUE, datetime.now(), reason, job['pend_time'], score, ",".join(rules_applied), cycle_id )) conn.commit() conn.close()
+    if not args.disable_quota_sort and job['quota'] <= 50:
+        score += 15
+        rules.append('low_quota')
 
-------------------------------- SCORING ENGINE -------------------------------
+    if not args.disable_pending_age:
+        pend_score = min(job['pend_time'] / 21600, 1.0) * 20
+        score += int(pend_score)
+        rules.append('pend_age')
 
-def score_job(job, priority_users, priority_projects, args): score = 0 rules = []
+    if not args.disable_utilization_check:
+        utilization = job['running'] / job['quota'] if job['quota'] else 0
+        score += int((1 - utilization) * 15)
+        rules.append('low_utilization')
 
-if not args.disable_project_priority and job['project'] in priority_projects:
-    score += 30
-    rules.append('project_priority')
+    if not args.disable_long_pending_bonus and job['pend_time'] > 21600:
+        score += 5
+        rules.append('very_old_job')
 
-if not args.disable_user_priority and job['user'] in priority_users:
-    score += 25
-    rules.append('user_priority')
+    return score, rules
 
-if not args.disable_quota_sort and job['quota'] <= 50:
-    score += 15
-    rules.append('low_quota')
+# ----------------------------- JOB MIGRATION LOGIC ---------------------------- #
+def move_job_to_flexi(job, dry_run=False):
+    if dry_run:
+        print(f"[DRY-RUN] Would move job {job['id']} to {FLEXI_QUEUE}")
+    else:
+        run_cmd(f"bmod -q {FLEXI_QUEUE} {job['id']}")
+        print(f"Moved job {job['id']} to {FLEXI_QUEUE}")
 
-if not args.disable_pending_age:
-    pend_score = min(job['pend_time'] / 21600, 1.0) * 20
-    score += int(pend_score)
-    rules.append('pend_age')
+# ---------------------------------- MAIN -------------------------------------- #
+def main():
+    parser = argparse.ArgumentParser(description="LSF Flexi Queue Job Migrator")
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--disable-project-priority', action='store_true')
+    parser.add_argument('--disable-user-priority', action='store_true')
+    parser.add_argument('--disable-quota-sort', action='store_true')
+    parser.add_argument('--disable-pending-age', action='store_true')
+    parser.add_argument('--disable-utilization-check', action='store_true')
+    parser.add_argument('--disable-long-pending-bonus', action='store_true')
+    args = parser.parse_args()
 
-if not args.disable_utilization_check:
-    utilization = job['running'] / job['quota'] if job['quota'] else 0
-    score += int((1 - utilization) * 15)
-    rules.append('low_utilization')
+    cycle_id = f"cycle_{int(time.time())}"
+    priority_users, priority_projects = load_priority_config()
+    total_slots, running_slots = get_cluster_slots()
+    available_slots = total_slots - running_slots
 
-if not args.disable_long_pending_bonus and job['pend_time'] > 21600:
-    score += 5
-    rules.append('very_old_job')
+    if available_slots < BUFFER_THRESHOLD_RATIO * total_slots:
+        print("Cluster too full. Skipping flexi migration.")
+        return
 
-return score, rules
+    all_jobs = parse_mbjobs2()
+    scored_jobs = []
 
------------------------------ JOB MIGRATION LOGIC ----------------------------
+    for job in all_jobs:
+        if job['running'] < job['quota']:
+            continue
+        if is_job_already_moved(job['id']):
+            continue
 
-def move_job_to_flexi(job, dry_run=False): if dry_run: print(f"[DRY-RUN] Would move job {job['id']} to {FLEXI_QUEUE}") else: run_cmd(f"bmod -q {FLEXI_QUEUE} {job['id']}") print(f"Moved job {job['id']} to {FLEXI_QUEUE}")
+        score, rules = score_job(job, priority_users, priority_projects, args)
+        scored_jobs.append((score, job, rules))
 
----------------------------------- MAIN --------------------------------------
+    scored_jobs.sort(key=lambda x: x[0], reverse=True)
+    moved_slots = 0
 
-def main(): parser = argparse.ArgumentParser(description="LSF Flexi Queue Job Migrator") parser.add_argument('--dry-run', action='store_true') parser.add_argument('--disable-project-priority', action='store_true') parser.add_argument('--disable-user-priority', action='store_true') parser.add_argument('--disable-quota-sort', action='store_true') parser.add_argument('--disable-pending-age', action='store_true') parser.add_argument('--disable-utilization-check', action='store_true') parser.add_argument('--disable-long-pending-bonus', action='store_true') args = parser.parse_args()
+    for score, job, rules in scored_jobs:
+        if moved_slots + job['slots'] > FLEXI_QUEUE_CAP:
+            break
+        move_job_to_flexi(job, dry_run=args.dry_run)
+        record_job_move(job, score, reason="score_based", rules_applied=rules, cycle_id=cycle_id)
+        moved_slots += job['slots']
 
-cycle_id = f"cycle_{int(time.time())}"
-priority_users, priority_projects = load_priority_config()
-total_slots, running_slots = get_cluster_slots()
-available_slots = total_slots - running_slots
+if __name__ == '__main__':
+    main()
 
-if available_slots < BUFFER_THRESHOLD_RATIO * total_slots:
-    print("Cluster too full. Skipping flexi migration.")
-    return
 
-all_jobs = parse_mbjobs2()
-scored_jobs = []
+✅ The script is now updated to:
 
-for job in all_jobs:
-    if job['running'] < job['quota']:
-        continue
-    if is_job_already_moved(job['id']):
-        continue
+Parse /db/lsf/work/local/bin/mbjobs2 directly for pending jobs
 
-    score, rules = score_job(job, priority_users, priority_projects, args)
-    scored_jobs.append((score, job, rules))
+Fetch and cache per-user-per-queue quota using blimits
 
-scored_jobs.sort(key=lambda x: x[0], reverse=True)
-moved_slots = 0
+Fetch and cache user’s current running slots using mbjobs2
 
-for score, job, rules in scored_jobs:
-    if moved_slots + job['slots'] > FLEXI_QUEUE_CAP:
-        break
-    move_job_to_flexi(job, dry_run=args.dry_run)
-    record_job_move(job, score, reason="score_based", rules_applied=rules, cycle_id=cycle_id)
-    moved_slots += job['slots']
+Remove older get_user_usage and get_pending_jobs logic
 
-if name == 'main': main()
+Still support Oracle history tracking, scoring, and CLI flags
+
+
+Let me know if you'd like:
+
+A SQL CREATE TABLE statement for JOB_MOVE_HISTORY
+
+Logging to file or console enhancements
+
+Unit test functions or mock data generator
+
+A dry-run summary report (e.g., jobs that would be moved with score breakdown)
+
 
