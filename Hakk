@@ -1,109 +1,229 @@
-tGreat — we can absolutely do all of this within your Python script (slot.py) without needing a shell wrapper.
+"""
+LSF Flexi Queue Job Migrator (Updated)
+
+This version uses `mbjobs2` and `blimits` to intelligently migrate pending jobs
+into a flexi queue, scoring them for fairness and tracking moves in Oracle SQL.
+"""
+
+import argparse
+import subprocess
+import cx_Oracle
+import yaml
+import time
+from datetime import datetime
+from collections import defaultdict
+
+FLEXI_QUEUE = "flexi"
+FLEXI_QUEUE_CAP = 600
+BUFFER_THRESHOLD_RATIO = 0.10
+
+# -------------------------------- DB CONNECTION -------------------------------- #
+def get_oracle_connection():
+    return cx_Oracle.connect(user='oracle_user', password='oracle_password', dsn='oracle_dsn')
+
+# ----------------------------- LOAD CONFIGURATION ------------------------------ #
+def load_priority_config():
+    with open('config/user_priority.yaml') as f:
+        user_config = yaml.safe_load(f)['priority_users']
+    with open('config/project_priority.yaml') as f:
+        project_config = yaml.safe_load(f)['priority_projects']
+    return set(user_config), set(project_config)
+
+# ---------------------------- DATA COLLECTION LOGIC ---------------------------- #
+def run_cmd(cmd):
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"Command failed: {cmd}\n{result.stderr}")
+    return result.stdout.strip()
+
+def parse_mbjobs2():
+    output = run_cmd("/db/lsf/work/local/bin/mbjobs2 | grep PEND")
+    jobs = []
+    user_quota_cache = {}
+
+    for line in output.splitlines():
+        fields = line.strip().split(',')
+        if len(fields) < 24:
+            continue
+
+        job_id = fields[0]
+        user = fields[2]
+        queue = fields[14]
+        nproc = int(fields[17])
+        project = fields[18]
+        res_req = fields[15]
+        pend_time = int(fields[23])
+
+        key = (user, queue)
+
+        if key not in user_quota_cache:
+            blimits_out = run_cmd(f"blimits -a -u {user} | grep {queue}")
+            quota, used = -1, 0
+            for line in blimits_out.splitlines():
+                slot_info = line.split()[-1]
+                if '/' in slot_info:
+                    used_str, limit_str = slot_info.split('/')
+                    if limit_str.isdigit():
+                        quota = int(limit_str)
+                    if used_str.isdigit():
+                        used = int(used_str)
+                    break
+            user_quota_cache[key] = (used, quota)
+
+        used, quota = user_quota_cache[key]
+
+        jobs.append({
+            'id': job_id,
+            'user': user,
+            'queue': queue,
+            'slots': nproc,
+            'pend_time': pend_time,
+            'project': project,
+            'res_req': res_req,
+            'quota': quota,
+            'running': used
+        })
+
+    return jobs
+
+def get_cluster_slots():
+    output = run_cmd("bhosts")
+    total, running = 0, 0
+    for line in output.splitlines()[1:]:
+        fields = line.split()
+        total += int(fields[3])
+        running += int(fields[4])
+    return total, running
+
+# ----------------------------- ORACLE DB TRACKING ----------------------------- #
+def is_job_already_moved(job_id):
+    conn = get_oracle_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM JOB_MOVE_HISTORY WHERE JOB_ID = :job_id", {'job_id': job_id})
+    result = cur.fetchone()
+    conn.close()
+    return bool(result)
+
+def record_job_move(job, score, reason, rules_applied, cycle_id):
+    conn = get_oracle_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO JOB_MOVE_HISTORY (
+            JOB_ID, USER_ID, MOVED_FROM_QUEUE, MOVED_TO_QUEUE,
+            MOVE_TIME, MOVE_REASON, PEND_TIME_BEFORE, SCORE,
+            RULES_APPLIED, CYCLE_ID
+        ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10)
+    """, (
+        job['id'], job['user'], job['queue'], FLEXI_QUEUE,
+        datetime.now(), reason, job['pend_time'], score,
+        ",".join(rules_applied), cycle_id
+    ))
+    conn.commit()
+    conn.close()
+
+# ------------------------------- SCORING ENGINE ------------------------------- #
+def score_job(job, priority_users, priority_projects, args):
+    score = 0
+    rules = []
+
+    if not args.disable_project_priority and job['project'] in priority_projects:
+        score += 30
+        rules.append('project_priority')
+
+    if not args.disable_user_priority and job['user'] in priority_users:
+        score += 25
+        rules.append('user_priority')
+
+    if not args.disable_quota_sort and job['quota'] <= 50:
+        score += 15
+        rules.append('low_quota')
+
+    if not args.disable_pending_age:
+        pend_score = min(job['pend_time'] / 21600, 1.0) * 20
+        score += int(pend_score)
+        rules.append('pend_age')
+
+    if not args.disable_utilization_check:
+        utilization = job['running'] / job['quota'] if job['quota'] else 0
+        score += int((1 - utilization) * 15)
+        rules.append('low_utilization')
+
+    if not args.disable_long_pending_bonus and job['pend_time'] > 21600:
+        score += 5
+        rules.append('very_old_job')
+
+    return score, rules
+
+# ----------------------------- JOB MIGRATION LOGIC ---------------------------- #
+def move_job_to_flexi(job, dry_run=False):
+    if dry_run:
+        print(f"[DRY-RUN] Would move job {job['id']} to {FLEXI_QUEUE}")
+    else:
+        run_cmd(f"bmod -q {FLEXI_QUEUE} {job['id']}")
+        print(f"Moved job {job['id']} to {FLEXI_QUEUE}")
+
+# ---------------------------------- MAIN -------------------------------------- #
+def main():
+    parser = argparse.ArgumentParser(description="LSF Flexi Queue Job Migrator")
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--disable-project-priority', action='store_true')
+    parser.add_argument('--disable-user-priority', action='store_true')
+    parser.add_argument('--disable-quota-sort', action='store_true')
+    parser.add_argument('--disable-pending-age', action='store_true')
+    parser.add_argument('--disable-utilization-check', action='store_true')
+    parser.add_argument('--disable-long-pending-bonus', action='store_true')
+    args = parser.parse_args()
+
+    cycle_id = f"cycle_{int(time.time())}"
+    priority_users, priority_projects = load_priority_config()
+    total_slots, running_slots = get_cluster_slots()
+    available_slots = total_slots - running_slots
+
+    if available_slots < BUFFER_THRESHOLD_RATIO * total_slots:
+        print("Cluster too full. Skipping flexi migration.")
+        return
+
+    all_jobs = parse_mbjobs2()
+    scored_jobs = []
+
+    for job in all_jobs:
+        if job['running'] < job['quota']:
+            continue
+        if is_job_already_moved(job['id']):
+            continue
+
+        score, rules = score_job(job, priority_users, priority_projects, args)
+        scored_jobs.append((score, job, rules))
+
+    scored_jobs.sort(key=lambda x: x[0], reverse=True)
+    moved_slots = 0
+
+    for score, job, rules in scored_jobs:
+        if moved_slots + job['slots'] > FLEXI_QUEUE_CAP:
+            break
+        move_job_to_flexi(job, dry_run=args.dry_run)
+        record_job_move(job, score, reason="score_based", rules_applied=rules, cycle_id=cycle_id)
+        moved_slots += job['slots']
+
+if __name__ == '__main__':
+    main()
 
 
----
+✅ The script is now updated to:
 
-✅ Here's how to modify slot.py to:
+Use blimits to extract both used and quota slot values.
 
-Run your normal logic
+Remove the previous logic that calculated user_running_slots using mbjobs2.
 
-Automatically log output to a date-wise log file
-
-Add a timestamp + delimiter at the start of each run
+Cache and reuse quota/running values per (user, queue) pair.
 
 
+You're all set for accurate and efficient job migration using Oracle-backed tracking and clean logic. Let me know if you'd like:
 
----
+SQL for creating the Oracle table
 
-🔧 slot.py (Updated Example):
+A dry-run summary report with ranked jobs and reasons
 
-#!/usr/bin/env python3
-
-import datetime
-import os
-import sys
-
-# === Logging setup ===
-log_dir = "/path/to/logs"  # <-- Change this to your desired log directory
-os.makedirs(log_dir, exist_ok=True)
-
-today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-log_file_path = os.path.join(log_dir, f"cron_log_{today}.log")
-
-# Redirect stdout and stderr to the log file
-sys.stdout = open(log_file_path, "a")
-sys.stderr = sys.stdout
-
-# Print timestamp delimiter
-now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-print("=" * 40)
-print(f"Cron Run at: {now}")
-print("=" * 40)
-
-# === Your actual logic starts here ===
-
-print("Running slot.py logic...")
-
-# Example:
-# result = do_something()
-# print(f"Result: {result}")
-
-# === Your actual logic ends here ===
-
-print()  # Just adds a newline for separation
-
-
----
-
-✅ Step-by-step setup:
-
-1. Replace /path/to/logs with the directory where you want logs to be stored, e.g., /home/user/logs.
-
-
-2. Ensure the script is executable:
-
-
-
-chmod +x /path/to/slot.py
-
-3. Edit your crontab:
-
-
-
-crontab -e
-
-Add this line (to run at 7 AM UTC):
-
-0 7 * * * /usr/bin/env python3 /path/to/slot.py
-
-Add this one (to run at 11 PM UTC):
-
-0 23 * * * /usr/bin/env python3 /path/to/slot.py
-
-
----
-
-✅ What you get:
-
-Logs saved as: /path/to/logs/cron_log_2025-06-27.log
-
-Each cron run logs like this:
-
-
-========================================
-Cron Run at: 2025-06-27 07:00:00 UTC
-========================================
-Running slot.py logic...
-
-
----
-
-Let me know if you want:
-
-Rotating logs after N days
-
-Email alerts on error
-
-Appending timestamps to each log line (for debugging)
+Integration with a scheduling tool like cron or Jenkins
 
 
