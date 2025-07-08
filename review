@@ -1,175 +1,150 @@
-yPerfect — that simplifies things and gives us more flexibility to make the design robust and clean.
+""" LSF Flexi Queue Job Migrator (Updated)
 
-Let's now lay down a refined and structured plan based on your intent:
+This version uses mbjobs2 and blimits to intelligently migrate pending jobs into a flexi queue, scoring them for fairness and tracking moves in Oracle SQL. """
 
+import argparse import subprocess import cx_Oracle import yaml import time from datetime import datetime from collections import defaultdict
 
----
+FLEXI_QUEUE = "flexi" FLEXI_QUEUE_CAP = 600 BUFFER_THRESHOLD_RATIO = 0.10
 
-✅ Your Clarifications Recapped
+-------------------------------- DB CONNECTION --------------------------------
 
-❌ Drop the “small job to mt host” intelligence for now — may revisit later.
+def get_oracle_connection(): return cx_Oracle.connect(user='oracle_user', password='oracle_password', dsn='oracle_dsn')
 
-✅ Always prioritize jobs based on config-defined project and user lists.
+----------------------------- LOAD CONFIGURATION ------------------------------
 
-❗ Other rules: You’ve just brainstormed them — it's now my job to analyze, refine, and order them smartly.
+def load_priority_config(): with open('config/user_priority.yaml') as f: user_config = yaml.safe_load(f)['priority_users'] with open('config/project_priority.yaml') as f: project_config = yaml.safe_load(f)['priority_projects'] return set(user_config), set(project_config)
 
-✅ You want flexibility via flags to enable/disable each intelligence.
+---------------------------- DATA COLLECTION LOGIC ----------------------------
 
-✅ Default behavior: all intelligences enabled unless turned off explicitly.
+def run_cmd(cmd): result = subprocess.run(cmd, shell=True, capture_output=True, text=True) if result.returncode != 0: raise RuntimeError(f"Command failed: {cmd}\n{result.stderr}") return result.stdout.strip()
 
+def parse_mbjobs2(): output = run_cmd("/db/lsf/work/local/bin/mbjobs2 | grep PEND") jobs = [] seen_users = {} user_quota_cache = {} user_running_cache = {}
 
+for line in output.splitlines():
+    fields = line.strip().split(',')
+    if len(fields) < 24:
+        continue
 
----
+    job_id = fields[0]
+    user = fields[2]
+    queue = fields[14]
+    nproc = int(fields[17])
+    project = fields[18]
+    res_req = fields[15]
+    pend_time = int(fields[23])
 
-🧠 Clean, Refined Intelligence Rule Architecture
+    key = (user, queue)
 
-Let’s now define the core intelligence rules, prune redundancy, order them smartly, and categorize clearly.
+    if key not in user_quota_cache:
+        blimits_out = run_cmd(f"blimits -a -u {user} | grep {queue}")
+        quota = -1
+        for line in blimits_out.splitlines():
+            slot_info = line.split()[-1]
+            if '/' in slot_info:
+                used, limit = slot_info.split('/')
+                quota = int(limit)
+                break
+        user_quota_cache[key] = quota
 
+    if key not in user_running_cache:
+        running_out = run_cmd(f"/db/lsf/work/local/bin/mbjobs2 | grep RUN | grep {user} | grep {queue}")
+        total_running = sum(
+            int(l.split(',')[17]) for l in running_out.splitlines() if len(l.split(',')) > 17
+        )
+        user_running_cache[key] = total_running
 
----
+    jobs.append({
+        'id': job_id,
+        'user': user,
+        'queue': queue,
+        'slots': nproc,
+        'pend_time': pend_time,
+        'project': project,
+        'res_req': res_req,
+        'quota': user_quota_cache[key],
+        'running': user_running_cache[key]
+    })
 
-🎯 Phase 1: Strict Eligibility Filters (must pass)
+return jobs
 
-These are the minimum required checks before a job can even be considered.
+def get_cluster_slots(): output = run_cmd("bhosts") total, running = 0, 0 for line in output.splitlines()[1:]: fields = line.split() total += int(fields[3]) running += int(fields[4]) return total, running
 
-Rule	Logic	Always On?
+----------------------------- ORACLE DB TRACKING -----------------------------
 
-User quota hit	user.running_slots == user.quota and user.pending_slots > 0	✅ Yes
-Cluster has capacity	available_slots > buffer_threshold	✅ Yes
-Job is pending	Job in PEND state	✅ Yes
+def is_job_already_moved(job_id): conn = get_oracle_connection() cur = conn.cursor() cur.execute("SELECT 1 FROM JOB_MOVE_HISTORY WHERE JOB_ID = :job_id", {'job_id': job_id}) result = cur.fetchone() conn.close() return bool(result)
 
+def record_job_move(job, score, reason, rules_applied, cycle_id): conn = get_oracle_connection() cur = conn.cursor() cur.execute(""" INSERT INTO JOB_MOVE_HISTORY ( JOB_ID, USER_ID, MOVED_FROM_QUEUE, MOVED_TO_QUEUE, MOVE_TIME, MOVE_REASON, PEND_TIME_BEFORE, SCORE, RULES_APPLIED, CYCLE_ID ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10) """, ( job['id'], job['user'], job['queue'], FLEXI_QUEUE, datetime.now(), reason, job['pend_time'], score, ",".join(rules_applied), cycle_id )) conn.commit() conn.close()
 
+------------------------------- SCORING ENGINE -------------------------------
 
----
+def score_job(job, priority_users, priority_projects, args): score = 0 rules = []
 
-🏆 Phase 2: Priority Boosters
+if not args.disable_project_priority and job['project'] in priority_projects:
+    score += 30
+    rules.append('project_priority')
 
-These are used to rank eligible jobs, using a scoring system.
+if not args.disable_user_priority and job['user'] in priority_users:
+    score += 25
+    rules.append('user_priority')
 
-Priority	Rule	Description	Default Score
+if not args.disable_quota_sort and job['quota'] <= 50:
+    score += 15
+    rules.append('low_quota')
 
-🔶 1	Project config priority	If job’s project is in high-priority config	+30
-🔶 2	User config priority	If job’s owner is in priority user list	+25
-3	Low user quota	Users with smaller quotas get more boost	up to +15
-4	Job pending age	Older pending jobs get higher score	up to +20
-5	User recent utilization	Users with lower usage in last 6 hours are prioritized	up to +15
-6	Job completion history	If similar jobs from user were short/efficient, prioritize	up to +10
-7	Longest pending job in system	Extra bonus if user has one of the oldest jobs	+5
+if not args.disable_pending_age:
+    pend_score = min(job['pend_time'] / 21600, 1.0) * 20
+    score += int(pend_score)
+    rules.append('pend_age')
 
+if not args.disable_utilization_check:
+    utilization = job['running'] / job['quota'] if job['quota'] else 0
+    score += int((1 - utilization) * 15)
+    rules.append('low_utilization')
 
-🔧 Each rule is toggleable via CLI flags.
+if not args.disable_long_pending_bonus and job['pend_time'] > 21600:
+    score += 5
+    rules.append('very_old_job')
 
+return score, rules
 
----
+----------------------------- JOB MIGRATION LOGIC ----------------------------
 
-🔄 Phase 3: Tie-breakers (When Scores Match)
+def move_job_to_flexi(job, dry_run=False): if dry_run: print(f"[DRY-RUN] Would move job {job['id']} to {FLEXI_QUEUE}") else: run_cmd(f"bmod -q {FLEXI_QUEUE} {job['id']}") print(f"Moved job {job['id']} to {FLEXI_QUEUE}")
 
-Rule	Logic
+---------------------------------- MAIN --------------------------------------
 
-Round-robin per user	One job per user in cycles
-Oldest job wins	Within user, pick oldest pending job
+def main(): parser = argparse.ArgumentParser(description="LSF Flexi Queue Job Migrator") parser.add_argument('--dry-run', action='store_true') parser.add_argument('--disable-project-priority', action='store_true') parser.add_argument('--disable-user-priority', action='store_true') parser.add_argument('--disable-quota-sort', action='store_true') parser.add_argument('--disable-pending-age', action='store_true') parser.add_argument('--disable-utilization-check', action='store_true') parser.add_argument('--disable-long-pending-bonus', action='store_true') args = parser.parse_args()
 
+cycle_id = f"cycle_{int(time.time())}"
+priority_users, priority_projects = load_priority_config()
+total_slots, running_slots = get_cluster_slots()
+available_slots = total_slots - running_slots
 
+if available_slots < BUFFER_THRESHOLD_RATIO * total_slots:
+    print("Cluster too full. Skipping flexi migration.")
+    return
 
----
+all_jobs = parse_mbjobs2()
+scored_jobs = []
 
-🧰 Config Structure
+for job in all_jobs:
+    if job['running'] < job['quota']:
+        continue
+    if is_job_already_moved(job['id']):
+        continue
 
-# config/user_priority.yaml
-priority_users:
-  - alice
-  - bob
+    score, rules = score_job(job, priority_users, priority_projects, args)
+    scored_jobs.append((score, job, rules))
 
-# config/project_priority.yaml
-priority_projects:
-  - critical_chip
-  - bugfix_hotpath
+scored_jobs.sort(key=lambda x: x[0], reverse=True)
+moved_slots = 0
 
+for score, job, rules in scored_jobs:
+    if moved_slots + job['slots'] > FLEXI_QUEUE_CAP:
+        break
+    move_job_to_flexi(job, dry_run=args.dry_run)
+    record_job_move(job, score, reason="score_based", rules_applied=rules, cycle_id=cycle_id)
+    moved_slots += job['slots']
 
----
-
-🧱 Code Architecture
-
-📂 Folder Layout
-
-move_to_flexi/
-├── move_jobs.py
-├── config/
-│   ├── user_priority.yaml
-│   └── project_priority.yaml
-├── modules/
-│   ├── cluster_fetcher.py
-│   ├── scoring_engine.py
-│   ├── config_loader.py
-│   ├── placement.py
-│   └── history_tracker.py
-└── logs/
-
-🧩 Key Components
-
-Module	Purpose
-
-cluster_fetcher.py	Wraps bjobs, bhosts, bqueues, etc.
-scoring_engine.py	Applies score to each eligible job
-config_loader.py	Loads user/project config
-placement.py	Applies tie-breakers, round-robin
-history_tracker.py	Avoids remigrating same job repeatedly
-
-
-
----
-
-🛠️ CLI Usage
-
-python move_jobs.py --dry-run --disable job_history_check --disable utilization_check
-
-Flags Supported:
-
---dry-run
-
---disable project_priority
-
---disable user_priority
-
---disable quota_sort
-
---disable pending_age
-
---disable utilization_check
-
---disable completion_history
-
---disable long_pending_bonus
-
-
-
----
-
-🔄 Control Flow Summary
-
-[1] Fetch cluster/job state
-[2] Filter eligible jobs
-[3] Load config: priority users/projects
-[4] Score each eligible job
-[5] Sort jobs by score
-[6] Resolve ties with round-robin
-[7] Move jobs to flexi queue (unless dry-run)
-[8] Log + update history
-
-
----
-
-🧠 Suggestions for Future (Optional)
-
-Add a web dashboard showing current quota usage, job age, flexi queue state.
-
-Add alerting when flexi queue is overloaded or rule conflicts arise.
-
-Use SQLite to track all migrations for analysis & rollback if needed.
-
-
-
----
-
-Shall I now move forward and begin coding this system starting with the scaffolding (CLI, config loader, data fetcher)? Or would you like to discuss any specific rule or component first?
+if name == 'main': main()
 
