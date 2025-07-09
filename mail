@@ -1,112 +1,111 @@
-yExcellent point — simply using diff between the before and after bjobs output isn't sufficient, because naturally completed jobs will disappear from the bjobs output (which only shows pending/running jobs by default). So, you need to account for:
+Great — let's get you a practical starting point. Based on the script you shared, one of the heaviest and most deeply nested stages is:
 
-Jobs that completed normally (exit code 0 or as expected)
 
-Jobs that failed or were killed due to the infra activity
+---
+
+🎯 Candidate for Refactor:
+
+✅ stage('Fetch and Set the config file')
+
+This stage has:
+
+Multiple try-catch blocks
+
+curl, readJSON, validation, and config parsing
+
+Multiple if-else decisions
 
 
 
 ---
 
-✅ Refined Monitoring Plan
+🔧 How to Refactor It
 
-Here’s how to enhance your process to track completed vs failed jobs accurately:
+Step 1: Extract as a top-level function
 
+Put this above your pipeline {} block:
 
----
+def fetchAndSetConfigFile() {
+    echo "\u001B[1;32m===============================\u001B[0m"
+    echo "\u001B[41;1m   STAGE: Fetch and Set the config file   \u001B[0m"
+    echo "\u001B[1;32m===============================\u001B[0m"
+    echo "Branch is: ${params.BRANCH_NAME}"
+    def backendUrls = [
+      'dev':'http://lelvdcklsfuedrasa.itg.rh.com:5000',
+      'stage':'http://mylsf-stage-direct.itg.rh.com:6000',
+      'prod':'http://lelvdcklsfuedprod.itg.rh.com:5000',
+    ]
+    BACKEND_URL = backendUrls[params.BRANCH_NAME]
 
-🔹 1. Capture bjobs -a Before and After
+    def response = sh(script: "curl -s ${BACKEND_URL}/api/get_config", returnStdout: true).trim()
+    echo "response: ${response}"
+    def config = readJSON text: response
+    echo "Config data: \n${config}"
 
-Use -a flag to include recently finished jobs:
+    def slotKey = (params.SLOT_TYPE == 'gui') ? 'gui-default-slot-limit' : 'regress-default-slot-limit'
+    def defaultSlotLimit = config[slotKey][params.CLUSTER_NAME]
 
-bjobs -a -u all | grep designuser > bjobs_before.txt
+    echo "Default Slot Limit from config: ${defaultSlotLimit}"
+    echo "Current Slot Limit provided: ${params.CURRENT_SLOT_LIMIT}"
 
-Same after upgrade:
+    if (defaultSlotLimit.toString() == params.CURRENT_SLOT_LIMIT.trim()) {
+        env.IS_DEFAULT_SLOT_LIMIT = 'true'
+        echo "Default and Current Slot Limits are equal. Skipping certain stages."
+    } else {
+        env.IS_DEFAULT_SLOT_LIMIT = 'false'
+        echo "Slot limits differ. Proceeding with further stages."
+    }
 
-bjobs -a -u all | grep designuser > bjobs_after.txt
-
-This includes jobs in DONE, EXIT, and PEND/RUN states.
-
-
----
-
-🔹 2. Track Job Completion & Exit Status
-
-Capture key fields for all jobs (especially job ID, user, status, and exit code if available):
-
-bjobs -a -u all -o "jobid user stat exit_code exec_host queue submit_time" | grep designuser > full_jobs_before.txt
-
-Then after upgrade:
-
-bjobs -a -u all -o "jobid user stat exit_code exec_host queue submit_time" | grep designuser > full_jobs_after.txt
-
-
----
-
-🔹 3. Check for Abnormal Terminations
-
-You're mainly looking for:
-
-Jobs in EXIT state with non-zero exit code
-
-Jobs that were RUN before, but are now missing and not in DONE/EXIT
-
-Jobs that failed immediately after activity
-
-
-You can use a script or logic like:
-
-# Extract job IDs before and after
-cut -d' ' -f1 full_jobs_before.txt > job_ids_before.txt
-cut -d' ' -f1 full_jobs_after.txt > job_ids_after.txt
-
-# Find jobs that were in before but missing after
-comm -23 <(sort job_ids_before.txt) <(sort job_ids_after.txt) > missing_jobs.txt
-
-Then for each job in missing_jobs.txt, use:
-
-bhist -l <job_id>
-
-To check:
-
-Was it completed (DONE)?
-
-Was it killed or failed (EXIT with code ≠ 0)?
-
-Did it die due to host issue?
-
+    if (params.SLOT_TYPE == 'gui') {
+        CONFIG_FILE_OPTIONS = config."${params.CLUSTER_NAME}-gui"
+        echo "Selected GUI Config File Options: \n ${CONFIG_FILE_OPTIONS}"
+    } else if (params.SLOT_TYPE == 'regress') {
+        CONFIG_FILE_OPTIONS = config."${params.CLUSTER_NAME}-regress"
+        echo "Selected REGRESS Config File Options: \n ${CONFIG_FILE_OPTIONS}"
+    } else {
+        error("Unknown slot selected: ${params.SLOT_TYPE}")
+    }
+}
 
 
 ---
 
-🔹 4. Use bhist to Audit Any Suspect Jobs
+Step 2: Replace the current stage with a call
 
-bhist -u designuser -t MM/DD/YYYY  # Add date/time window around activity
+Inside your pipeline:
 
-Filter by:
-
-Exited with non-zero status
-
-Killed or Terminated unexpectedly
-
+stage('Fetch and Set the config file') {
+  steps {
+    script {
+      try {
+        fetchAndSetConfigFile()
+      } catch (Exception e) {
+        error_reason = "Error in Fetch and Set the config file: ${e.message}"
+        error(error_reason)
+      }
+    }
+    script {
+      echo "\u001B[1;34m===============================\u001B[0m"
+      echo "\u001B[1;34m   STAGE FINISHED                \u001B[0m"
+      echo "\u001B[1;34m===============================\u001B[0m"
+    }
+  }
+}
 
 
 ---
 
-✅ Summary of What to Look For
+🧪 What This Does
 
-Check	What It Means
+Moves ~80 lines of logic out of the CPS-transformed method
 
-DONE status	Job completed normally ✅
-EXIT + exit code 0	Also OK (some tools exit with code 0 on cancel) ✅
-EXIT + exit code ≠ 0	⚠️ Check bhist — possible failure
-Missing from bjobs + found in bhist as DONE	OK
-Missing from both	⚠️ Check logs — may have been lost or not tracked
-RUN before but never reached DONE/EXIT	⚠️ Suspicious — check daemon/host logs
+Keeps the pipeline script lean
+
+Eliminates a major contributor to the “MethodTooLarge” exception
 
 
 
 ---
 
-Let me know if you'd like a script to automate the before/after comparison and detect job failures with summaries. I can help with that too.
+Would you like me to suggest 1–2 more blocks like this you should refactor next?
 
