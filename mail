@@ -1,119 +1,141 @@
-To meet your updated requirements, here’s what needs to change:
+yGot it — you’ve been asked to monitor LSF (Load Sharing Facility) and user jobs, particularly from the design team, during and after a compute switch upgrade. The goal is to ensure that:
+
+LSF is healthy before and after the upgrade.
+
+There’s no job failure or user-side impact.
+
+The system returns to the same state post-upgrade.
+
+
+Here’s a structured plan you can follow to monitor and verify:
 
 
 ---
 
-1. Frontend Update (send full row data in mutation)
+✅ Before Upgrade: Capture Baseline
 
-Modify handleSaveStatus to pass the entire row:
+1. LSF System Health
 
-const handleSaveStatus = (REQUEST_ID, CATEGORY_NAME) => {
-  const row = tableData.find((row) => row.REQUEST_ID === REQUEST_ID); // Make sure tableData is accessible
-  const REQUEST_STATUS = editData[REQUEST_ID]?.REQUEST_STATUS;
+Run the following:
 
-  if (REQUEST_STATUS && row) {
-    setOpen(true);
-    mutationStatus.mutate({ ...row, REQUEST_STATUS }); // Send full row + updated status
-  }
-};
+lsid          # Check LSF master status
+bhosts        # Check host status (up/down)
+lsload        # Check load on all hosts
 
-Make sure tableData (your fetched table) is accessible in the scope.
+Optional:
 
-Update useMutation accordingly:
+badmin mbdrestart    # (Only if admin check is needed)
 
-const mutationStatus = useMutation(
-  async (rowData) => {
-    const response = await apiInstance.put('/super_admin_panel_requests', rowData);
-    return response;
-  },
-  {
-    onSuccess: async () => {
-      await refetch();
-      setOpen(false);
-      setSeverity('success');
-      setAlert('Data updated successfully!');
-      setSnackbarOpen(true);
-    },
-    onError: () => {
-      setOpen(false);
-      setSeverity('error');
-      setAlert('Error updating data!');
-      setSnackbarOpen(true);
-    },
-  }
-);
+2. Active Job Summary
+
+Capture jobs submitted by design users:
+
+bjobs -u all | grep designusername > jobs_before.txt
+
+Or if users are in a specific group:
+
+bjobs -u all | grep -E 'designuser1|designuser2|...' > jobs_before.txt
+
+Get job stats:
+
+bjobs -u all | awk '{print $3}' | sort | uniq -c   # Count per user
+
+Optional:
+
+bqueues                # To see queue statuses
 
 
 ---
 
-2. Backend Update (use full row and send email if status is "COMPLETED")
+🔄 During Upgrade: Monitor Continuously
 
-In your Flask route, do the following inside PUT:
+Keep an eye on:
 
-Extract the full row data.
+bhosts                 # Check if any hosts go down
+bjobs -u all           # Check if any jobs are pending/suspended unexpectedly
 
-Perform the DB update.
+Use:
 
-If status is "COMPLETED", call an email function with request_status and the row.
-
-
-Update the PUT block as:
-
-if request.method == 'PUT':
-    data = request.get_json()
-    print("data", data)
-
-    request_id = data.get('REQUEST_ID')
-    request_status = data.get('REQUEST_STATUS')
-    category_name = data.get('CATEGORY_NAME')
-
-    if not request_id or not request_status:
-        return jsonify({'error': 'REQUEST_ID and REQUEST_STATUS are required'}), 500
-
-    db = get_db()
-    cursor = db.cursor()
-
-    try:
-        if category_name == "QUEUE":
-            table_name = dbCfg['QUEUE_ACCESS']
-        elif category_name == "SLOT":
-            table_name = dbCfg['SLOT_REQUEST']
-        else:
-            return jsonify({'error': 'Invalid CATEGORY_NAME'}), 500
-
-        update_query_status = f"""
-            UPDATE {table_name}
-            SET REQUEST_STATUS = :request_status
-            WHERE REQUEST_ID = :request_id
-        """
-        cursor.execute(update_query_status, {
-            'request_status': request_status,
-            'request_id': request_id
-        })
-
-        db.commit()
-        cursor.close()
-
-        # Send email if status is COMPLETED
-        if request_status.upper() == "COMPLETED":
-            send_completion_email(data, request_status)  # You’ll define this later
-
-        return jsonify({'message': 'Data updated successfully'}), 200
-
-    except cx_Oracle.DatabaseError as e:
-        error, = e.args
-        print("error", f"Database error: {error.message}")
-        return jsonify({'error': f"Database error: {error.message}"}), 500
-    except Exception as e:
-        print("error", str(e))
-        return jsonify({'error': str(e)}), 500
+watch -n 60 "bhosts; bjobs -u all | grep design"
 
 
 ---
 
-3. Next Step
+✅ After Upgrade: Validate and Compare
 
-When you're ready, just tell me what logic and fields the send_completion_email(row_data, request_status) function should use, and I’ll help you implement it.
+1. LSF System Recheck
 
-Would you like to define that mail function now?
+lsid
+bhosts
+lsload
+
+Look for:
+
+No DOWN/UNLICENSED hosts.
+
+Normal load levels.
+
+Daemons responding normally.
+
+
+2. Job Comparison
+
+Re-run job status:
+
+bjobs -u all | grep designusername > jobs_after.txt
+
+Then compare:
+
+diff jobs_before.txt jobs_after.txt
+
+Look for:
+
+No abnormal job terminations.
+
+Jobs resumed or continued as expected.
+
+Same job counts or expected progression.
+
+
+
+---
+
+🧾 Optional Validation (for extra confidence)
+
+Check LSF logs: Look in /var/log/lsf or your configured path for errors/warnings.
+
+LSF Admin tools:
+
+badmin ckconfig
+
+Speak to users: Ask a design user to confirm jobs are running normally.
+
+
+
+---
+
+✅ Summary Report You Can Send Back
+
+Here’s a quick template:
+
+
+---
+
+Post-Upgrade Validation Report
+
+LSF Master (lsid): ✅ OK
+
+All Hosts (bhosts): ✅ No hosts down
+
+Job Status: ✅ No jobs failed or abnormally terminated
+
+Design User Jobs: ✅ Matching state before/after (see attached diff)
+
+Overall Impact: ✅ No user impact observed
+
+
+
+---
+
+Let me know if you'd like help scripting this into a reusable monitoring tool or preparing logs/reporting format.
 
