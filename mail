@@ -1,141 +1,112 @@
-yGot it — you’ve been asked to monitor LSF (Load Sharing Facility) and user jobs, particularly from the design team, during and after a compute switch upgrade. The goal is to ensure that:
+yExcellent point — simply using diff between the before and after bjobs output isn't sufficient, because naturally completed jobs will disappear from the bjobs output (which only shows pending/running jobs by default). So, you need to account for:
 
-LSF is healthy before and after the upgrade.
+Jobs that completed normally (exit code 0 or as expected)
 
-There’s no job failure or user-side impact.
-
-The system returns to the same state post-upgrade.
-
-
-Here’s a structured plan you can follow to monitor and verify:
-
-
----
-
-✅ Before Upgrade: Capture Baseline
-
-1. LSF System Health
-
-Run the following:
-
-lsid          # Check LSF master status
-bhosts        # Check host status (up/down)
-lsload        # Check load on all hosts
-
-Optional:
-
-badmin mbdrestart    # (Only if admin check is needed)
-
-2. Active Job Summary
-
-Capture jobs submitted by design users:
-
-bjobs -u all | grep designusername > jobs_before.txt
-
-Or if users are in a specific group:
-
-bjobs -u all | grep -E 'designuser1|designuser2|...' > jobs_before.txt
-
-Get job stats:
-
-bjobs -u all | awk '{print $3}' | sort | uniq -c   # Count per user
-
-Optional:
-
-bqueues                # To see queue statuses
-
-
----
-
-🔄 During Upgrade: Monitor Continuously
-
-Keep an eye on:
-
-bhosts                 # Check if any hosts go down
-bjobs -u all           # Check if any jobs are pending/suspended unexpectedly
-
-Use:
-
-watch -n 60 "bhosts; bjobs -u all | grep design"
-
-
----
-
-✅ After Upgrade: Validate and Compare
-
-1. LSF System Recheck
-
-lsid
-bhosts
-lsload
-
-Look for:
-
-No DOWN/UNLICENSED hosts.
-
-Normal load levels.
-
-Daemons responding normally.
-
-
-2. Job Comparison
-
-Re-run job status:
-
-bjobs -u all | grep designusername > jobs_after.txt
-
-Then compare:
-
-diff jobs_before.txt jobs_after.txt
-
-Look for:
-
-No abnormal job terminations.
-
-Jobs resumed or continued as expected.
-
-Same job counts or expected progression.
+Jobs that failed or were killed due to the infra activity
 
 
 
 ---
 
-🧾 Optional Validation (for extra confidence)
+✅ Refined Monitoring Plan
 
-Check LSF logs: Look in /var/log/lsf or your configured path for errors/warnings.
+Here’s how to enhance your process to track completed vs failed jobs accurately:
 
-LSF Admin tools:
 
-badmin ckconfig
+---
 
-Speak to users: Ask a design user to confirm jobs are running normally.
+🔹 1. Capture bjobs -a Before and After
+
+Use -a flag to include recently finished jobs:
+
+bjobs -a -u all | grep designuser > bjobs_before.txt
+
+Same after upgrade:
+
+bjobs -a -u all | grep designuser > bjobs_after.txt
+
+This includes jobs in DONE, EXIT, and PEND/RUN states.
+
+
+---
+
+🔹 2. Track Job Completion & Exit Status
+
+Capture key fields for all jobs (especially job ID, user, status, and exit code if available):
+
+bjobs -a -u all -o "jobid user stat exit_code exec_host queue submit_time" | grep designuser > full_jobs_before.txt
+
+Then after upgrade:
+
+bjobs -a -u all -o "jobid user stat exit_code exec_host queue submit_time" | grep designuser > full_jobs_after.txt
+
+
+---
+
+🔹 3. Check for Abnormal Terminations
+
+You're mainly looking for:
+
+Jobs in EXIT state with non-zero exit code
+
+Jobs that were RUN before, but are now missing and not in DONE/EXIT
+
+Jobs that failed immediately after activity
+
+
+You can use a script or logic like:
+
+# Extract job IDs before and after
+cut -d' ' -f1 full_jobs_before.txt > job_ids_before.txt
+cut -d' ' -f1 full_jobs_after.txt > job_ids_after.txt
+
+# Find jobs that were in before but missing after
+comm -23 <(sort job_ids_before.txt) <(sort job_ids_after.txt) > missing_jobs.txt
+
+Then for each job in missing_jobs.txt, use:
+
+bhist -l <job_id>
+
+To check:
+
+Was it completed (DONE)?
+
+Was it killed or failed (EXIT with code ≠ 0)?
+
+Did it die due to host issue?
 
 
 
 ---
 
-✅ Summary Report You Can Send Back
+🔹 4. Use bhist to Audit Any Suspect Jobs
 
-Here’s a quick template:
+bhist -u designuser -t MM/DD/YYYY  # Add date/time window around activity
 
+Filter by:
 
----
+Exited with non-zero status
 
-Post-Upgrade Validation Report
-
-LSF Master (lsid): ✅ OK
-
-All Hosts (bhosts): ✅ No hosts down
-
-Job Status: ✅ No jobs failed or abnormally terminated
-
-Design User Jobs: ✅ Matching state before/after (see attached diff)
-
-Overall Impact: ✅ No user impact observed
+Killed or Terminated unexpectedly
 
 
 
 ---
 
-Let me know if you'd like help scripting this into a reusable monitoring tool or preparing logs/reporting format.
+✅ Summary of What to Look For
+
+Check	What It Means
+
+DONE status	Job completed normally ✅
+EXIT + exit code 0	Also OK (some tools exit with code 0 on cancel) ✅
+EXIT + exit code ≠ 0	⚠️ Check bhist — possible failure
+Missing from bjobs + found in bhist as DONE	OK
+Missing from both	⚠️ Check logs — may have been lost or not tracked
+RUN before but never reached DONE/EXIT	⚠️ Suspicious — check daemon/host logs
+
+
+
+---
+
+Let me know if you'd like a script to automate the before/after comparison and detect job failures with summaries. I can help with that too.
 
