@@ -1,90 +1,28 @@
-tHere's how you can organize those three sets of commands into three separate shell scripts. I'll name them logically and add necessary headers and comments.
+t#!/bin/bash
 
+# Script: check_missing_jobs.sh
+# Description: Run 'bhist -l' on each missing job ID to get full job history details
 
----
+WORK_DIR="/home/lsfutil/switch_activity"
+MISSING_JOBS_FILE="$WORK_DIR/missing_jobs.txt"
+OUTPUT_FILE="$WORK_DIR/missing_jobs_bhist_output.txt"
 
-🔹 1. capture_before.sh
+# Clear previous output
+> "$OUTPUT_FILE"
 
-This script captures LSF system info before a change or event.
+if [[ ! -f "$MISSING_JOBS_FILE" ]]; then
+    echo "Missing jobs file not found: $MISSING_JOBS_FILE"
+    exit 1
+fi
 
-#!/bin/bash
+echo "Collecting bhist -l output for missing jobs..."
 
-# Script: capture_before.sh
-# Description: Captures LSF system status before switch
+while read -r JOB_ID; do
+    if [[ -n "$JOB_ID" ]]; then
+        echo "===== bhist -l $JOB_ID =====" >> "$OUTPUT_FILE"
+        bhist -l "$JOB_ID" >> "$OUTPUT_FILE" 2>&1
+        echo -e "\n\n" >> "$OUTPUT_FILE"
+    fi
+done < "$MISSING_JOBS_FILE"
 
-OUTPUT_DIR="/home/lsfutil/switch_activity"
-
-lsid > "$OUTPUT_DIR/lsid_before.txt"
-bhosts > "$OUTPUT_DIR/bhosts_before.txt"
-lsload > "$OUTPUT_DIR/lsload_before.txt"
-bqueues > "$OUTPUT_DIR/bqueues_before.txt"
-bjobs -u all -o "jobid user stat exit_code exec_host queue submit_time" > "$OUTPUT_DIR/bjobs_before.txt"
-bjobs -a -u all -o "jobid user stat exit_code exec_host queue submit_time" > "$OUTPUT_DIR/full_bjobs_before.txt"
-bjobs -u all | awk '{print $3}' | sort | uniq -c > "$OUTPUT_DIR/bjobs_status_count_before.txt"
-
-
----
-
-🔹 2. capture_after.sh
-
-This captures LSF system info after a change or event.
-
-#!/bin/bash
-
-# Script: capture_after.sh
-# Description: Captures LSF system status after switch
-
-OUTPUT_DIR="/home/lsfutil/switch_activity"
-
-lsid > "$OUTPUT_DIR/lsid_after.txt"
-bhosts > "$OUTPUT_DIR/bhosts_after.txt"
-lsload > "$OUTPUT_DIR/lsload_after.txt"
-bqueues > "$OUTPUT_DIR/bqueues_after.txt"
-bjobs -u all -o "jobid user stat exit_code exec_host queue submit_time" > "$OUTPUT_DIR/bjobs_after.txt"
-bjobs -a -u all -o "jobid user stat exit_code exec_host queue submit_time" > "$OUTPUT_DIR/full_bjobs_after.txt"
-bjobs -u all | awk '{print $3}' | sort | uniq -c > "$OUTPUT_DIR/bjobs_status_count_after.txt"
-
-
----
-
-🔹 3. compare_jobs.sh
-
-This script compares job IDs before and after and lists missing jobs.
-
-#!/bin/bash
-
-# Script: compare_jobs.sh
-# Description: Compare bjobs_before.txt and bjobs_after.txt to find missing job IDs
-
-cd /home/lsfutil/switch_activity || exit 1
-
-cut -d' ' -f1 bjobs_before.txt > job_ids_before.txt
-cut -d' ' -f1 bjobs_after.txt > job_ids_after.txt
-
-# Ensure files are sorted and compare
-comm -23 <(sort job_ids_before.txt) <(sort job_ids_after.txt) > missing_jobs.txt
-
-
----
-
-✅ How to Use
-
-1. Save each script to a .sh file (e.g., capture_before.sh).
-
-
-2. Make each file executable:
-
-chmod +x capture_before.sh capture_after.sh compare_jobs.sh
-
-
-3. Run them in order:
-
-./capture_before.sh
-# ... perform the switch or operation ...
-./capture_after.sh
-./compare_jobs.sh
-
-
-
-Let me know if you want to wrap this into one combined script or add logging or timestamps!
-
+echo "Done. Output saved to: $OUTPUT_FILE"
