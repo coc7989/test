@@ -1,149 +1,90 @@
-Here is the updated scoring logic section including:
-
-The scoring logic for historical utilization and job efficiency
-
-Modular helper functions: get_user_utilization and get_user_avg_efficiency
-
-Oracle SQL query integration with cx_Oracle
-
+tHere's how you can organize those three sets of commands into three separate shell scripts. I'll name them logically and add necessary headers and comments.
 
 
 ---
 
-🧩 Add These at the Top of Your Script (Imports & Time Helpers)
+🔹 1. capture_before.sh
 
-from datetime import datetime, timedelta
+This script captures LSF system info before a change or event.
 
-def get_epoch_range_for_yesterday():
-    now = datetime.now()
-    start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
-    return int(start.timestamp()), int(end.timestamp())
+#!/bin/bash
 
+# Script: capture_before.sh
+# Description: Captures LSF system status before switch
 
----
+OUTPUT_DIR="/home/lsfutil/switch_activity"
 
-⚙️ Helper Function 1: Historical Utilization
-
-def get_user_utilization(user, queue, cluster, quota):
-    start_epoch, end_epoch = get_epoch_range_for_yesterday()
-    conn = get_oracle_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT SUM(NUM_SLOTS_REQURESTED * RUN_TIME)
-        FROM V_UED_BACCT_INDIA
-        WHERE USERID = :user AND QUEUE_NAME = :queue AND CLUSTER_NAME = :cluster
-          AND START_TIME BETWEEN :start_time AND :end_time
-    """, {
-        'user': user,
-        'queue': queue,
-        'cluster': cluster,
-        'start_time': start_epoch,
-        'end_time': end_epoch
-    })
-    result = cur.fetchone()[0]
-    conn.close()
-
-    if result is None or quota == 0:
-        return 0.0
-
-    quota_seconds = quota * 86400  # 24 hours
-    utilization = result / quota_seconds
-    return min(utilization, 1.0)
+lsid > "$OUTPUT_DIR/lsid_before.txt"
+bhosts > "$OUTPUT_DIR/bhosts_before.txt"
+lsload > "$OUTPUT_DIR/lsload_before.txt"
+bqueues > "$OUTPUT_DIR/bqueues_before.txt"
+bjobs -u all -o "jobid user stat exit_code exec_host queue submit_time" > "$OUTPUT_DIR/bjobs_before.txt"
+bjobs -a -u all -o "jobid user stat exit_code exec_host queue submit_time" > "$OUTPUT_DIR/full_bjobs_before.txt"
+bjobs -u all | awk '{print $3}' | sort | uniq -c > "$OUTPUT_DIR/bjobs_status_count_before.txt"
 
 
 ---
 
-⚙️ Helper Function 2: Average Job Efficiency
+🔹 2. capture_after.sh
 
-def get_user_avg_efficiency(user, queue, cluster):
-    start_epoch, end_epoch = get_epoch_range_for_yesterday()
-    conn = get_oracle_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT AVG(JOB_EFFICIENCY)
-        FROM V_UED_BACCT_INDIA
-        WHERE USERID = :user AND QUEUE_NAME = :queue AND CLUSTER_NAME = :cluster
-          AND START_TIME BETWEEN :start_time AND :end_time
-    """, {
-        'user': user,
-        'queue': queue,
-        'cluster': cluster,
-        'start_time': start_epoch,
-        'end_time': end_epoch
-    })
-    result = cur.fetchone()[0]
-    conn.close()
+This captures LSF system info after a change or event.
 
-    return float(result) if result else 0.0
+#!/bin/bash
+
+# Script: capture_after.sh
+# Description: Captures LSF system status after switch
+
+OUTPUT_DIR="/home/lsfutil/switch_activity"
+
+lsid > "$OUTPUT_DIR/lsid_after.txt"
+bhosts > "$OUTPUT_DIR/bhosts_after.txt"
+lsload > "$OUTPUT_DIR/lsload_after.txt"
+bqueues > "$OUTPUT_DIR/bqueues_after.txt"
+bjobs -u all -o "jobid user stat exit_code exec_host queue submit_time" > "$OUTPUT_DIR/bjobs_after.txt"
+bjobs -a -u all -o "jobid user stat exit_code exec_host queue submit_time" > "$OUTPUT_DIR/full_bjobs_after.txt"
+bjobs -u all | awk '{print $3}' | sort | uniq -c > "$OUTPUT_DIR/bjobs_status_count_after.txt"
 
 
 ---
 
-🔢 Updated Score Function
+🔹 3. compare_jobs.sh
 
-def score_job(job, priority_users, priority_projects, args, cluster_name):
-    score = 0
-    rules = []
+This script compares job IDs before and after and lists missing jobs.
 
-    if not args.disable_project_priority and job['project'] in priority_projects:
-        score += 30
-        rules.append('project_priority')
+#!/bin/bash
 
-    if not args.disable_user_priority and job['user'] in priority_users:
-        score += 25
-        rules.append('user_priority')
+# Script: compare_jobs.sh
+# Description: Compare bjobs_before.txt and bjobs_after.txt to find missing job IDs
 
-    if not args.disable_quota_sort and job['quota'] <= 50:
-        score += 15
-        rules.append('default_quota')
+cd /home/lsfutil/switch_activity || exit 1
 
-    if not args.disable_pending_age:
-        pend_score = min(job['pend_time'] / 21600, 1.0) * 20
-        score += int(pend_score)
-        rules.append('pend_age')
+cut -d' ' -f1 bjobs_before.txt > job_ids_before.txt
+cut -d' ' -f1 bjobs_after.txt > job_ids_after.txt
 
-    if not args.disable_utilization_check:
-        utilization = job['running'] / job['quota'] if job['quota'] else 0
-        score += int((1 - utilization) * 15)
-        rules.append('low_realtime_util')
-
-    if not args.disable_utilization_history:
-        util_hist = get_user_utilization(job['user'], job['queue'], cluster_name, job['quota'])
-        if util_hist <= 0.2:
-            score += 15
-        elif util_hist <= 0.3:
-            score += 10
-        elif util_hist <= 0.4:
-            score += 5
-        rules.append(f'low_hist_util:{round(util_hist, 2)}')
-
-    if not args.disable_efficiency_check:
-        eff = get_user_avg_efficiency(job['user'], job['queue'], cluster_name)
-        if eff >= 0.90:
-            score += 10
-        elif eff >= 0.85:
-            score += 5
-        rules.append(f'efficiency:{round(eff, 2)}')
-
-    if not args.disable_long_pending_bonus and job['pend_time'] > 21600:
-        score += 5
-        rules.append('very_old_job')
-
-    return score, rules
+# Ensure files are sorted and compare
+comm -23 <(sort job_ids_before.txt) <(sort job_ids_after.txt) > missing_jobs.txt
 
 
 ---
 
-🛠 CLI Flags to Add
+✅ How to Use
 
-Update your argparse with these flags:
-
-parser.add_argument('--disable-utilization-history', action='store_true')
-parser.add_argument('--disable-efficiency-check', action='store_true')
+1. Save each script to a .sh file (e.g., capture_before.sh).
 
 
----
+2. Make each file executable:
 
-Let me know if you want this written into the actual script file now. I can also help generate mock Oracle test queries or integrate caching if needed.
+chmod +x capture_before.sh capture_after.sh compare_jobs.sh
+
+
+3. Run them in order:
+
+./capture_before.sh
+# ... perform the switch or operation ...
+./capture_after.sh
+./compare_jobs.sh
+
+
+
+Let me know if you want to wrap this into one combined script or add logging or timestamps!
 
