@@ -1,105 +1,459 @@
-rdef get_user_queue_limits(user_id, queue):
-    blimits_out = run_cmd(f"blimits -a -u {user_id} | grep {queue}")
-    used, quota = 0, -1
-    for line in blimits_out.splitlines():
-        slot_info = line.split()[-1]
-        if '/' in slot_info:
-            used_str, limit_str = slot_info.split('/')
-            used = int(used_str) if used_str.isdigit() else 0
-            quota = int(limit_str) if limit_str.isdigit() else -1
-            break
-    return used, quota
+uGreat! Since you want a dynamic Jenkinsfile that behaves differently based on the branch (dev vs prod), you can use a single Jenkinsfile in both branches, and control the behavior based on the BRANCH_NAME variable provided by Jenkins.
+
+This gives you the best of both worlds:
+
+✅ Same file in both branches (easy to maintain)
+
+✅ Different behavior based on which branch is being built
 
 
-def should_move_job(job, user_quota_cache):
-    user_id = job['user_id']
-    queue = job['queue']
-    pend_slots = job['pend_slots']
 
-    if queue != 'normal':
-        return False  # Only moving from 'normal'
+---
 
-    if is_job_already_moved(job['job_id']):
-        return False
+✅ Final Dynamic Jenkinsfile for Both dev and prod
 
-    normal_key = (user_id, 'normal')
-    normal_used, normal_quota = user_quota_cache.get(normal_key, (0, -1))
+Put this exact Jenkinsfile in both the dev and prod branches:
 
-    regress_key = (user_id, 'regress')
-    regress_used, regress_quota = user_quota_cache.get(regress_key, (0, -1))
+pipeline {
+    agent any
 
-    if normal_quota == -1:
-        normal_used, normal_quota = get_user_queue_limits(user_id, 'normal')
-        user_quota_cache[normal_key] = (normal_used, normal_quota)
+    environment {
+        // Dynamically set environment mode based on branch name
+        PYTHON_ENV = "${env.BRANCH_NAME == 'prod' ? 'prod' : 'dev'}"
+    }
 
-    if regress_quota == -1:
-        regress_used, regress_quota = get_user_queue_limits(user_id, 'regress')
-        user_quota_cache[regress_key] = (regress_used, regress_quota)
+    triggers {
+        // Only enable cron for prod branch
+        when {
+            branch 'prod'
+        }
+        cron('H/5 * * * *') // every 5 minutes (only applies to prod)
+    }
 
-    # Decision logic
-    if normal_used >= normal_quota and (regress_used + pend_slots) <= regress_quota:
-        return True
-    return False
+    stages {
+        stage('Run on All Nodes') {
+            matrix {
+                axes {
+                    axis {
+                        name 'NODE_LABEL'
+                        values 'server1', 'server2', 'server3', 'server4'
+                    }
+                }
+                agent { label NODE_LABEL }
+                stages {
+                    stage('Checkout & Run') {
+                        steps {
+                            echo "Running on branch: ${env.BRANCH_NAME}"
+                            echo "Environment: ${PYTHON_ENV}"
 
-
-def attempt_move_job(job, user_quota_cache):
-    user_id = job['user_id']
-    pend_slots = job['pend_slots']
-
-    # Update queue before move
-    job['original_queue'] = job['queue']
-    job['queue'] = 'regress'
-
-    move_job(job)
-    record_job_move(
-        job=job,
-        score=0,
-        reason="normal full, regress available",
-        rules_applied=["normal_full_regress_has_capacity"],
-        cycle_id="auto-cycle-001"
-    )
-
-    # Update cache
-    key = (user_id, 'regress')
-    current_used, quota = user_quota_cache.get(key, (0, -1))
-    user_quota_cache[key] = (current_used + pend_slots, quota)
+                            sh '''
+                            ENVIRONMENT=${PYTHON_ENV} python3 main.py
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 
-def parse_mbjobs2():
-    queue_pattern = '|'.join(QUEUE)
-    output = run_cmd(f"/db/lsf/work/local/bin/mbjobs2 | grep PEND | grep -E '{queue_pattern}' | awk -F',' '$NF > 300'")
-    jobs = []
-    user_quota_cache = {}
+---
 
-    for line in output.splitlines():
-        fields = line.strip().split(',')
-        if len(fields) < 24:
-            continue
+✅ What This Does
 
-        queue = fields[14]
-        if queue not in QUEUE:
-            continue
+Feature	Behavior
 
-        job = {
-            'job_id': fields[0],
-            'user_id': fields[2],
-            'queue': queue,
-            'pend_slots': int(fields[17]),
-            'project': fields[18],
-            'res_req': fields[15],
-            'pend_time': int(fields[23]),
+PYTHON_ENV	Automatically set to prod or dev based on BRANCH_NAME
+triggers {}	Runs every 5 minutes only if branch is prod
+matrix	Executes on all 4 Jenkins nodes: server1 through server4
+main.py	Uses ENVIRONMENT=dev or ENVIRONMENT=prod accordingly
+
+
+
+---
+
+✅ How main.py Handles It
+
+In main.py:
+
+import os
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
+IS_DRY_RUN = ENVIRONMENT == "dev"
+
+print(f"Running in {ENVIRONMENT.upper()} mode")
+
+if IS_DRY_RUN:
+    print(f"[DRY-RUN] Would move job {job['job_id']} to {target_queue}")
+else:
+    run_cmd(f"bmod -q {target_queue} {job['job_id']}")
+
+
+---
+
+✅ Summary
+
+Use this single dynamic Jenkinsfile in both dev and prod branches.
+
+Jenkins figures out the branch and adjusts the environment and schedule accordingly.
+
+Keeps your setup clean, maintainable, and dynamic.
+
+
+
+---
+
+Would you like me to generate a ready-to-paste Bitbucket repo file structure or help you set up the webhook for triggering dev on push?
+
+
+Thanks for clarifying — you're working in a production-only server environment, but want to simulate dev/prod separation logically within the same infrastructure. That's totally doable — here's a clean and practical setup for you.
+
+
+---
+
+✅ Your Goals Recap
+
+1. Use Bitbucket dev and prod branches to separate logic.
+
+
+2. All 4 servers are prod, but you want the script to behave differently based on the branch/environment.
+
+
+3. Script runs via cron — either OS-level or Jenkins-managed.
+
+
+4. Script runs every 5 minutes.
+
+
+
+
+---
+
+✅ Recommended Design
+
+💡 Use Jenkins to Pull the Right Branch
+
+Let Jenkins:
+
+Pull from dev branch for dry-run mode.
+
+Pull from prod branch for live execution.
+
+
+💡 Simulate Dev/Prod in Code
+
+Inside your script (main.py), use:
+
+import os
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")  # default to dev
+
+IS_DRY_RUN = ENVIRONMENT == "dev"
+
+# Then use this flag in your logic
+if IS_DRY_RUN:
+    print(f"[DRY-RUN] Would move job {job['job_id']} to {target_queue}")
+else:
+    run_cmd(f"bmod -q {target_queue} {job['job_id']}")
+
+✅ Jenkins Cron (Best Option)
+
+Use a Jenkins scheduled job instead of system cron because:
+
+It logs everything (better audit/history).
+
+It pulls the latest code automatically.
+
+It scales across agents.
+
+It's easier to manage changes and rollbacks.
+
+
+
+---
+
+✅ Jenkins Setup: Dev & Prod Pipeline
+
+🔧 Jenkinsfile (Multi-Branch Aware)
+
+Here's a smart Jenkinsfile you can use:
+
+pipeline {
+    agent any
+
+    environment {
+        PYTHON_ENV = "${env.BRANCH_NAME == 'prod' ? 'prod' : 'dev'}"
+    }
+
+    triggers {
+        cron('H/5 * * * *')  // every 5 minutes
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
         }
 
-        key = (job['user_id'], queue)
-        if key not in user_quota_cache:
-            user_quota_cache[key] = get_user_queue_limits(job['user_id'], queue)
+        stage('Run Script on All Prod Nodes') {
+            matrix {
+                axes {
+                    axis {
+                        name 'NODE_LABEL'
+                        values 'server1', 'server2', 'server3', 'server4'
+                    }
+                }
+                agent { label NODE_LABEL }
+                stages {
+                    stage('Execute Script') {
+                        steps {
+                            sh '''
+                            source venv/bin/activate || true
+                            ENVIRONMENT=${PYTHON_ENV} python3 main.py
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
-        job['running'], job['quota'] = user_quota_cache[key]
+> ✅ This will:
 
-        # Decide and act on move
-        if should_move_job(job, user_quota_cache):
-            attempt_move_job(job, user_quota_cache)
-        else:
-            jobs.append(job)
+Run every 5 mins
 
-    return jobs
+Use dev or prod behavior based on branch
+
+Apply changes (or dry-run) depending on the environment
+
+
+
+
+
+---
+
+✅ Bitbucket Branching Policy
+
+dev branch = simulate moves (dry-run)
+
+prod branch = actual job switching
+
+Create PRs from dev → prod to deploy
+
+
+
+---
+
+✅ What You Don't Need
+
+Since you're not separating environments physically:
+
+No separate dev server required.
+
+No SSH/rsync needed — Jenkins agents handle it.
+
+No system crons — use Jenkins cron for logging and flexibility.
+
+
+
+---
+
+🔚 Summary
+
+Task	Recommendation
+
+Dev/prod separation	Use branches + ENVIRONMENT var
+Cron execution	Use Jenkins cron (cron('H/5 * * * *'))
+Server type	All prod, but logic-based behavior
+Deployment	Bitbucket push triggers Jenkins
+Job execution	Jenkins matrix job on all agents
+
+
+
+---
+
+Would you like a complete main.py template showing how ENVIRONMENT toggles behavior and logs cleanly?
+
+Absolutely! Let me walk you through the end-to-end setup for your automated, environment-aware job management system using Bitbucket, Jenkins, and your 4 production servers (as Jenkins agents).
+
+
+---
+
+✅ High-Level Architecture
+
+Bitbucket (dev/prod branches)
+                       |
+              +--------+---------+
+              | Jenkins (CI/CD) |
+              +--------+--------+
+                       |
+           Jenkins Matrix Job (Triggers Every 5 Min)
+        /         |         |         \
+    server1   server2   server3   server4 (Jenkins agents)
+       |          |          |         |
+    main.py (job rebalancer logic using ENVIRONMENT)
+
+
+---
+
+🔄 Full Walkthrough: What Happens and When
+
+🚀 1. You Push Code to Bitbucket
+
+Your repo has two branches: dev and prod.
+
+You push changes to either:
+
+dev: for dry-run/test behavior
+
+prod: for actual job-moving logic
+
+
+
+Structure:
+
+job-mover/
+├── main.py
+├── Jenkinsfile
+├── config/dev.env (optional)
+├── config/prod.env (optional)
+
+
+---
+
+⚙️ 2. Jenkins Watches for Changes or Runs on a Schedule
+
+You’ve created a Jenkins multibranch pipeline job.
+
+Jenkins:
+
+Checks out the branch (dev or prod)
+
+Sets ENVIRONMENT=dev or prod accordingly
+
+Runs every 5 minutes via cron:
+
+triggers {
+    cron('H/5 * * * *')
+}
+
+
+
+
+---
+
+🧠 3. Jenkinsfile Logic
+
+environment {
+    PYTHON_ENV = "${env.BRANCH_NAME == 'prod' ? 'prod' : 'dev'}"
+}
+
+For dev branch: PYTHON_ENV=dev
+
+For prod branch: PYTHON_ENV=prod
+
+
+Jenkins executes:
+
+ENVIRONMENT=${PYTHON_ENV} python3 main.py
+
+This injects the correct environment variable into your script.
+
+
+---
+
+🖥️ 4. Jenkins Matrix Runs the Script on All 4 Servers
+
+matrix {
+  axes {
+    axis {
+      name 'NODE_LABEL'
+      values 'server1', 'server2', 'server3', 'server4'
+    }
+  }
+  agent { label NODE_LABEL }
+}
+
+Each node:
+
+Checks out the repo
+
+Executes the script with the right ENV
+
+Shares the exact same logic (no manual file copies)
+
+
+
+---
+
+🧾 5. main.py Behavior Based on ENVIRONMENT
+
+In main.py:
+
+import os
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
+IS_DRY_RUN = ENVIRONMENT == "dev"
+print(f"Running in {ENVIRONMENT.upper()} mode.")
+
+Then inside job-moving logic:
+
+if IS_DRY_RUN:
+    print(f"[DRY-RUN] Would move job {job['job_id']} to {target_queue}")
+else:
+    run_cmd(f"bmod -q {target_queue} {job['job_id']}")
+
+So:
+
+In dev: nothing is actually moved
+
+In prod: real job movements happen
+
+
+
+---
+
+💾 6. Optional: History and Audit
+
+You already have a record_job_move(...) function writing to JOB_MOVE_TO_FLEXI_HISTORY.
+
+In dev, it can skip DB inserts (optional), or you can still log dry-run attempts if needed.
+
+
+---
+
+✅ Summary: What Happens When You Push Code
+
+Step	What Happens
+
+1	You push to dev or prod branch in Bitbucket
+2	Jenkins sees the change or triggers via cron
+3	Jenkins checks out the repo on all 4 prod servers
+4	Jenkins runs main.py with the right ENVIRONMENT
+5	Script runs in dry-run (dev) or actual mode (prod)
+6	Job logic executes dynamically per server
+7	Audit, logging, and job movement are handled automatically
+
+
+
+---
+
+🛠️ Want a Quick Start?
+
+I can:
+
+Build you a starter main.py with dev/prod awareness
+
+Provide a full Jenkinsfile
+
+Help you create a Jenkins multibranch job
+
+Optional: .env config support
+
+
+Let me know what you want to generate or build next.
+
+
+
