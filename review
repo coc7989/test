@@ -1,89 +1,105 @@
-yimport subprocess
-import smtplib
-from collections import defaultdict
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+rdef get_user_queue_limits(user_id, queue):
+    blimits_out = run_cmd(f"blimits -a -u {user_id} | grep {queue}")
+    used, quota = 0, -1
+    for line in blimits_out.splitlines():
+        slot_info = line.split()[-1]
+        if '/' in slot_info:
+            used_str, limit_str = slot_info.split('/')
+            used = int(used_str) if used_str.isdigit() else 0
+            quota = int(limit_str) if limit_str.isdigit() else -1
+            break
+    return used, quota
 
-# Configuration
-SMTP_SERVER = "your.smtp.server.com"
-SMTP_PORT = 25
-FROM_EMAIL = "lsf-alerts@fc.com"
 
-# List of problematic hosts
-hosts = [
-    "linbrxm01", "linbrxn01", "linbrxn06", "linbrxo03", "lincasc04",
-    "lincasc09", "lincasc14", "lincase05", "lincasg01", "lincasg12", "lincash06"
-]
+def should_move_job(job, user_quota_cache):
+    user_id = job['user_id']
+    queue = job['queue']
+    pend_slots = job['pend_slots']
 
-user_data = defaultdict(lambda: defaultdict(list))
+    if queue != 'normal':
+        return False  # Only moving from 'normal'
 
-# Collect job info per user on affected hosts
-for host in hosts:
-    print(f"Processing host: {host}")
-    try:
-        result = subprocess.run(
-            ["bjobs", "-w", "-u", "all", "-m", host],
-            capture_output=True,
-            text=True,
-            check=False
-        )
-        lines = result.stdout.strip().splitlines()
-        if len(lines) <= 1:
-            continue  # No jobs
+    if is_job_already_moved(job['job_id']):
+        return False
 
-        for line in lines[1:]:  # Skip header
-            parts = line.split()
-            if len(parts) < 2:
-                continue
-            job_id, user = parts[0], parts[1]
-            user_data[user][host].append(job_id)
-    except Exception as e:
-        print(f"Error processing host {host}: {e}")
+    normal_key = (user_id, 'normal')
+    normal_used, normal_quota = user_quota_cache.get(normal_key, (0, -1))
 
-# Prepare log file
-log_file = "all_user_messages.txt"
-with open(log_file, "w") as f_log:
+    regress_key = (user_id, 'regress')
+    regress_used, regress_quota = user_quota_cache.get(regress_key, (0, -1))
 
-    # Email each user
-    for user, hosts_jobs in user_data.items():
-        to_email = f"{user}@fc.com"
+    if normal_quota == -1:
+        normal_used, normal_quota = get_user_queue_limits(user_id, 'normal')
+        user_quota_cache[normal_key] = (normal_used, normal_quota)
 
-        # Create email body
-        html_body = f"""
-        <p>Hi {user},</p>
-        <p>We have detected that some of your jobs are currently running on host(s) experiencing hardware issues. These jobs may not complete successfully or could get corrupted.</p>
-        <p><b>Affected Host(s) and Job ID(s):</b></p><ul>
-        """
+    if regress_quota == -1:
+        regress_used, regress_quota = get_user_queue_limits(user_id, 'regress')
+        user_quota_cache[regress_key] = (regress_used, regress_quota)
 
-        for host, job_ids in hosts_jobs.items():
-            html_body += f"<li><b>Host:</b> {host}<br><b>Jobs:</b> {' '.join(job_ids)}</li>"
+    # Decision logic
+    if normal_used >= normal_quota and (regress_used + pend_slots) <= regress_quota:
+        return True
+    return False
 
-        html_body += """
-        </ul>
-        <p>To avoid any potential issues, we are planning to terminate these jobs. We recommend re-submitting them so they are scheduled on a healthy host, ensuring your work proceeds without impact. Our team is actively working to restore the affected host(s).</p>
-        <p>If any of the affected jobs are critical and nearing completion (e.g., expected to finish in the next day or two), please let us know as soon as possible so we can evaluate the best course of action.</p>
-        <p>We will wait until the end of the day (EOD) for your response. If we do not hear back from you, the jobs will be terminated by default to prevent further risk.</p>
-        <p>Please don’t hesitate to reach out if you need any assistance.</p>
-        <p>Thanks,<br>LSF Team</p>
-        """
 
-        try:
-            # Compose email
-            msg = MIMEMultipart()
-            msg['From'] = FROM_EMAIL
-            msg['To'] = to_email
-            msg['Subject'] = "[Action Required]: Jobs Running on Host with Hardware Issues"
-            msg.attach(MIMEText(html_body, "html"))
+def attempt_move_job(job, user_quota_cache):
+    user_id = job['user_id']
+    pend_slots = job['pend_slots']
 
-            # Send email
-            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-            server.sendmail(FROM_EMAIL, to_email, msg.as_string())
-            server.quit()
+    # Update queue before move
+    job['original_queue'] = job['queue']
+    job['queue'] = 'regress'
 
-            # Log the email sent
-            f_log.write(f"{datetime.now().isoformat()} - Email sent to: {to_email}\n")
-            print(f"Email sent to: {to_email}")
-        except Exception as e:
-            print(f"Failed to send email to {to_email}: {e}")
-            f_log.write(f"{datetime.now().isoformat()} - Failed to send to {to_email}: {e}\n")
+    move_job(job)
+    record_job_move(
+        job=job,
+        score=0,
+        reason="normal full, regress available",
+        rules_applied=["normal_full_regress_has_capacity"],
+        cycle_id="auto-cycle-001"
+    )
+
+    # Update cache
+    key = (user_id, 'regress')
+    current_used, quota = user_quota_cache.get(key, (0, -1))
+    user_quota_cache[key] = (current_used + pend_slots, quota)
+
+
+def parse_mbjobs2():
+    queue_pattern = '|'.join(QUEUE)
+    output = run_cmd(f"/db/lsf/work/local/bin/mbjobs2 | grep PEND | grep -E '{queue_pattern}' | awk -F',' '$NF > 300'")
+    jobs = []
+    user_quota_cache = {}
+
+    for line in output.splitlines():
+        fields = line.strip().split(',')
+        if len(fields) < 24:
+            continue
+
+        queue = fields[14]
+        if queue not in QUEUE:
+            continue
+
+        job = {
+            'job_id': fields[0],
+            'user_id': fields[2],
+            'queue': queue,
+            'pend_slots': int(fields[17]),
+            'project': fields[18],
+            'res_req': fields[15],
+            'pend_time': int(fields[23]),
+        }
+
+        key = (job['user_id'], queue)
+        if key not in user_quota_cache:
+            user_quota_cache[key] = get_user_queue_limits(job['user_id'], queue)
+
+        job['running'], job['quota'] = user_quota_cache[key]
+
+        # Decide and act on move
+        if should_move_job(job, user_quota_cache):
+            attempt_move_job(job, user_quota_cache)
+        else:
+            jobs.append(job)
+
+    return jobs
