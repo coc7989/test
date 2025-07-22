@@ -1,171 +1,52 @@
-yAbsolutely — adding try/except/finally blocks to your database-related functions is essential for reliability and robustness, especially in long-running scripts like yours.
+uflowchart TD
 
-Below, I’ve updated each DB-related function with proper error handling and clean-up (conn.close() in finally blocks). Each function will log the error clearly but fail gracefully where appropriate.
+  Start([Start Script])
+  LoadEnv[Load .env variables<br/>(DB config, quotas, caps)]
+  ParseCaps[Parse INTELLIGENCE_SCORES_CAP<br/> and DEFAULT_QUEUE_QUOTAS using ast]
+  GetCluster[get_cluster_name()]
+  SetCycleID[Set CYCLE_ID = time-based ID]
+  LoadConfig[Load priority_users and priority_projects from YAML]
 
+  Start --> LoadEnv --> ParseCaps --> GetCluster --> SetCycleID --> LoadConfig
 
----
+  CheckClusterSlots[get_cluster_slots()]
+  IsFull{Available Slots<br/> < Threshold?}
+  CheckClusterSlots --> IsFull
+  IsFull -->|Yes| ExitTooFull[Exit: Cluster too full]
+  IsFull -->|No| ParseJobs[parse_mbjobs2()]
 
-✅ Updated Functions
+  subgraph AutoMovePendingJobs
+    ParseJobs --> ForEachJob[For each pending job]
+    ForEachJob --> CanAutoMove{should_move_job()?}
+    CanAutoMove -->|Yes| MoveAndRecord[move_job() + record_job_move()]
+    CanAutoMove -->|No| AddToScoringList[Add job to list for scoring]
+  end
 
+  ScoringLoop[For each job not auto-moved]
+  FilterQuota{Is user below quota?}
+  AlreadyMoved{Already moved?}
+  ScoreJob[score_job()]
 
----
+  AutoMovePendingJobs --> ScoringLoop
+  ScoringLoop --> FilterQuota -->|No| AlreadyMoved -->|No| ScoreJob
+  ScoreJob --> AddToScoreList[Append (score, job, rules)]
 
-🔹 get_oracle_connection()
+  SortJobs[Sort jobs by score descending]
+  SortJobs --> ForEachScored[For each scored job]
 
-No need to wrap this one unless you want a fallback strategy — but here's a safe version:
+  ExceedsCap{Would exceed FLEXI_QUEUE_CAP?}
+  HasCapacity{Enough cluster capacity?}
+  FinalMove[move_job() + record_job_move() + increment moved_slots]
 
-def get_oracle_connection():
-    try:
-        return cx_Oracle.connect(DB_USERNAME, DB_PASSWORD, DB_DSN)
-    except cx_Oracle.DatabaseError as e:
-        print(f"[DB ERROR] Failed to connect to Oracle: {e}")
-        return None
+  ForEachScored --> ExceedsCap
+  ExceedsCap -->|Yes| StopMoving[Stop further moves]
+  ExceedsCap -->|No| HasCapacity
+  HasCapacity -->|No| SkipJob[Skip job]
+  HasCapacity -->|Yes| FinalMove
 
+  FinalMove --> ForEachScored
 
----
-
-🔹 is_job_already_moved()
-
-def is_job_already_moved(job_id):
-    conn = None
-    try:
-        conn = get_oracle_connection()
-        if not conn:
-            return False
-        cur = conn.cursor()
-        cur.execute("SELECT 1 FROM JOB_MOVE_HISTORY WHERE JOB_ID = :job_id", {'job_id': job_id})
-        result = cur.fetchone()
-        return bool(result)
-    except cx_Oracle.DatabaseError as e:
-        print(f"[DB ERROR] Failed to check job move history: {e}")
-        return False
-    finally:
-        if conn:
-            conn.close()
-
-
----
-
-🔹 record_job_move()
-
-def record_job_move(job, score, reason, rules_applied, cycle_id):
-    conn = None
-    try:
-        if job['queue'] == 'normal':
-            from_queue = 'normal'
-            to_queue = 'regress'
-        elif job['queue'] == 'regress':
-            from_queue = 'regress'
-            to_queue = FLEXI_QUEUE
-        else:
-            print(f"[WARN] Unsupported record for queue: {job['queue']}")
-            return
-
-        conn = get_oracle_connection()
-        if not conn:
-            return
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO JOB_MOVE_HISTORY (
-                JOB_ID, USER_ID, CLUSTER_NAME, MOVED_FROM_QUEUE, MOVED_TO_QUEUE,
-                MOVE_TIME, MOVE_REASON, PEND_TIME_BEFORE, SCORE,
-                RULES_APPLIED, CYCLE_ID
-            ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11)
-        """, (
-            job['job_id'], job['user_id'], CLUSTER_NAME, from_queue, to_queue,
-            datetime.now(), reason, job['pend_time'], score,
-            ",".join(rules_applied), cycle_id
-        ))
-        conn.commit()
-    except cx_Oracle.DatabaseError as e:
-        print(f"[DB ERROR] Failed to record job move: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-
----
-
-🔹 get_user_utilization()
-
-def get_user_utilization(user, queue, cluster, quota):
-    conn = None
-    try:
-        start_epoch, end_epoch = get_epoch_range_for_yesterday()
-        conn = get_oracle_connection()
-        if not conn:
-            return 0.0
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT SUM(NUM_PROC * RUN_TIME)
-            FROM V_UED_BACCT_INDIA
-            WHERE USERID = :user AND QUEUE_ID = :queue AND CLUSTER_NAME = :cluster
-              AND START_TIME BETWEEN :start_time AND :end_time
-        """, {
-            'user': user,
-            'queue': queue,
-            'cluster': cluster,
-            'start_time': start_epoch,
-            'end_time': end_epoch
-        })
-        result = cur.fetchone()[0]
-        if result is None or quota == 0:
-            return 0.0
-        quota_seconds = quota * 86400
-        utilization = result / quota_seconds
-        return min(utilization, 1.0)
-    except cx_Oracle.DatabaseError as e:
-        print(f"[DB ERROR] Failed to fetch utilization for {user}: {e}")
-        return 0.0
-    finally:
-        if conn:
-            conn.close()
-
-
----
-
-🔹 get_user_avg_efficiency()
-
-def get_user_avg_efficiency(user, queue, cluster):
-    conn = None
-    try:
-        start_epoch, end_epoch = get_epoch_range_for_yesterday()
-        conn = get_oracle_connection()
-        if not conn:
-            return 0.0
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT AVG(JOB_EFF)
-            FROM V_UED_BACCT_INDIA
-            WHERE USERID = :user AND QUEUE_ID = :queue AND CLUSTER_NAME = :cluster
-              AND START_TIME BETWEEN :start_time AND :end_time
-        """, {
-            'user': user,
-            'queue': queue,
-            'cluster': cluster,
-            'start_time': start_epoch,
-            'end_time': end_epoch
-        })
-        result = cur.fetchone()[0]
-        return float(result) if result else 0.0
-    except cx_Oracle.DatabaseError as e:
-        print(f"[DB ERROR] Failed to fetch average efficiency for {user}: {e}")
-        return 0.0
-    finally:
-        if conn:
-            conn.close()
-
-
----
-
-🧼 Notes
-
-Using conn = None + finally ensures connection always closes, even if exceptions occur.
-
-All errors are logged but don’t break the flow (fail-safe behavior).
-
-Consider adding proper logging (logging module) for production.
-
-
-Would you like me to also add logging or retry logic for transient DB failures?
-
+  FinalMove --> End([End Script])
+  SkipJob --> ForEachScored
+  StopMoving --> End
+  AddToScoreList --> SortJobs
