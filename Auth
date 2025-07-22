@@ -1,78 +1,171 @@
-tTo display the accessEndDate exactly as it comes from the backend, without timezone conversion, and in a consistent format like:
+yAbsolutely — adding try/except/finally blocks to your database-related functions is essential for reliability and robustness, especially in long-running scripts like yours.
 
-(Ending on: Mon, 09 Jun 2025)
-
-You should avoid new Date(), because it applies the local timezone (which causes issues across regions like India, Dallas, China, Freising).
+Below, I’ve updated each DB-related function with proper error handling and clean-up (conn.close() in finally blocks). Each function will log the error clearly but fail gracefully where appropriate.
 
 
 ---
 
-✅ Solution
-
-If your backend is returning the date as a string (e.g., "2025-06-09T00:00:00Z" or "2025-06-09"), you should treat it as a plain string and format it using date-fns or dayjs without converting to local time.
+✅ Updated Functions
 
 
 ---
 
-🔁 Option 1: Use dayjs with UTC plugin
+🔹 get_oracle_connection()
 
-1. Install dayjs (if not already):
+No need to wrap this one unless you want a fallback strategy — but here's a safe version:
 
-
-
-npm install dayjs
-
-2. Format date safely:
-
-
-
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import advancedFormat from 'dayjs/plugin/advancedFormat';
-
-dayjs.extend(utc);
-dayjs.extend(advancedFormat);
-
-...
-
-{accessEndDate && (
-  <>
-    {' '} (Ending on:{' '}
-    <Typography component="span" color="secondary" fontWeight="bold">
-      {dayjs.utc(accessEndDate).format('ddd, DD MMM YYYY')}
-    </Typography>
-    )
-  </>
-)}
-
-✅ This will render:
-
-(Ending on: Mon, 09 Jun 2025)
-
-🛡️ And utc() ensures it won’t be affected by the user's local timezone.
+def get_oracle_connection():
+    try:
+        return cx_Oracle.connect(DB_USERNAME, DB_PASSWORD, DB_DSN)
+    except cx_Oracle.DatabaseError as e:
+        print(f"[DB ERROR] Failed to connect to Oracle: {e}")
+        return None
 
 
 ---
 
-🛠 Backend Best Practice
+🔹 is_job_already_moved()
 
-To make sure you send a timezone-independent date string:
-
-# Assuming `access_end_date` is a datetime.date or datetime.datetime object
-if access_end_date:
-    access_end_date = access_end_date.strftime("%Y-%m-%d")
+def is_job_already_moved(job_id):
+    conn = None
+    try:
+        conn = get_oracle_connection()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM JOB_MOVE_HISTORY WHERE JOB_ID = :job_id", {'job_id': job_id})
+        result = cur.fetchone()
+        return bool(result)
+    except cx_Oracle.DatabaseError as e:
+        print(f"[DB ERROR] Failed to check job move history: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 
 ---
 
-✅ Summary
+🔹 record_job_move()
 
-Avoid new Date() in frontend if you don't want local timezone conversion.
+def record_job_move(job, score, reason, rules_applied, cycle_id):
+    conn = None
+    try:
+        if job['queue'] == 'normal':
+            from_queue = 'normal'
+            to_queue = 'regress'
+        elif job['queue'] == 'regress':
+            from_queue = 'regress'
+            to_queue = FLEXI_QUEUE
+        else:
+            print(f"[WARN] Unsupported record for queue: {job['queue']}")
+            return
 
-Use dayjs.utc(...).format('ddd, DD MMM YYYY') to format the date safely.
+        conn = get_oracle_connection()
+        if not conn:
+            return
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO JOB_MOVE_HISTORY (
+                JOB_ID, USER_ID, CLUSTER_NAME, MOVED_FROM_QUEUE, MOVED_TO_QUEUE,
+                MOVE_TIME, MOVE_REASON, PEND_TIME_BEFORE, SCORE,
+                RULES_APPLIED, CYCLE_ID
+            ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11)
+        """, (
+            job['job_id'], job['user_id'], CLUSTER_NAME, from_queue, to_queue,
+            datetime.now(), reason, job['pend_time'], score,
+            ",".join(rules_applied), cycle_id
+        ))
+        conn.commit()
+    except cx_Oracle.DatabaseError as e:
+        print(f"[DB ERROR] Failed to record job move: {e}")
+    finally:
+        if conn:
+            conn.close()
 
-Send YYYY-MM-DD format from backend to make it reliable across regions.
+
+---
+
+🔹 get_user_utilization()
+
+def get_user_utilization(user, queue, cluster, quota):
+    conn = None
+    try:
+        start_epoch, end_epoch = get_epoch_range_for_yesterday()
+        conn = get_oracle_connection()
+        if not conn:
+            return 0.0
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT SUM(NUM_PROC * RUN_TIME)
+            FROM V_UED_BACCT_INDIA
+            WHERE USERID = :user AND QUEUE_ID = :queue AND CLUSTER_NAME = :cluster
+              AND START_TIME BETWEEN :start_time AND :end_time
+        """, {
+            'user': user,
+            'queue': queue,
+            'cluster': cluster,
+            'start_time': start_epoch,
+            'end_time': end_epoch
+        })
+        result = cur.fetchone()[0]
+        if result is None or quota == 0:
+            return 0.0
+        quota_seconds = quota * 86400
+        utilization = result / quota_seconds
+        return min(utilization, 1.0)
+    except cx_Oracle.DatabaseError as e:
+        print(f"[DB ERROR] Failed to fetch utilization for {user}: {e}")
+        return 0.0
+    finally:
+        if conn:
+            conn.close()
 
 
-Let me know if you want to support other languages/locales (e.g., Hindi, German) too!
+---
+
+🔹 get_user_avg_efficiency()
+
+def get_user_avg_efficiency(user, queue, cluster):
+    conn = None
+    try:
+        start_epoch, end_epoch = get_epoch_range_for_yesterday()
+        conn = get_oracle_connection()
+        if not conn:
+            return 0.0
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT AVG(JOB_EFF)
+            FROM V_UED_BACCT_INDIA
+            WHERE USERID = :user AND QUEUE_ID = :queue AND CLUSTER_NAME = :cluster
+              AND START_TIME BETWEEN :start_time AND :end_time
+        """, {
+            'user': user,
+            'queue': queue,
+            'cluster': cluster,
+            'start_time': start_epoch,
+            'end_time': end_epoch
+        })
+        result = cur.fetchone()[0]
+        return float(result) if result else 0.0
+    except cx_Oracle.DatabaseError as e:
+        print(f"[DB ERROR] Failed to fetch average efficiency for {user}: {e}")
+        return 0.0
+    finally:
+        if conn:
+            conn.close()
+
+
+---
+
+🧼 Notes
+
+Using conn = None + finally ensures connection always closes, even if exceptions occur.
+
+All errors are logged but don’t break the flow (fail-safe behavior).
+
+Consider adding proper logging (logging module) for production.
+
+
+Would you like me to also add logging or retry logic for transient DB failures?
 
