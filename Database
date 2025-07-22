@@ -1,100 +1,229 @@
-yHere's a more structured, polished version of your Individual Development Plan (IDP) that aligns with your manager’s request. It breaks your objectives into clear categories like goals, projects, certifications, and innovation areas, with professional and actionable language:
+yTo create a very detailed flowchart of your updated code, I will:
+
+1. Summarize the major functional blocks and logic flow.
 
 
----
-
-Individual Development Plan (IDP) – [Your Name]
-
-Goal for the Year:
-Enhance my technical and leadership capabilities by driving key infrastructure projects, achieving certification goals, and contributing innovative solutions in the compute space (LSF, Slurm). Focus will be on improving system performance, scalability, and reliability.
+2. Map out control flows: startup, data loading, job filtering, scoring, moving.
 
 
----
-
-1. Project Deliverables
-
-Complete myLSF Phase 2:
-Successfully deliver enhancements and stability improvements in the myLSF Phase 2 release, ensuring improved user experience and functionality.
-
-Lead FLAMESHub Phase 2:
-Take end-to-end ownership of FLAMESHub Phase 2 development, ensuring timely delivery with improved performance and scalability features.
-
-Design Complexity Project:
-Drive the design complexity initiative to explore architectural improvements and uncover optimization opportunities across compute workloads.
+3. Highlight decisions, loops, and database interactions.
 
 
-
----
-
-2. Technical Upskilling and Certification
-
-RHCSA Certification:
-Complete Red Hat Certified System Administrator (RHCSA) training and certification to strengthen foundational Linux and system administration skills.
-
-
-
----
-
-3. Innovation and Infrastructure Improvements
-
-Innovation in Compute Infrastructure:
-
-Design and implement innovative compute solutions using Ansible and Kubernetes, particularly in LSF and Slurm environments.
-
-Create real-world job simulation environments by:
-
-Increasing CPU slots on test servers to emulate a scaled setup (e.g., 10 execution hosts with 8 slots each).
-
-Setting up multiple Docker-based execution hosts on a single server.
-
-
-
-Observability Enhancements:
-
-Improve monitoring and observability in compute environments using Zabbix for both LSF and Slurm platforms.
-
-
-Infrastructure as Code (IaC):
-
-Implement solutions to auto-scale execution hosts during peak hours using IaC principles.
-
-Automate queue management by dynamically adjusting slot availability based on usage patterns (e.g., increase for busy queues, decrease for infrequently used ones).
-
-
-Resiliency and Fault Tolerance:
-
-Design auto-resubmission mechanisms for failed LSF jobs due to node issues, software errors, or resource limits.
-
-Investigate checkpointing or job migration strategies to avoid wasted compute time from failed long-running jobs.
+4. Deliver a structured flowchart in textual format first (for clarity), and optionally generate a diagram (in a follow-up if you're using a chat that supports image generation).
 
 
 
 
 ---
 
-4. DevOps and CI/CD Improvements
+🧭 HIGH-LEVEL OVERVIEW
 
-Docker and Bitbucket Integration:
+This script is a job migration engine for LSF clusters. It analyzes queued jobs, scores them based on various intelligence metrics, and selectively migrates them from high-load queues (like normal) to backup queues (regress, flexi) while recording history in an Oracle database.
 
-Develop a Jenkins pipeline to build and push Docker images to Bitbucket, and sync images across all regions. Alternatively, explore compressed image delivery for efficiency.
 
-Evaluate use of Docker Hub private repositories for better control and access.
+---
+
+🧱 FLOWCHART BLOCKS (STRUCTURED LOGIC)
+
+Below is a step-by-step flowchart-style breakdown of the code:
+
+
+---
+
+🟢 STARTUP
+
+Load environment variables (using dotenv)
+
+Initialize constants:
+
+ENVIRONMENT, CLUSTER_NAME, CYCLE_ID, etc.
+
+INTELLIGENCE_SCORES_CAP ← ast.literal_eval(...)
+
+DEFAULT_QUEUE_QUOTAS ← ast.literal_eval(...)
 
 
 
 
 ---
 
-5. User Migration and Platform Upgrade
+🔶 MAIN FUNCTION ENTRYPOINT
 
-WS70 to WS80 Migration:
+def main()
 
-Lead or contribute to the migration of users from WS70 to WS80, ensuring minimal disruption and enhanced performance in the upgraded environment.
+⬅️ Parse CLI arguments (--dry-run, --disable-*)
+
+📄 Load priority_users, priority_projects from YAML files
+
+📊 Call get_cluster_slots() to get total and running slots
+
+❗ Check if cluster is too full (based on BUFFER_THRESHOLD_RATIO)
+
+❌ If too full → Abort
+
+
+🔁 Call parse_mbjobs2() to fetch and optionally move jobs
+
+Returns: list of jobs that were not auto-moved
 
 
 
 
 ---
 
-Let me know if you'd like this in a document format or if you'd like help converting it into a formal submission.
+🧱 parse_mbjobs2() - PENDING JOB FILTERING
+
+Run mbjobs2 command to get pending jobs in desired queues
+
+For each job:
+
+📌 Extract job metadata
+
+📤 Check if it can be auto-moved (via should_move_job)
+
+✅ If yes → attempt_move_job() and record move
+
+❌ Else → Add job to return list
+
+
+
+🔁 Returns list of jobs that need scoring
+
+
+
+---
+
+🧠 should_move_job(job, quota_cache)
+
+🧾 Check job queue = normal
+
+📦 Check if job already moved (via DB)
+
+📊 Get quota/usage for normal and regress queues (cached or fresh)
+
+✅ If quota exhausted in normal and space in regress, return True
+
+
+
+---
+
+🏗️ attempt_move_job(job)
+
+🛠️ Call move_job(job) (dry-run or actual bmod)
+
+📝 Record the move in DB (record_job_move)
+
+🔄 Update quota_cache for that user and queue
+
+
+
+---
+
+🧠 score_job(job, ...) - INTELLIGENCE SCORING ENGINE
+
+For each job:
+
+Initialize score = 0, rules = []
+
+Apply score if feature not disabled:
+
+🎯 project_priority
+
+👤 user_priority
+
+📏 default_quota_sort
+
+🕒 pending_age (scaled)
+
+🧮 user_utilization (from Oracle DB)
+
+⚙️ avg_efficiency (from Oracle DB)
+
+🐢 long_pending
+
+
+🔁 Return final score and rules_applied
+
+
+
+---
+
+🧪 After scoring:
+
+Back in main():
+
+Filter jobs whose usage < quota or already moved
+
+Call score_job() → collect (score, job, rules)
+
+Sort by score descending
+
+For each job:
+
+📦 If job would exceed FLEXI_QUEUE_CAP, skip
+
+❗ If cluster is full or job too big, skip
+
+🛠️ Call move_job(job)
+
+📝 Record move in DB
+
+➕ Add to moved_slots
+
+
+
+
+---
+
+🔚 END
+
+
+---
+
+🔄 FUNCTION INTERACTIONS
+
+main()
+├── load_priority_config()
+├── get_cluster_slots()
+├── parse_mbjobs2()
+│   ├── run_cmd("mbjobs2")
+│   ├── should_move_job()
+│   │   ├── is_job_already_moved()
+│   │   └── get_user_queue_limits()
+│   └── attempt_move_job()
+│       ├── move_job()
+│       └── record_job_move()
+├── score_job()
+│   ├── get_user_utilization()
+│   └── get_user_avg_efficiency()
+└── move_job()  [again, for scored jobs]
+
+
+---
+
+🗃️ DATABASE USAGE SUMMARY
+
+Function	Purpose	Query
+
+get_user_utilization()	Yesterday's CPU*runtime	SUM(NUM_PROC * RUN_TIME)
+get_user_avg_efficiency()	Yesterday's avg efficiency	AVG(JOB_EFF)
+is_job_already_moved()	Avoid duplicate migrations	SELECT 1 FROM JOB_MOVE_HISTORY
+record_job_move()	Log move event	INSERT INTO JOB_MOVE_HISTORY
+
+
+
+---
+
+🛠️ NEXT STEPS
+
+If you'd like:
+
+I can convert this logic into a visual diagram (flowchart) if you're in a chat that supports image generation.
+
+Or provide a Mermaid.js diagram for rendering in Markdown or documentation.
+
+Or generate a PDF flowchart for documentation use.
+
+
+Would you like the visual version of this flow? If yes, let me know the format you prefer (image, Mermaid, or both).
 
