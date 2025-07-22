@@ -1,0 +1,67 @@
+```mermaid
+flowchart TD
+
+
+  Start([Start Script])
+  LoadEnv[Load .env variables: DB config, quotas, caps]
+  ParseCaps[Parse INTELLIGENCE_SCORES_CAP and DEFAULT_QUEUE_QUOTAS using ast]
+  GetCluster[get_cluster_name]
+  SetCycleID[Set CYCLE_ID = time-based ID]
+  LoadConfig[Load priority_users and priority_projects from YAML]
+
+
+  Start --> LoadEnv --> ParseCaps --> GetCluster --> SetCycleID --> LoadConfig
+
+
+  CheckClusterSlots[get_cluster_slots]
+  IsFull{Available Slots < Threshold?}
+  CheckClusterSlots --> IsFull
+  IsFull -->|Yes| ExitTooFull[Exit: Cluster too full]
+  IsFull -->|No| ParseJobs[parse_mbjobs2]
+
+
+  subgraph AutoMovePendingJobs
+    ParseJobs --> ForEachJob[For each pending job]
+    ForEachJob --> CanAutoMove{should_move_job?}
+    CanAutoMove -->|Yes| MoveAndRecord[move_job + record_job_move]
+    CanAutoMove -->|No| AddToScoringList[Add job to list for scoring]
+  end
+
+
+  ScoringLoop[For each job not auto-moved]
+  FilterQuota{Is user below quota?}
+  AlreadyMoved{Already moved?}
+  ScoreJob[score_job]
+
+
+  AutoMovePendingJobs --> ScoringLoop
+  ScoringLoop --> FilterQuota -->|No| AlreadyMoved -->|No| ScoreJob
+  ScoreJob --> AddToScoreList[Append: score, job, rules]
+
+
+  SortJobs[Sort jobs by score descending]
+  SortJobs --> ForEachScored[For each scored job]
+
+
+  ExceedsCap{Would exceed FLEXI_QUEUE_CAP?}
+  HasCapacity{Enough cluster capacity?}
+  FinalMove[move_job + record_job_move + increment moved_slots]
+
+
+  ForEachScored --> ExceedsCap
+  ExceedsCap -->|Yes| StopMoving[Stop further moves]
+  ExceedsCap -->|No| HasCapacity
+  HasCapacity -->|No| SkipJob[Skip job]
+  HasCapacity -->|Yes| FinalMove
+
+
+  FinalMove --> ForEachScored
+
+
+  FinalMove --> End([End Script])
+  SkipJob --> ForEachScored
+  StopMoving --> End
+  AddToScoreList --> SortJobs
+```
+
+                                         
