@@ -1,37 +1,233 @@
-yHere are two well-written, professional responses based on your detailed input. They reflect a clear, human tone while highlighting impact and introspection.
+# move_jobs_optimized.py
 
+import os
+import argparse
+import subprocess
+import cx_Oracle
+import ast
+import yaml
+import time
+import json
+from datetime import datetime, timedelta
+from collections import defaultdict
+from dotenv import load_dotenv
 
----
+load_dotenv()
 
-Response 1: Summary of Work-Related Accomplishments and Misses
+# -------------------- ENV SETUP -------------------- #
+ENVIRONMENT = "dev"
+IS_DEV = ENVIRONMENT == "dev"
+IS_LOCAL = False
 
-During this review period, I made significant progress on key initiatives that enhanced system stability, user experience, and operational efficiency. One major accomplishment was leading MYLSF Phase 2, where I resolved ~380 tickets by introducing functionality such as priority queue integration, slot change, retry/removal mechanisms, and centralized configuration management. This not only reduced manual intervention but also improved the system’s resilience and usability for both users and admins. Additionally, I developed an Admin and Super Admin Panel, providing visibility and control over requests, which streamlined operations and laid the foundation for future scaling.
+print(f"Running in {ENVIRONMENT.upper()} mode")
 
-Another key accomplishment was in FlamesHub Phase 2, where I drove the development of multi-vendor support and a unified Smart Extractor, directly resulting in the reduction of ~153 support tickets. I also led structured code reviews to enforce consistency and maintainability across the codebase, and guided intern contributions toward key features like the Options File and audit tracking.
+if not IS_LOCAL:
+    os.environ['ORACLE_HOME'] = "/apps/oracle/product/112031c"
+    os.environ['LD_LIBRARY_PATH'] = "/apps/oracle/product/112031c/lib"
 
-On the operational side, I successfully migrated ~75+ users from WS70 to WS80 with minimal disruption and actively resolved ~17+ LSF-related tickets, directly reducing backlog and improving user satisfaction.
+# ------------------ CONFIG LOAD ------------------- #
+try:
+    INTELLIGENCE_SCORES_CAP = json.loads(os.getenv('INTELLIGENCE_SCORES_CAP', '{}'))
+except:
+    INTELLIGENCE_SCORES_CAP = {}
 
-As for misses, one area that could’ve been better was proactive alignment with stakeholders during early planning stages of some features, particularly when assumptions changed. This sometimes led to rework. Additionally, documentation updates lagged slightly during peak development cycles, which created some onboarding gaps that I had to address retroactively.
+try:
+    DEFAULT_QUEUE_QUOTAS = json.loads(os.getenv('DEFAULT_QUEUE_QUOTAS', '{}'))
+except:
+    DEFAULT_QUEUE_QUOTAS = {}
 
-Overall, the accomplishments had a direct impact on improving platform reliability, user experience, and ticket load reduction, helping both the engineering team and broader organization become more efficient.
+QUEUE_ENV = os.getenv('QUEUE', '[]')
+QUEUE = ast.literal_eval(QUEUE_ENV) if QUEUE_ENV else []
+FLEXI_QUEUE = os.getenv('FLEXI_QUEUE')
+FLEXI_QUEUE_CAP = int(os.getenv('FLEXI_QUEUE_CAP', '500'))
+BUFFER_THRESHOLD_RATIO = float(os.getenv('BUFFER_THRESHOLD_RATIO', '0.1'))
 
+# ---------------- DB CONNECTIONS ------------------ #
+def get_ldmm_conn():
+    return cx_Oracle.connect(
+        os.getenv("LDMM_DB_USERNAME"),
+        os.getenv("LDMM_DB_PASSWORD"),
+        cx_Oracle.makedsn(
+            os.getenv("LDMM_DB_HOST"),
+            os.getenv("LDMM_DB_PORT"),
+            service_name=os.getenv("LDMM_DB_SERVICE_NAME")),
+        encoding='UTF-8'
+    )
 
----
+def get_cssp_conn():
+    return cx_Oracle.connect(
+        os.getenv("CSSP_DB_USERNAME"),
+        os.getenv("CSSP_DB_PASSWORD"),
+        cx_Oracle.makedsn(
+            os.getenv("CSSP_DB_HOST"),
+            os.getenv("CSSP_DB_PORT"),
+            service_name=os.getenv("CSSP_DB_SERVICE_NAME")),
+        encoding='UTF-8'
+    )
 
-Response 2: Values-Based Behaviors
+# === OPTIMIZATION: Preload moved jobs into set ===
+def get_already_moved_jobs():
+    conn = get_ldmm_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT JOB_ID FROM JOB_MOVE_HISTORY")
+        return {str(row[0]) for row in cur.fetchall()}
+    finally:
+        conn.close()
 
-One behavior that positively impacted my performance was taking ownership. I proactively identified system inefficiencies, especially in MYLSF and FlamesHub, and drove end-to-end solutions — from ideation and design to rollout and monitoring. For example, setting up auto deployments across dev, stage, and prod environments in both projects ensured smoother testing and release cycles. This sense of accountability improved project delivery quality and timelines.
+# === OPTIMIZATION: Batch load user queue limits using blimits -a ===
+def get_all_user_queue_limits():
+    output = subprocess.run("blimits -a", shell=True, capture_output=True, text=True).stdout
+    cache = {}
+    for line in output.splitlines():
+        if not any(q in line for q in QUEUE):
+            continue
+        parts = line.split()
+        if len(parts) < 7 or '/' not in parts[-1]:
+            continue
+        user = parts[1]
+        queue = parts[2]
+        used, quota = parts[-1].split('/')
+        try:
+            used = int(used)
+            quota = int(quota)
+        except:
+            used, quota = 0, -1
+        cache[(user, queue)] = (used, quota)
+    return cache
 
-Another behavior was collaboration and mentorship. I worked closely with interns and peers, especially while developing the Options File and reviewing key modules, ensuring code quality while also helping others grow. It fostered a more inclusive and high-performing team environment.
+# === OPTIMIZATION: Reduce log noise ===
+def log(msg):
+    if IS_DEV:
+        print(msg)
 
-On the other hand, one area I could continue to develop is communicating cross-functional priorities early and often. While I was focused on execution, at times I could’ve better aligned with upstream or dependent teams earlier to reduce iteration cycles.
+# ------------------- MOVE LOGIC ------------------- #
+def move_job(job, dry_run=False):
+    if IS_DEV or dry_run:
+        log(f"[DRY-RUN] Would move job {job['job_id']} from {job['queue']} to {job['target']}")
+        return
+    subprocess.run(f"bmod -q {job['target']} {job['job_id']}", shell=True)
 
-Additionally, while I value precision, I’ve learned that balancing speed and perfection is crucial in fast-paced sprints. There were instances where being too detail-focused early slowed initial momentum. I’m actively working on adjusting this balance based on context and deadlines.
+def record_job_move(job, score, reason, rules, cycle_id, dry_run=False):
+    if dry_run:
+        return
+    conn = get_ldmm_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO JOB_MOVE_HISTORY (
+                JOB_ID, USER_ID, CLUSTER_NAME, MOVED_FROM_QUEUE, MOVED_TO_QUEUE,
+                MOVE_TIME, MOVE_REASON, PEND_TIME_BEFORE, SCORE,
+                RULES_APPLIED, CYCLE_ID
+            ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11)
+        """, (
+            job['job_id'], job['user_id'], job['cluster'], job['queue'], job['target'],
+            datetime.now(), reason, job['pend_time'], score,
+            ",".join(rules), cycle_id
+        ))
+        conn.commit()
+    finally:
+        conn.close()
 
-These reflections are helping me refine my approach as both an individual contributor and a collaborator within the team.
+# ------------------ JOB SCORING ------------------- #
+def get_user_efficiency(user, queue, cluster):
+    try:
+        conn = get_cssp_conn()
+        cur = conn.cursor()
+        start = datetime.now() - timedelta(days=1)
+        end = datetime.now()
+        cur.execute("""
+            SELECT AVG(JOB_EFF) FROM V_UED_BACCT_INDIA
+            WHERE USERID = :u AND QUEUE_ID = :q AND CLUSTER_NAME = :c
+            AND START_TIME BETWEEN :start AND :end
+        """, {'u': user, 'q': queue, 'c': cluster,
+              'start': int(start.timestamp()), 'end': int(end.timestamp())})
+        return cur.fetchone()[0] or 0.0
+    except:
+        return 0.0
+    finally:
+        conn.close()
 
+def score_job(job, args, priority_users, priority_projects):
+    score, rules = 0, []
 
----
+    if not args.disable_project_priority and job['project'] in priority_projects:
+        score += INTELLIGENCE_SCORES_CAP.get('project_priority', 0)
+        rules.append('project_priority')
 
-Let me know if you'd like shorter versions, edits for a particular audience (e.g., manager vs. HR), or responses tailored to a specific performance review format.
+    if not args.disable_user_priority and job['user_id'] in priority_users:
+        score += INTELLIGENCE_SCORES_CAP.get('user_priority', 0)
+        rules.append('user_priority')
 
+    if not args.disable_default_quota_sort:
+        default_quota = DEFAULT_QUEUE_QUOTAS.get(job['cluster'], {}).get(job['queue'], 0)
+        if job['quota'] == default_quota:
+            score += INTELLIGENCE_SCORES_CAP.get('default_quota_sort', 0)
+            rules.append('default_quota_sort')
+
+    if not args.disable_pending_age:
+        pend_score = min(job['pend_time'] / 21600, 1.0)
+        score += pend_score * INTELLIGENCE_SCORES_CAP.get('pending_age', 0)
+        rules.append('pending_age')
+
+    if not args.disable_efficiency_check:
+        eff = get_user_efficiency(job['user_id'], job['queue'], job['cluster'])
+        if eff >= 0.9:
+            score += INTELLIGENCE_SCORES_CAP.get('high_efficiency', 0)
+            rules.append('high_efficiency')
+        elif eff >= 0.85:
+            score += INTELLIGENCE_SCORES_CAP.get('medium_efficiency', 0)
+            rules.append('medium_efficiency')
+
+    if not args.disable_long_pending and job['pend_time'] > 21600:
+        score += INTELLIGENCE_SCORES_CAP.get('long_pending', 0)
+        rules.append('long_pending')
+
+    return int(score), rules
+
+# -------------------- MAIN ------------------------ #
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--disable-project-priority', action='store_true')
+    parser.add_argument('--disable-user-priority', action='store_true')
+    parser.add_argument('--disable-default-quota-sort', action='store_true')
+    parser.add_argument('--disable-pending-age', action='store_true')
+    parser.add_argument('--disable-efficiency-check', action='store_true')
+    parser.add_argument('--disable-long-pending', action='store_true')
+    args = parser.parse_args()
+
+    cycle_id = f"cycle_{int(time.time())}"
+    already_moved_jobs = get_already_moved_jobs()
+    user_quota_cache = get_all_user_queue_limits()
+    priority_users = set()
+    priority_projects = set()
+
+    jobs = []  # Load jobs from mbjobs2 (use real logic)
+    for job in jobs:
+        if job['job_id'] in already_moved_jobs:
+            continue
+
+        key = (job['user_id'], job['queue'])
+        job['running'], job['quota'] = user_quota_cache.get(key, (0, -1))
+        job['cluster'] = os.getenv('CLUSTER_NAME', 'tii-shared')
+
+        if job['running'] < job['quota']:
+            continue
+
+        job['target'] = 'regress' if job['queue'] == 'normal' else FLEXI_QUEUE
+        score, rules = score_job(job, args, priority_users, priority_projects)
+        jobs.append((score, job, rules))
+
+    jobs.sort(reverse=True, key=lambda x: x[0])
+    moved_slots = 0
+
+    for score, job, rules in jobs:
+        if moved_slots + job['pend_slots'] > FLEXI_QUEUE_CAP:
+            break
+        move_job(job, dry_run=args.dry_run)
+        record_job_move(job, score, "score_based", rules, cycle_id, dry_run=args.dry_run)
+        moved_slots += job['pend_slots']
+
+if __name__ == '__main__':
+    main()
