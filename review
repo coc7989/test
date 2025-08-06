@@ -1,233 +1,188 @@
-# move_jobs_optimized.py
+You're on the right track. What you're thinking of falls under predictive operations in HPC/LSF environments, and these kinds of insights can significantly improve scheduling efficiency, resource usage, and user productivity.
 
-import os
-import argparse
-import subprocess
-import cx_Oracle
-import ast
-import yaml
-import time
-import json
-from datetime import datetime, timedelta
-from collections import defaultdict
-from dotenv import load_dotenv
+Here’s a structured breakdown of how you can approach predictive operations in IBM LSF to achieve your goals:
 
-load_dotenv()
 
-# -------------------- ENV SETUP -------------------- #
-ENVIRONMENT = "dev"
-IS_DEV = ENVIRONMENT == "dev"
-IS_LOCAL = False
+---
 
-print(f"Running in {ENVIRONMENT.upper()} mode")
+🧠 Predictive Ops in IBM LSF — Opportunities
 
-if not IS_LOCAL:
-    os.environ['ORACLE_HOME'] = "/apps/oracle/product/112031c"
-    os.environ['LD_LIBRARY_PATH'] = "/apps/oracle/product/112031c/lib"
+1. Classifying Job Types (Long-running / Short-running / Inefficient)
 
-# ------------------ CONFIG LOAD ------------------- #
-try:
-    INTELLIGENCE_SCORES_CAP = json.loads(os.getenv('INTELLIGENCE_SCORES_CAP', '{}'))
-except:
-    INTELLIGENCE_SCORES_CAP = {}
+Goal: Tag or predict job categories before or early in execution.
 
-try:
-    DEFAULT_QUEUE_QUOTAS = json.loads(os.getenv('DEFAULT_QUEUE_QUOTAS', '{}'))
-except:
-    DEFAULT_QUEUE_QUOTAS = {}
+🔧 How:
 
-QUEUE_ENV = os.getenv('QUEUE', '[]')
-QUEUE = ast.literal_eval(QUEUE_ENV) if QUEUE_ENV else []
-FLEXI_QUEUE = os.getenv('FLEXI_QUEUE')
-FLEXI_QUEUE_CAP = int(os.getenv('FLEXI_QUEUE_CAP', '500'))
-BUFFER_THRESHOLD_RATIO = float(os.getenv('BUFFER_THRESHOLD_RATIO', '0.1'))
+Feature Engineering: Collect data like:
 
-# ---------------- DB CONNECTIONS ------------------ #
-def get_ldmm_conn():
-    return cx_Oracle.connect(
-        os.getenv("LDMM_DB_USERNAME"),
-        os.getenv("LDMM_DB_PASSWORD"),
-        cx_Oracle.makedsn(
-            os.getenv("LDMM_DB_HOST"),
-            os.getenv("LDMM_DB_PORT"),
-            service_name=os.getenv("LDMM_DB_SERVICE_NAME")),
-        encoding='UTF-8'
-    )
+Submission time
 
-def get_cssp_conn():
-    return cx_Oracle.connect(
-        os.getenv("CSSP_DB_USERNAME"),
-        os.getenv("CSSP_DB_PASSWORD"),
-        cx_Oracle.makedsn(
-            os.getenv("CSSP_DB_HOST"),
-            os.getenv("CSSP_DB_PORT"),
-            service_name=os.getenv("CSSP_DB_SERVICE_NAME")),
-        encoding='UTF-8'
-    )
+Job name / executable
 
-# === OPTIMIZATION: Preload moved jobs into set ===
-def get_already_moved_jobs():
-    conn = get_ldmm_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT JOB_ID FROM JOB_MOVE_HISTORY")
-        return {str(row[0]) for row in cur.fetchall()}
-    finally:
-        conn.close()
+User or group
 
-# === OPTIMIZATION: Batch load user queue limits using blimits -a ===
-def get_all_user_queue_limits():
-    output = subprocess.run("blimits -a", shell=True, capture_output=True, text=True).stdout
-    cache = {}
-    for line in output.splitlines():
-        if not any(q in line for q in QUEUE):
-            continue
-        parts = line.split()
-        if len(parts) < 7 or '/' not in parts[-1]:
-            continue
-        user = parts[1]
-        queue = parts[2]
-        used, quota = parts[-1].split('/')
-        try:
-            used = int(used)
-            quota = int(quota)
-        except:
-            used, quota = 0, -1
-        cache[(user, queue)] = (used, quota)
-    return cache
+Queue
 
-# === OPTIMIZATION: Reduce log noise ===
-def log(msg):
-    if IS_DEV:
-        print(msg)
+Requested resources (CPU, memory, duration)
 
-# ------------------- MOVE LOGIC ------------------- #
-def move_job(job, dry_run=False):
-    if IS_DEV or dry_run:
-        log(f"[DRY-RUN] Would move job {job['job_id']} from {job['queue']} to {job['target']}")
-        return
-    subprocess.run(f"bmod -q {job['target']} {job['job_id']}", shell=True)
+Historical run times for similar jobs
 
-def record_job_move(job, score, reason, rules, cycle_id, dry_run=False):
-    if dry_run:
-        return
-    conn = get_ldmm_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO JOB_MOVE_HISTORY (
-                JOB_ID, USER_ID, CLUSTER_NAME, MOVED_FROM_QUEUE, MOVED_TO_QUEUE,
-                MOVE_TIME, MOVE_REASON, PEND_TIME_BEFORE, SCORE,
-                RULES_APPLIED, CYCLE_ID
-            ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11)
-        """, (
-            job['job_id'], job['user_id'], job['cluster'], job['queue'], job['target'],
-            datetime.now(), reason, job['pend_time'], score,
-            ",".join(rules), cycle_id
-        ))
-        conn.commit()
-    finally:
-        conn.close()
 
-# ------------------ JOB SCORING ------------------- #
-def get_user_efficiency(user, queue, cluster):
-    try:
-        conn = get_cssp_conn()
-        cur = conn.cursor()
-        start = datetime.now() - timedelta(days=1)
-        end = datetime.now()
-        cur.execute("""
-            SELECT AVG(JOB_EFF) FROM V_UED_BACCT_INDIA
-            WHERE USERID = :u AND QUEUE_ID = :q AND CLUSTER_NAME = :c
-            AND START_TIME BETWEEN :start AND :end
-        """, {'u': user, 'q': queue, 'c': cluster,
-              'start': int(start.timestamp()), 'end': int(end.timestamp())})
-        return cur.fetchone()[0] or 0.0
-    except:
-        return 0.0
-    finally:
-        conn.close()
+ML Model: Use a classification model (Random Forest, Gradient Boosting, or even basic rule-based initially) to classify into:
 
-def score_job(job, args, priority_users, priority_projects):
-    score, rules = 0, []
+Short
 
-    if not args.disable_project_priority and job['project'] in priority_projects:
-        score += INTELLIGENCE_SCORES_CAP.get('project_priority', 0)
-        rules.append('project_priority')
+Long
 
-    if not args.disable_user_priority and job['user_id'] in priority_users:
-        score += INTELLIGENCE_SCORES_CAP.get('user_priority', 0)
-        rules.append('user_priority')
+Inefficient (e.g., high memory but low CPU utilization)
 
-    if not args.disable_default_quota_sort:
-        default_quota = DEFAULT_QUEUE_QUOTAS.get(job['cluster'], {}).get(job['queue'], 0)
-        if job['quota'] == default_quota:
-            score += INTELLIGENCE_SCORES_CAP.get('default_quota_sort', 0)
-            rules.append('default_quota_sort')
 
-    if not args.disable_pending_age:
-        pend_score = min(job['pend_time'] / 21600, 1.0)
-        score += pend_score * INTELLIGENCE_SCORES_CAP.get('pending_age', 0)
-        rules.append('pending_age')
 
-    if not args.disable_efficiency_check:
-        eff = get_user_efficiency(job['user_id'], job['queue'], job['cluster'])
-        if eff >= 0.9:
-            score += INTELLIGENCE_SCORES_CAP.get('high_efficiency', 0)
-            rules.append('high_efficiency')
-        elif eff >= 0.85:
-            score += INTELLIGENCE_SCORES_CAP.get('medium_efficiency', 0)
-            rules.append('medium_efficiency')
 
-    if not args.disable_long_pending and job['pend_time'] > 21600:
-        score += INTELLIGENCE_SCORES_CAP.get('long_pending', 0)
-        rules.append('long_pending')
+---
 
-    return int(score), rules
+2. Detecting "Zombie" or Forgotten Jobs
 
-# -------------------- MAIN ------------------------ #
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument('--disable-project-priority', action='store_true')
-    parser.add_argument('--disable-user-priority', action='store_true')
-    parser.add_argument('--disable-default-quota-sort', action='store_true')
-    parser.add_argument('--disable-pending-age', action='store_true')
-    parser.add_argument('--disable-efficiency-check', action='store_true')
-    parser.add_argument('--disable-long-pending', action='store_true')
-    args = parser.parse_args()
+Goal: Identify long-running jobs where the user is unaware (common with abandoned GUI sessions, stuck loops, etc.)
 
-    cycle_id = f"cycle_{int(time.time())}"
-    already_moved_jobs = get_already_moved_jobs()
-    user_quota_cache = get_all_user_queue_limits()
-    priority_users = set()
-    priority_projects = set()
+🔧 How:
 
-    jobs = []  # Load jobs from mbjobs2 (use real logic)
-    for job in jobs:
-        if job['job_id'] in already_moved_jobs:
-            continue
+Define thresholds:
 
-        key = (job['user_id'], job['queue'])
-        job['running'], job['quota'] = user_quota_cache.get(key, (0, -1))
-        job['cluster'] = os.getenv('CLUSTER_NAME', 'tii-shared')
+Based on job type, expected vs. actual runtime
 
-        if job['running'] < job['quota']:
-            continue
 
-        job['target'] = 'regress' if job['queue'] == 'normal' else FLEXI_QUEUE
-        score, rules = score_job(job, args, priority_users, priority_projects)
-        jobs.append((score, job, rules))
+Monitor for:
 
-    jobs.sort(reverse=True, key=lambda x: x[0])
-    moved_slots = 0
+Lack of stdout/stderr updates
 
-    for score, job, rules in jobs:
-        if moved_slots + job['pend_slots'] > FLEXI_QUEUE_CAP:
-            break
-        move_job(job, dry_run=args.dry_run)
-        record_job_move(job, score, "score_based", rules, cycle_id, dry_run=args.dry_run)
-        moved_slots += job['pend_slots']
+No checkpointing or file I/O over X hours
 
-if __name__ == '__main__':
-    main()
+Low resource utilization over a long period
+
+
+Use alerting or automatic tagging
+
+
+> Bonus: Integrate with user notification system or Slack/Email alerts.
+
+
+
+
+---
+
+3. Predicting Job Completion Time
+
+Goal: Forecast when a running job will complete to improve scheduling and user planning.
+
+🔧 How:
+
+Historical job data + current progress metrics (if job supports progress reporting)
+
+Features:
+
+Job name/type
+
+Submission/request parameters
+
+Real-time CPU/memory/IO usage
+
+Checkpoint/progress log parsing (if available)
+
+
+Approaches:
+
+Regression models (e.g., XGBoost Regressor)
+
+Time-series analysis
+
+Compare against similar completed jobs ("nearest neighbor" matching)
+
+
+
+> Bonus: Give ETA to users or visualize it in dashboards.
+
+
+
+
+---
+
+🔨 Implementation Strategy
+
+📥 Data Collection
+
+Pull job data via bhist, bjobs, bacct, lsload, etc.
+
+Store in a central DB (e.g., PostgreSQL or even just CSVs for prototype)
+
+Schedule regular jobs to collect this info
+
+
+📊 Dashboard & Monitoring (Optional)
+
+Use Grafana/Prometheus for visual real-time monitoring
+
+Jupyter + Matplotlib/Plotly for exploratory work
+
+Alerting via email/Slack
+
+
+📦 Tech Stack Ideas
+
+Backend: Python (Pandas, Scikit-learn, XGBoost, etc.)
+
+Data Store: PostgreSQL / SQLite / CSV (start simple)
+
+Optional Dashboards: Flask/Django + JS + Grafana
+
+
+
+---
+
+⚠️ Challenges & Considerations
+
+Data Quality: Inconsistent job naming, missing logs, or variable runtimes
+
+Privacy: Respect user data (especially for design teams)
+
+Integration: LSF APIs and user communication mechanisms
+
+Resource Utilization Metrics: Need tools like lsfmon, lsload, or OS metrics
+
+
+
+---
+
+✅ Example: Simple MVP for Classification
+
+Goal: Predict job type before submission.
+
+Steps:
+
+1. Collect historical job logs (bjobs -l, bacct, etc.)
+
+
+2. Label jobs by runtime buckets (e.g., <10min, 10min–1hr, >1hr)
+
+
+3. Train a simple classifier (Random Forest)
+
+
+4. Integrate into submission wrapper script to predict and warn user
+
+
+
+
+---
+
+Would you like help with:
+
+A prototype script for job data collection?
+
+A notebook example of job classification or prediction?
+
+A dashboard layout for monitoring predictive metrics?
+
+
+Let me know how far along you are or what you'd like to tackle first.
+
