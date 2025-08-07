@@ -1,31 +1,36 @@
-Here are 15 Git interview questions with concise, clear answers that cover beginner to intermediate topics. These are great for assessing candidates in any SRE, DevOps, or development role.
+Absolutely! Here are 20 SQL interview questions with clear and concise answers—covering basic to intermediate concepts. These are useful for roles involving data querying, backend, SRE, or infra where SQL is used.
 
 
 ---
 
-🛠️ Git Interview Questions & Answers
+🗃️ SQL Interview Questions & Answers
 
 Question	Answer
 
-1. What is Git?	Git is a distributed version control system used to track changes in source code during software development.
-2. What is the difference between Git and GitHub?	Git is the tool for version control; GitHub is a web-based platform for hosting Git repositories.
-3. How do you check the current branch?	git branch shows all branches and highlights the current one.
-4. What does git status do?	It shows the state of the working directory and staging area.
-5. What is the difference between git pull and git fetch?	git pull fetches and merges changes, git fetch only downloads them.
-6. How do you stage and commit changes?	Use git add <file> to stage, and git commit -m "message" to commit.
-7. How do you discard uncommitted changes?	Use git checkout -- <file> to discard changes in the working directory.
-8. How do you undo the last commit?	Use git reset --soft HEAD~1 to undo but keep changes staged.
-9. What is a merge conflict and how do you resolve it?	A merge conflict happens when changes in different branches affect the same line(s). Manually edit the file, then git add and git commit.
-10. What is the difference between git merge and git rebase?	git merge combines histories with a merge commit; git rebase rewrites history to create a linear timeline.
-11. How do you create a new branch and switch to it?	git checkout -b <branch-name> creates and switches to the new branch.
-12. How do you delete a branch?	git branch -d <branch> deletes a local branch. Use -D to force delete.
-13. What is .gitignore used for?	To specify files/folders Git should ignore (e.g., logs, node_modules).
-14. How do you view commit history?	Use git log to see commits with hash, author, date, and message.
-15. What is a detached HEAD state in Git?	When HEAD points to a commit instead of a branch, often after checking out a past commit directly.
+1. What is SQL?	SQL (Structured Query Language) is used to manage and query relational databases.
+2. What is the difference between WHERE and HAVING?	WHERE filters rows before grouping; HAVING filters groups after aggregation.
+3. What does SELECT DISTINCT do?	Returns only unique (non-duplicate) values from a column or set of columns.
+4. What is a JOIN?	Combines rows from two or more tables based on a related column.
+5. What is the difference between INNER JOIN and LEFT JOIN?	INNER JOIN: returns matching rows only; LEFT JOIN: all rows from the left table, matched or not.
+6. What is a primary key?	A unique identifier for each row in a table; cannot be null.
+7. What is a foreign key?	A field that refers to the primary key of another table to enforce referential integrity.
+8. How do you get the second highest salary from a table?	Example: SELECT MAX(salary) FROM employees WHERE salary < (SELECT MAX(salary) FROM employees);
+9. What is the difference between DELETE, TRUNCATE, and DROP?	DELETE: removes rows (can be rolled back), TRUNCATE: removes all rows (faster, no rollback), DROP: deletes table structure.
+10. What is a subquery?	A query nested inside another SQL query.
+11. What is an index?	A performance-boosting structure that speeds up data retrieval.
+12. What is normalization?	Process of organizing data to reduce redundancy and improve integrity.
+13. What is a view?	A virtual table based on a SQL query, doesn't store data itself.
+14. What is the difference between COUNT(*), COUNT(column), and COUNT(DISTINCT column)?	COUNT(*): all rows, COUNT(column): non-null values, COUNT(DISTINCT column): unique non-null values.
+15. What does GROUP BY do?	Groups rows sharing a value so aggregate functions (e.g. SUM, COUNT) can be applied to each group.
+16. What is the use of ORDER BY?	Sorts the result set in ascending or descending order.
+17. What is a composite key?	A primary key made up of two or more columns.
+18. How can you prevent SQL injection?	Use parameterized queries or prepared statements. Never concatenate raw user input.
+19. What are aggregate functions in SQL?	Functions like SUM, AVG, MAX, MIN, and COUNT that operate on sets of rows.
+20. How do you update data in SQL?	UPDATE table_name SET column = value WHERE condition;
 
 
 
 ---
 
-Would you like some advanced Git questions (e.g., about cherry-pick, reflog, bisect, submodules)?
+Would you like advanced SQL questions (e.g., window functions, CTEs, performance tuning, transactions)?
 
