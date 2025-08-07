@@ -1,111 +1,189 @@
-Great — let's get you a practical starting point. Based on the script you shared, one of the heaviest and most deeply nested stages is:
+Here are 20 sample questions and answers for each section of the interview structure you provided. These cover Introduction, Technical Screening, Programming, Scenario-Based Questions, Behavioural Fit, and Q&A.
 
 
 ---
 
-🎯 Candidate for Refactor:
+✅ 1. Introduction – 20 Sample Questions & Example Responses
 
-✅ stage('Fetch and Set the config file')
+These are open-ended and intended to get candidates talking.
 
-This stage has:
+Question	Sample (Good) Response
 
-Multiple try-catch blocks
-
-curl, readJSON, validation, and config parsing
-
-Multiple if-else decisions
-
-
-
----
-
-🔧 How to Refactor It
-
-Step 1: Extract as a top-level function
-
-Put this above your pipeline {} block:
-
-def fetchAndSetConfigFile() {
-    echo "\u001B[1;32m===============================\u001B[0m"
-    echo "\u001B[41;1m   STAGE: Fetch and Set the config file   \u001B[0m"
-    echo "\u001B[1;32m===============================\u001B[0m"
-    echo "Branch is: ${params.BRANCH_NAME}"
-    def backendUrls = [
-      'dev':'http://lelvdcklsfuedrasa.itg.rh.com:5000',
-      'stage':'http://mylsf-stage-direct.itg.rh.com:6000',
-      'prod':'http://lelvdcklsfuedprod.itg.rh.com:5000',
-    ]
-    BACKEND_URL = backendUrls[params.BRANCH_NAME]
-
-    def response = sh(script: "curl -s ${BACKEND_URL}/api/get_config", returnStdout: true).trim()
-    echo "response: ${response}"
-    def config = readJSON text: response
-    echo "Config data: \n${config}"
-
-    def slotKey = (params.SLOT_TYPE == 'gui') ? 'gui-default-slot-limit' : 'regress-default-slot-limit'
-    def defaultSlotLimit = config[slotKey][params.CLUSTER_NAME]
-
-    echo "Default Slot Limit from config: ${defaultSlotLimit}"
-    echo "Current Slot Limit provided: ${params.CURRENT_SLOT_LIMIT}"
-
-    if (defaultSlotLimit.toString() == params.CURRENT_SLOT_LIMIT.trim()) {
-        env.IS_DEFAULT_SLOT_LIMIT = 'true'
-        echo "Default and Current Slot Limits are equal. Skipping certain stages."
-    } else {
-        env.IS_DEFAULT_SLOT_LIMIT = 'false'
-        echo "Slot limits differ. Proceeding with further stages."
-    }
-
-    if (params.SLOT_TYPE == 'gui') {
-        CONFIG_FILE_OPTIONS = config."${params.CLUSTER_NAME}-gui"
-        echo "Selected GUI Config File Options: \n ${CONFIG_FILE_OPTIONS}"
-    } else if (params.SLOT_TYPE == 'regress') {
-        CONFIG_FILE_OPTIONS = config."${params.CLUSTER_NAME}-regress"
-        echo "Selected REGRESS Config File Options: \n ${CONFIG_FILE_OPTIONS}"
-    } else {
-        error("Unknown slot selected: ${params.SLOT_TYPE}")
-    }
-}
-
-
----
-
-Step 2: Replace the current stage with a call
-
-Inside your pipeline:
-
-stage('Fetch and Set the config file') {
-  steps {
-    script {
-      try {
-        fetchAndSetConfigFile()
-      } catch (Exception e) {
-        error_reason = "Error in Fetch and Set the config file: ${e.message}"
-        error(error_reason)
-      }
-    }
-    script {
-      echo "\u001B[1;34m===============================\u001B[0m"
-      echo "\u001B[1;34m   STAGE FINISHED                \u001B[0m"
-      echo "\u001B[1;34m===============================\u001B[0m"
-    }
-  }
-}
-
-
----
-
-🧪 What This Does
-
-Moves ~80 lines of logic out of the CPS-transformed method
-
-Keeps the pipeline script lean
-
-Eliminates a major contributor to the “MethodTooLarge” exception
+1. Can you briefly introduce yourself?	"I'm a CS undergrad with a focus on systems and infrastructure. Recently interned at XYZ Corp as a DevOps intern."
+2. What got you interested in this field?	"I love understanding how systems work under the hood and solving root-cause problems."
+3. Tell me about a side project you're proud of.	"I built a home-lab using Docker and Ansible to simulate a CI/CD pipeline."
+4. Have you worked on any open-source projects?	"Yes, I contributed to a Kubernetes monitoring tool."
+5. Describe an internship experience you've had.	"Interned at ABC Tech, worked on automating VM provisioning with Terraform."
+6. What was the biggest challenge in your last project?	"Debugging intermittent latency in a microservice caused by DNS resolution."
+7. How do you stay up to date with tech trends?	"I follow Hacker News, listen to DevOps podcasts, and read engineering blogs."
+8. Have you taken any non-academic certifications?	"Yes, I completed AWS Solutions Architect Associate."
+9. Do you prefer backend, infra, or full-stack work?	"I prefer infrastructure and backend because I enjoy working close to systems."
+10. What tools do you use daily?	"VS Code, Git, Docker, Linux terminal, Postman."
+11. What’s your favorite programming language?	"Python for productivity, but I use Go for infrastructure tools."
+12. Have you ever hosted a website or app?	"Yes, I hosted a blog on AWS using EC2 + S3 + CloudFront."
+13. Do you use version control on personal projects?	"Yes, everything is on GitHub with CI/CD configured."
+14. Have you used any CI/CD pipelines?	"Yes, GitHub Actions and GitLab CI."
+15. Any experience with monitoring/logging tools?	"I've used Prometheus, Grafana, and ELK stack."
+16. Are you more self-taught or curriculum-driven?	"Mostly self-taught on practical tools; school gave me strong CS fundamentals."
+17. Have you worked in a team setting?	"Yes, during my capstone project and internships."
+18. Do you blog or document your work?	"Yes, I write on Medium about my infra learnings."
+19. Have you mentored or been mentored?	"I’ve been mentored by seniors and also helped juniors in my Linux club."
+20. Why are you applying for this role specifically?	"I'm interested in real-world infra challenges and growing in a team that values reliability."
 
 
 
 ---
 
-Would you like me to suggest 1–2 more blocks like this you should refactor next?
+⚙️ 2. Technical Screening – 20 Questions with Answers
+
+Covers Systems, Networking, and Databases.
+
+Question	Sample Answer
+
+1. What happens when you type a URL in the browser?	DNS resolution → TCP connection → HTTP request → Server response → Render.
+2. Explain the OSI model.	7-layer model from Physical to Application (e.g., Application, Transport, Network).
+3. What is a process vs. a thread?	Process = independent memory space, Thread = lightweight, shared memory.
+4. What is virtual memory?	Memory abstraction allowing more memory than physically available using disk.
+5. Difference between TCP and UDP?	TCP = reliable, ordered; UDP = fast, no guarantee.
+6. What is a port?	Logical endpoint for communication (e.g., port 80 = HTTP).
+7. What is DNS?	Domain Name System, translates domain names to IP addresses.
+8. What is a firewall?	Security system to control traffic based on rules.
+9. Difference between HTTP and HTTPS?	HTTPS adds TLS encryption to HTTP for security.
+10. What is a load balancer?	Distributes incoming traffic across multiple servers.
+11. What is SQL injection?	Exploiting input fields to run malicious SQL queries.
+12. Normalize a database table.	Break into smaller tables to remove redundancy.
+13. What is an index in SQL?	Data structure to speed up queries.
+14. ACID properties in DB?	Atomicity, Consistency, Isolation, Durability.
+15. What is a deadlock?	Two processes wait indefinitely for resources locked by each other.
+16. Difference between GET and POST?	GET = idempotent, query string; POST = body, modifies state.
+17. What is a reverse proxy?	Handles client requests and forwards them to backend servers.
+18. What is NAT?	Network Address Translation: map private IPs to public IPs.
+19. How does a VPN work?	Encrypts your traffic and routes it through a secure server.
+20. What is a cache?	Temporary storage to speed up frequent access (e.g., Redis, CDN).
+
+
+
+---
+
+💻 3. Programming – 20 Coding Questions (With Short Answers)
+
+You can ask them to implement any of these in a live editor.
+
+Question	Answer Summary
+
+1. Reverse a string.	s[::-1] in Python.
+2. FizzBuzz up to N.	Loop from 1 to N, print Fizz/Buzz/FizzBuzz.
+3. Detect palindrome.	Compare string with reverse.
+4. Find max in array.	Use max() or iterate manually.
+5. Implement binary search.	Divide & conquer on sorted array.
+6. Find duplicates in list.	Use set or hashmap.
+7. Merge two sorted lists.	Two-pointer technique.
+8. Count vowels in a string.	Loop and count a, e, i, o, u.
+9. Is anagram?	Sort both strings or use Counter.
+10. Fibonacci recursive & iterative.	Base case + loop.
+11. Implement stack using list.	Use append/pop.
+12. Check balanced parentheses.	Use stack.
+13. Find missing number in array 1–n.	Use sum formula: n(n+1)/2 – sum(array).
+14. Two sum problem.	Use hashmap to track complements.
+15. Longest common prefix.	Horizontal/vertical scan strings.
+16. Remove duplicates from sorted array.	In-place with two pointers.
+17. Matrix transpose.	Use zip(*matrix) or nested loops.
+18. Convert decimal to binary.	Use bin() or manual division by 2.
+19. Count character frequency.	Use dictionary or collections.Counter.
+20. Implement queue with two stacks.	Stack1 for enqueue, Stack2 for dequeue.
+
+
+
+---
+
+🔒 4. Scenario-Based – 20 Realistic Situations
+
+Question	Expected Approach
+
+1. Website is down — first steps?	Check uptime, logs, health checks.
+2. Server is running high CPU — what now?	Identify process, investigate logs.
+3. You discover a security breach — actions?	Isolate, stop spread, notify, investigate.
+4. Deploy fails — how to roll back?	Use versioning or infrastructure rollback tools.
+5. DB query is slow — next steps?	Check indexes, analyze execution plan.
+6. How to monitor services in production?	Prometheus, Grafana, alert rules.
+7. How to manage secrets in infra?	Use Vault, AWS Secrets Manager.
+8. Traffic spikes suddenly — mitigation?	Scale up, CDN, cache, rate limit.
+9. How would you prevent data loss?	Backups, replication, snapshots.
+10. Alert fatigue — what would you do?	Triage, prioritize alerts, fix noisy ones.
+11. How would you patch critical servers?	Test in staging, then deploy via automation.
+12. How do you secure an API?	Auth, rate limiting, input validation.
+13. You find misconfigured permissions — next steps?	Fix configs, audit for breach, document.
+14. Deploying a new service — what checks?	Monitoring, health checks, rollback plan.
+15. How to reduce downtime during upgrades?	Blue-green or canary deployments.
+16. You see repeated login failures — reaction?	Check source, block IP, notify security.
+17. App crashes under load — what now?	Load test, profile, add caching or queuing.
+18. A bug only appears in prod — how to debug?	Logs, tracing, recreate environment.
+19. Service is working, but slow — steps?	Profile code, network, DB.
+20. How do you test infrastructure?	Use IaC, unit tests, smoke tests.
+
+
+
+---
+
+🤝 5. Behavioural Fit – 20 Sample Questions with Good Traits
+
+Question	Good Response Traits
+
+1. Tell me about a time you worked on a team.	Clear roles, communication, collaboration.
+2. How do you handle conflict?	Listen, clarify, find common ground.
+3. Give an example of taking initiative.	Took ownership beyond assigned role.
+4. How do you give/receive feedback?	Open, constructive, improvement-focused.
+5. What’s your communication style?	Transparent, concise, context-aware.
+6. Have you led a project?	Delegation, timelines, decision-making.
+7. Describe your ideal work environment.	Supportive, collaborative, growth-oriented.
+8. How do you handle pressure?	Prioritize, stay calm, ask for help if needed.
+9. Tell me about a failure.	Accountability, learning, improvement.
+10. How do you manage your time?	To-do lists, planning, avoiding multitasking.
+11. What motivates you?	Learning, problem-solving, impact.
+12. How do you handle vague tasks?	Ask questions, define scope, iterate.
+13. Tell me about a time you mentored someone.	Patient, supportive, effective.
+14. Have you worked remotely?	Yes, good at async updates and self-management.
+15. How do you ensure your work aligns with the team?	Regular syncs, documentation, check-ins.
+16. How do you handle mistakes?	Admit, fix, reflect, document.
+17. What makes a great teammate?	Reliability, communication, empathy.
+18. How do you set personal development goals?	SMART goals, tracking, feedback.
+19. How do you handle context switching?	Task batching, documentation, minimizing interrupts.
+20. Why should we hire you?	Skills, mindset, team fit, eagerness to learn.
+
+
+
+---
+
+🙋‍♀️ 6. Q&A – Encourage These 20 Candidate Questions
+
+You won’t answer all of these, but encourage them to ask things like:
+
+Suggested Candidate Questions
+
+1. What does a typical day look like here?
+2. What tools does the team use for CI/CD?
+3. What are the biggest challenges in this role?
+4. What are the on-call expectations?
+5. What monitoring tools are in place?
+6. How is documentation handled?
+7. Is there mentorship or peer programming?
+8. How often do you deploy?
+9. How do teams handle incident response?
+10. What does onboarding look like?
+11. What projects will I start on?
+12. How does performance review work?
+13. What’s the team size and composition?
+14. How do you handle tech debt?
+15. Is there room to contribute to open source?
+16. What are the growth opportunities?
+17. How is feedback shared within the team?
+18. Do you use Agile or other workflows?
+19. What are your favorite things about this team?
+20. What are next steps after this interview?
+
+
+
+---
+
+Would you like this in a PDF or DOCX format for easy reference during interviews?
 
