@@ -1,36 +1,189 @@
-Absolutely! Here are 20 SQL interview questions with clear and concise answers—covering basic to intermediate concepts. These are useful for roles involving data querying, backend, SRE, or infra where SQL is used.
+Here are 10 basic scenario-based SQL questions with context and what kind of answers you should expect. These simulate real-world tasks and help assess a candidate’s ability to think practically in SQL.
 
 
 ---
 
-🗃️ SQL Interview Questions & Answers
-
-Question	Answer
-
-1. What is SQL?	SQL (Structured Query Language) is used to manage and query relational databases.
-2. What is the difference between WHERE and HAVING?	WHERE filters rows before grouping; HAVING filters groups after aggregation.
-3. What does SELECT DISTINCT do?	Returns only unique (non-duplicate) values from a column or set of columns.
-4. What is a JOIN?	Combines rows from two or more tables based on a related column.
-5. What is the difference between INNER JOIN and LEFT JOIN?	INNER JOIN: returns matching rows only; LEFT JOIN: all rows from the left table, matched or not.
-6. What is a primary key?	A unique identifier for each row in a table; cannot be null.
-7. What is a foreign key?	A field that refers to the primary key of another table to enforce referential integrity.
-8. How do you get the second highest salary from a table?	Example: SELECT MAX(salary) FROM employees WHERE salary < (SELECT MAX(salary) FROM employees);
-9. What is the difference between DELETE, TRUNCATE, and DROP?	DELETE: removes rows (can be rolled back), TRUNCATE: removes all rows (faster, no rollback), DROP: deletes table structure.
-10. What is a subquery?	A query nested inside another SQL query.
-11. What is an index?	A performance-boosting structure that speeds up data retrieval.
-12. What is normalization?	Process of organizing data to reduce redundancy and improve integrity.
-13. What is a view?	A virtual table based on a SQL query, doesn't store data itself.
-14. What is the difference between COUNT(*), COUNT(column), and COUNT(DISTINCT column)?	COUNT(*): all rows, COUNT(column): non-null values, COUNT(DISTINCT column): unique non-null values.
-15. What does GROUP BY do?	Groups rows sharing a value so aggregate functions (e.g. SUM, COUNT) can be applied to each group.
-16. What is the use of ORDER BY?	Sorts the result set in ascending or descending order.
-17. What is a composite key?	A primary key made up of two or more columns.
-18. How can you prevent SQL injection?	Use parameterized queries or prepared statements. Never concatenate raw user input.
-19. What are aggregate functions in SQL?	Functions like SUM, AVG, MAX, MIN, and COUNT that operate on sets of rows.
-20. How do you update data in SQL?	UPDATE table_name SET column = value WHERE condition;
-
+🧩 Basic Scenario-Based SQL Questions
 
 
 ---
 
-Would you like advanced SQL questions (e.g., window functions, CTEs, performance tuning, transactions)?
+1. Scenario:
+
+Your manager wants a list of all customers who have not placed any orders.
+
+Question:
+How would you find customers without any orders?
+
+Expected Answer:
+
+SELECT c.customer_id, c.name
+FROM customers c
+LEFT JOIN orders o ON c.customer_id = o.customer_id
+WHERE o.order_id IS NULL;
+
+
+---
+
+2. Scenario:
+
+You need to find the total number of orders placed each day.
+
+Question:
+How would you get the daily order count?
+
+Expected Answer:
+
+SELECT order_date, COUNT(*) AS total_orders
+FROM orders
+GROUP BY order_date
+ORDER BY order_date;
+
+
+---
+
+3. Scenario:
+
+Your team wants to know the top 5 products by sales revenue.
+
+Question:
+How would you calculate and list the top 5 products by total revenue?
+
+Expected Answer:
+
+SELECT p.product_name, SUM(o.quantity * o.price) AS total_revenue
+FROM order_items o
+JOIN products p ON o.product_id = p.product_id
+GROUP BY p.product_name
+ORDER BY total_revenue DESC
+LIMIT 5;
+
+
+---
+
+4. Scenario:
+
+You need to find duplicate emails in the users table.
+
+Question:
+How would you detect users with the same email?
+
+Expected Answer:
+
+SELECT email, COUNT(*) AS occurrences
+FROM users
+GROUP BY email
+HAVING COUNT(*) > 1;
+
+
+---
+
+5. Scenario:
+
+You want to get a list of employees who earn more than their department’s average salary.
+
+Question:
+How would you find employees earning above department average?
+
+Expected Answer:
+
+SELECT e.employee_id, e.name, e.salary, e.department_id
+FROM employees e
+JOIN (
+    SELECT department_id, AVG(salary) AS avg_salary
+    FROM employees
+    GROUP BY department_id
+) dept_avg ON e.department_id = dept_avg.department_id
+WHERE e.salary > dept_avg.avg_salary;
+
+
+---
+
+6. Scenario:
+
+The client wants to see the first order placed by each customer.
+
+Question:
+How would you find each customer's first order?
+
+Expected Answer:
+
+SELECT customer_id, MIN(order_date) AS first_order_date
+FROM orders
+GROUP BY customer_id;
+
+
+---
+
+7. Scenario:
+
+You want to get the top 3 employees with the highest salary in each department.
+
+Question:
+How would you write a query to do that?
+
+Expected Answer: (Using window functions)
+
+SELECT employee_id, name, department_id, salary
+FROM (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC) AS rn
+    FROM employees
+) sub
+WHERE rn <= 3;
+
+
+---
+
+8. Scenario:
+
+You’re asked to calculate the average order amount, but only for orders over $100.
+
+Question:
+How do you write this query?
+
+Expected Answer:
+
+SELECT AVG(total_amount) AS avg_large_order
+FROM orders
+WHERE total_amount > 100;
+
+
+---
+
+9. Scenario:
+
+You need to identify products that have never been ordered.
+
+Question:
+How would you find products not present in the order_items table?
+
+Expected Answer:
+
+SELECT p.product_id, p.product_name
+FROM products p
+LEFT JOIN order_items o ON p.product_id = o.product_id
+WHERE o.product_id IS NULL;
+
+
+---
+
+10. Scenario:
+
+You need to show a list of customers along with the total number of orders they've placed—even if it's zero.
+
+Question:
+How do you write this?
+
+Expected Answer:
+
+SELECT c.customer_id, c.name, COUNT(o.order_id) AS total_orders
+FROM customers c
+LEFT JOIN orders o ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.name;
+
+
+---
+
+Would you like intermediate scenario-based questions next (e.g., involving CTEs, window functions, or performance optimizations)?
 
