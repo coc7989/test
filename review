@@ -1,188 +1,246 @@
-You're on the right track. What you're thinking of falls under predictive operations in HPC/LSF environments, and these kinds of insights can significantly improve scheduling efficiency, resource usage, and user productivity.
-
-Here’s a structured breakdown of how you can approach predictive operations in IBM LSF to achieve your goals:
+I want to build a full-stack web application with the following architecture and functional specifications:
 
 
 ---
 
-🧠 Predictive Ops in IBM LSF — Opportunities
+📦 Tech Stack
 
-1. Classifying Job Types (Long-running / Short-running / Inefficient)
+Frontend: React.js with material-react-table
 
-Goal: Tag or predict job categories before or early in execution.
+Backend: Python with Flask
 
-🔧 How:
+CI/CD: Jenkins (triggering pipelines)
 
-Feature Engineering: Collect data like:
+Database: Any supported SQL DB (e.g., PostgreSQL or MySQL)
 
-Submission time
-
-Job name / executable
-
-User or group
-
-Queue
-
-Requested resources (CPU, memory, duration)
-
-Historical run times for similar jobs
-
-
-ML Model: Use a classification model (Random Forest, Gradient Boosting, or even basic rule-based initially) to classify into:
-
-Short
-
-Long
-
-Inefficient (e.g., high memory but low CPU utilization)
-
+Version Control for Config: RCS (ckconfig, reconfig commands used)
 
 
 
 ---
 
-2. Detecting "Zombie" or Forgotten Jobs
+🎯 Functional Requirements
 
-Goal: Identify long-running jobs where the user is unaware (common with abandoned GUI sessions, stuck loops, etc.)
+1. SLA Management UI (React)
 
-🔧 How:
+Build a dashboard that displays a table of SLA data using material-react-table.
 
-Define thresholds:
+The user should first select a Cluster Name from a dropdown.
 
-Based on job type, expected vs. actual runtime
+After selection, the user will click a "Fetch SLA" button.
 
+This triggers a loading screen.
 
-Monitor for:
+A Jenkins pipeline is triggered in the background via the backend.
 
-Lack of stdout/stderr updates
-
-No checkpointing or file I/O over X hours
-
-Low resource utilization over a long period
+The pipeline fetches two sources: bsla and lsb.resources.
 
 
-Use alerting or automatic tagging
+Once the data is returned:
 
+Display the SLA distribution in the table with the following columns:
 
-> Bonus: Integrate with user notification system or Slack/Email alerts.
+Column	Description
 
-
-
-
----
-
-3. Predicting Job Completion Time
-
-Goal: Forecast when a running job will complete to improve scheduling and user planning.
-
-🔧 How:
-
-Historical job data + current progress metrics (if job supports progress reporting)
-
-Features:
-
-Job name/type
-
-Submission/request parameters
-
-Real-time CPU/memory/IO usage
-
-Checkpoint/progress log parsing (if available)
-
-
-Approaches:
-
-Regression models (e.g., XGBoost Regressor)
-
-Time-series analysis
-
-Compare against similar completed jobs ("nearest neighbor" matching)
+SLA Name	SERVICE CLASS NAME from bsla
+SLA Guaranteed	GUARANTEE CONFIG from bsla
+SLA Used	GUARANTEE USED from bsla
+Total Used SLA	TOTAL USED from bsla
+SLA Percentage (*)	Editable cell; fetched from lsb.resources, matched by service class name
+Last Modified By	From the database; records who last modified the SLA %
 
 
 
-> Bonus: Give ETA to users or visualize it in dashboards.
+SLA Percentage should be editable for each row.
+
+A user can make changes to multiple rows at once.
+
+At the bottom of the table:
+
+"Save" button:
+
+Triggers another Jenkins pipeline call via the backend.
+
+Sends:
+
+SLA Names (rows that were modified)
+
+New SLA % values
+
+Cluster name
+
+
+Backend captures:
+
+Username
+
+Timestamp
+
+SLA Name
+
+Old Value ➝ New Value
+
+Cluster Name
+
+This is saved in a change history audit table.
+
+
+
+"Cancel" button:
+
+Reverts unsaved changes to their original values.
+
+Does not trigger any backend call.
+
 
 
 
 
 ---
 
-🔨 Implementation Strategy
+⚙️ Backend Requirements (Flask)
 
-📥 Data Collection
+REST APIs for:
 
-Pull job data via bhist, bjobs, bacct, lsload, etc.
+Fetching available cluster names.
 
-Store in a central DB (e.g., PostgreSQL or even just CSVs for prototype)
+Triggering Jenkins pipeline to retrieve SLA data (bsla and lsb.resources).
 
-Schedule regular jobs to collect this info
+Submitting updated SLA values (trigger Jenkins to update lsb.resources).
 
-
-📊 Dashboard & Monitoring (Optional)
-
-Use Grafana/Prometheus for visual real-time monitoring
-
-Jupyter + Matplotlib/Plotly for exploratory work
-
-Alerting via email/Slack
+Auditing and saving SLA change history.
 
 
-📦 Tech Stack Ideas
+Jenkins Integration:
 
-Backend: Python (Pandas, Scikit-learn, XGBoost, etc.)
+Trigger pipeline with parameters:
 
-Data Store: PostgreSQL / SQLite / CSV (start simple)
+cluster_name
 
-Optional Dashboards: Flask/Django + JS + Grafana
+Modified SLA rows (sla name + new value)
 
 
+On success:
 
----
+Use RCS to:
 
-⚠️ Challenges & Considerations
+Checkout lsb.resources file
 
-Data Quality: Inconsistent job naming, missing logs, or variable runtimes
+Modify values programmatically
 
-Privacy: Respect user data (especially for design teams)
+Check in the file
 
-Integration: LSF APIs and user communication mechanisms
-
-Resource Utilization Metrics: Need tools like lsfmon, lsload, or OS metrics
+Run ckconfig and reconfig
 
 
 
----
 
-✅ Example: Simple MVP for Classification
+Error handling:
 
-Goal: Predict job type before submission.
+If Jenkins fails, return appropriate error to frontend.
 
-Steps:
-
-1. Collect historical job logs (bjobs -l, bacct, etc.)
+Log detailed error for traceability.
 
 
-2. Label jobs by runtime buckets (e.g., <10min, 10min–1hr, >1hr)
+Security:
 
+Record the authenticated user making changes.
 
-3. Train a simple classifier (Random Forest)
-
-
-4. Integrate into submission wrapper script to predict and warn user
+Only allow authenticated users to access the dashboard.
 
 
 
 
 ---
 
-Would you like help with:
+✅ Additional Requirements & Edge Cases to Handle
 
-A prototype script for job data collection?
+Show loading spinners during:
 
-A notebook example of job classification or prediction?
+Initial SLA fetch
 
-A dashboard layout for monitoring predictive metrics?
+SLA save pipeline trigger
 
 
-Let me know how far along you are or what you'd like to tackle first.
+Handle Jenkins timeout, failure, or unreachable service
 
+Display user-friendly error
+
+
+SLA Percentage must:
+
+Accept only numeric values (with validations)
+
+Be within defined limits (e.g., 0-100)
+
+
+Prevent save if:
+
+No changes are made
+
+Invalid values exist in any row
+
+
+Frontend must:
+
+Preserve unsaved edits in-memory
+
+Disable "Save" until there's at least one valid change
+
+
+Database must:
+
+Store a full change history log for audit trail
+
+
+Support for:
+
+Multi-user environment (concurrent editing not required, but no data corruption)
+
+
+
+
+---
+
+📁 Deliverables
+
+Frontend:
+
+React components with clean structure, state management, and error handling
+
+
+Backend:
+
+Flask routes, Jenkins integration, data validation, and audit logging
+
+
+Jenkins pipeline:
+
+Scripts to handle input parameters, safely modify config, and commit
+
+
+Database schema:
+
+sla_changes table with fields:
+
+id, cluster_name, sla_name, old_value, new_value, modified_by, timestamp
+
+
+
+
+
+---
+
+🛠️ Request
+
+Please provide production-quality code for this system with:
+
+Modular and maintainable structure
+
+Complete input validation and error handling
+
+All edge cases handled (see above)
+
+Security considerations (auth, input sanitization, etc.)
+
+Backend tests (where appropriate)
