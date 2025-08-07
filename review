@@ -1,246 +1,155 @@
-I want to build a full-stack web application with the following architecture and functional specifications:
+Project Structure:
 
+- backend/
 
----
+- app.py
 
-📦 Tech Stack
+- jenkins.py
 
-Frontend: React.js with material-react-table
+- db.py
 
-Backend: Python with Flask
+- models.py
 
-CI/CD: Jenkins (triggering pipelines)
+- config.py
 
-Database: Any supported SQL DB (e.g., PostgreSQL or MySQL)
+- frontend/
 
-Version Control for Config: RCS (ckconfig, reconfig commands used)
+- (React app with Material React Table)
 
+- jenkins/
 
+- sla_update_pipeline.groovy
 
----
+====================
 
-🎯 Functional Requirements
+=== BACKEND (Flask)
 
-1. SLA Management UI (React)
+====================
 
-Build a dashboard that displays a table of SLA data using material-react-table.
+File: backend/app.py
 
-The user should first select a Cluster Name from a dropdown.
+from flask import Flask, request, jsonify from flask_cors import CORS from db import get_db_connection from jenkins import trigger_fetch_pipeline, trigger_update_pipeline from models import log_sla_change, get_available_clusters import datetime
 
-After selection, the user will click a "Fetch SLA" button.
+app = Flask(name) CORS(app)
 
-This triggers a loading screen.
+@app.route('/api/clusters', methods=['GET']) def list_clusters(): return jsonify(get_available_clusters())
 
-A Jenkins pipeline is triggered in the background via the backend.
+@app.route('/api/sla/fetch', methods=['POST']) def fetch_sla(): data = request.json cluster = data.get('cluster_name') if not cluster: return jsonify({'error': 'Cluster name is required'}), 400
 
-The pipeline fetches two sources: bsla and lsb.resources.
+try:
+    result = trigger_fetch_pipeline(cluster)
+    return jsonify(result)
+except Exception as e:
+    return jsonify({'error': str(e)}), 500
 
+@app.route('/api/sla/update', methods=['POST']) def update_sla(): data = request.json cluster = data.get('cluster_name') changes = data.get('changes')  # List of {sla_name, old_value, new_value} modified_by = data.get('user')
 
-Once the data is returned:
+if not cluster or not changes or not modified_by:
+    return jsonify({'error': 'Missing parameters'}), 400
 
-Display the SLA distribution in the table with the following columns:
+try:
+    result = trigger_update_pipeline(cluster, changes)
 
-Column	Description
+    # Log to Oracle
+    for change in changes:
+        log_sla_change(cluster, change['sla_name'], change['old_value'], change['new_value'], modified_by)
 
-SLA Name	SERVICE CLASS NAME from bsla
-SLA Guaranteed	GUARANTEE CONFIG from bsla
-SLA Used	GUARANTEE USED from bsla
-Total Used SLA	TOTAL USED from bsla
-SLA Percentage (*)	Editable cell; fetched from lsb.resources, matched by service class name
-Last Modified By	From the database; records who last modified the SLA %
+    return jsonify(result)
+except Exception as e:
+    return jsonify({'error': str(e)}), 500
 
+if name == 'main': app.run(debug=True)
 
+----------------------
 
-SLA Percentage should be editable for each row.
+File: backend/config.py
 
-A user can make changes to multiple rows at once.
+ORACLE_DB_CONFIG = { 'username': 'YOUR_USER', 'password': 'YOUR_PASSWORD', 'dsn': 'hostname:port/service_name' }
 
-At the bottom of the table:
+JENKINS_URL = 'http://jenkins-url' JENKINS_USER = 'your_user' JENKINS_TOKEN = 'your_api_token' JENKINS_FETCH_JOB = 'FetchSLAJob' JENKINS_UPDATE_JOB = 'UpdateSLAJob'
 
-"Save" button:
+--------------------
 
-Triggers another Jenkins pipeline call via the backend.
+File: backend/db.py
 
-Sends:
+import cx_Oracle from config import ORACLE_DB_CONFIG
 
-SLA Names (rows that were modified)
+def get_db_connection(): conn = cx_Oracle.connect( user=ORACLE_DB_CONFIG['username'], password=ORACLE_DB_CONFIG['password'], dsn=ORACLE_DB_CONFIG['dsn'] ) return conn
 
-New SLA % values
+-----------------------
 
-Cluster name
+File: backend/models.py
 
+from db import get_db_connection
 
-Backend captures:
+def log_sla_change(cluster, sla_name, old_value, new_value, modified_by): conn = get_db_connection() cursor = conn.cursor() cursor.execute(''' INSERT INTO sla_changes (cluster_name, sla_name, old_value, new_value, modified_by, timestamp) VALUES (:1, :2, :3, :4, :5, SYSTIMESTAMP) ''', (cluster, sla_name, old_value, new_value, modified_by)) conn.commit() cursor.close() conn.close()
 
-Username
+def get_available_clusters(): # Static for now, can be fetched dynamically later return ['ClusterA', 'ClusterB', 'ClusterC']
 
-Timestamp
+--------------------------
 
-SLA Name
+File: backend/jenkins.py
 
-Old Value ➝ New Value
+import requests from config import *
 
-Cluster Name
+def trigger_fetch_pipeline(cluster_name): response = requests.post( f"{JENKINS_URL}/job/{JENKINS_FETCH_JOB}/buildWithParameters", auth=(JENKINS_USER, JENKINS_TOKEN), params={"cluster_name": cluster_name} ) if response.status_code != 201: raise Exception(f"Jenkins fetch job failed: {response.text}") return {"status": "Fetch triggered"}
 
-This is saved in a change history audit table.
+def trigger_update_pipeline(cluster_name, changes): import json response = requests.post( f"{JENKINS_URL}/job/{JENKINS_UPDATE_JOB}/buildWithParameters", auth=(JENKINS_USER, JENKINS_TOKEN), params={ "cluster_name": cluster_name, "modified_sla_json": json.dumps(changes) } ) if response.status_code != 201: raise Exception(f"Jenkins update job failed: {response.text}") return {"status": "Update triggered"}
 
+=====================
 
+=== FRONTEND (React)
 
-"Cancel" button:
+=====================
 
-Reverts unsaved changes to their original values.
+// Only key files shown below. You will need to initialize a React app and install: // npm install @mui/material material-react-table axios
 
-Does not trigger any backend call.
+// File: frontend/src/App.jsx
 
+import React, { useState } from 'react'; import SLAEditor from './SLAEditor'; import axios from 'axios'; import { CircularProgress, Container, Button, MenuItem, Select, Typography } from '@mui/material';
 
+function App() { const [clusters, setClusters] = useState([]); const [selectedCluster, setSelectedCluster] = useState(''); const [slaData, setSlaData] = useState([]); const [loading, setLoading] = useState(false);
 
+const fetchClusters = async () => { const res = await axios.get('/api/clusters'); setClusters(res.data); };
 
+const fetchSLA = async () => { setLoading(true); try { await axios.post('/api/sla/fetch', { cluster_name: selectedCluster }); const res = await axios.get(/mock_sla_data/${selectedCluster}.json); // replace with real API response setSlaData(res.data); } catch (e) { alert('Error fetching SLA'); } setLoading(false); };
 
----
+useState(() => { fetchClusters(); }, []);
 
-⚙️ Backend Requirements (Flask)
+return ( <Container> <Typography variant="h4">SLA Management Dashboard</Typography> <Select value={selectedCluster} onChange={e => setSelectedCluster(e.target.value)}> {clusters.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)} </Select> <Button onClick={fetchSLA} disabled={!selectedCluster}>Fetch SLA</Button> {loading ? <CircularProgress /> : <SLAEditor data={slaData} cluster={selectedCluster} />} </Container> ); }
 
-REST APIs for:
+export default App;
 
-Fetching available cluster names.
+// File: frontend/src/SLAEditor.jsx
 
-Triggering Jenkins pipeline to retrieve SLA data (bsla and lsb.resources).
+import React, { useState } from 'react'; import MaterialReactTable from 'material-react-table'; import { Button, Stack } from '@mui/material'; import axios from 'axios';
 
-Submitting updated SLA values (trigger Jenkins to update lsb.resources).
+export default function SLAEditor({ data, cluster }) { const [tableData, setTableData] = useState(data); const [editedRows, setEditedRows] = useState({});
 
-Auditing and saving SLA change history.
+const columns = [ { accessorKey: 'sla_name', header: 'SLA Name' }, { accessorKey: 'guaranteed', header: 'SLA Guaranteed' }, { accessorKey: 'used', header: 'SLA Used' }, { accessorKey: 'total_used', header: 'Total Used SLA' }, { accessorKey: 'sla_percent', header: 'SLA Percentage', Cell: ({ cell, row }) => ( <input type="number" value={editedRows[row.index]?.sla_percent ?? row.original.sla_percent} onChange={e => { const val = e.target.value; setEditedRows(prev => ({ ...prev, [row.index]: { ...row.original, sla_percent: val } })); }} /> ) }, { accessorKey: 'last_modified_by', header: 'Last Modified By' } ];
 
+const handleSave = async () => { const payload = Object.values(editedRows).map(row => ({ sla_name: row.sla_name, old_value: row.original.sla_percent, new_value: row.sla_percent }));
 
-Jenkins Integration:
+await axios.post('/api/sla/update', {
+  cluster_name: cluster,
+  user: 'current_user',
+  changes: payload
+});
 
-Trigger pipeline with parameters:
+setEditedRows({});
 
-cluster_name
+};
 
-Modified SLA rows (sla name + new value)
+return ( <> <MaterialReactTable columns={columns} data={tableData} /> <Stack direction="row" spacing={2}> <Button onClick={handleSave} disabled={Object.keys(editedRows).length === 0}>Save</Button> <Button onClick={() => setEditedRows({})}>Cancel</Button> </Stack> </> ); }
 
+=============================
 
-On success:
+=== JENKINS PIPELINE SCRIPT
 
-Use RCS to:
+=============================
 
-Checkout lsb.resources file
+File: jenkins/sla_update_pipeline.groovy
 
-Modify values programmatically
+pipeline { agent any parameters { string(name: 'cluster_name', defaultValue: '', description: 'Cluster name') text(name: 'modified_sla_json', defaultValue: '[]', description: 'JSON with SLA updates') } stages { stage('Checkout Config') { steps { sh 'co -l /path/to/lsb.resources' } } stage('Update SLA Config') { steps { script { def slaUpdates = readJSON text: params.modified_sla_json def file = readFile('/path/to/lsb.resources') slaUpdates.each { change -> def pattern = "\" def replacement = "[${change.sla_name}, ${change.new_value}%]" file = file.replaceAll(pattern, replacement) } writeFile file: '/path/to/lsb.resources', text: file } } } stage('Checkin & Reconfig') { steps { sh 'ci -u /path/to/lsb.resources' sh 'ckconfig' sh 'badmin reconfig' } } } }
 
-Check in the file
 
-Run ckconfig and reconfig
-
-
-
-
-Error handling:
-
-If Jenkins fails, return appropriate error to frontend.
-
-Log detailed error for traceability.
-
-
-Security:
-
-Record the authenticated user making changes.
-
-Only allow authenticated users to access the dashboard.
-
-
-
-
----
-
-✅ Additional Requirements & Edge Cases to Handle
-
-Show loading spinners during:
-
-Initial SLA fetch
-
-SLA save pipeline trigger
-
-
-Handle Jenkins timeout, failure, or unreachable service
-
-Display user-friendly error
-
-
-SLA Percentage must:
-
-Accept only numeric values (with validations)
-
-Be within defined limits (e.g., 0-100)
-
-
-Prevent save if:
-
-No changes are made
-
-Invalid values exist in any row
-
-
-Frontend must:
-
-Preserve unsaved edits in-memory
-
-Disable "Save" until there's at least one valid change
-
-
-Database must:
-
-Store a full change history log for audit trail
-
-
-Support for:
-
-Multi-user environment (concurrent editing not required, but no data corruption)
-
-
-
-
----
-
-📁 Deliverables
-
-Frontend:
-
-React components with clean structure, state management, and error handling
-
-
-Backend:
-
-Flask routes, Jenkins integration, data validation, and audit logging
-
-
-Jenkins pipeline:
-
-Scripts to handle input parameters, safely modify config, and commit
-
-
-Database schema:
-
-sla_changes table with fields:
-
-id, cluster_name, sla_name, old_value, new_value, modified_by, timestamp
-
-
-
-
-
----
-
-🛠️ Request
-
-Please provide production-quality code for this system with:
-
-Modular and maintainable structure
-
-Complete input validation and error handling
-
-All edge cases handled (see above)
-
-Security considerations (auth, input sanitization, etc.)
-
-Backend tests (where appropriate)
