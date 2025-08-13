@@ -1,179 +1,61 @@
-Got it ✅ — you basically want a Jenkins fetch pipeline that:
+import cx_Oracle
+import re
+import pandas as pd
 
-1. Runs bsla and reads lsb.resources.
+# ===== USER CONFIG =====
+# Oracle DB connection details
+DB_USER = "your_user"
+DB_PASSWORD = "your_password"
+DB_DSN = "hostname:port/servicename"  # Example: "dbserver:1521/orclpdb1"
 
+# Table and column names
+TABLE_NAME = "your_table"
+COLUMN_NAME = "command"
 
-2. Parses both to get:
+# Your tools list
+tools_list = [
+    "virtuoso", "psf2ascii", "spectre", "hspice",
+    "calibre", "icv", "innovus", "genus", "tempus",
+    "primetime"
+]
 
-SLA Name
-
-SLA Guaranteed
-
-SLA Used
-
-Total Used SLA
-
-SLA % from lsb.resources
-
-
-
-3. Queries Oracle DB for each SLA to get last_modified_by and timestamp.
-
-
-4. Returns merged JSON to the Flask backend, which sends it to the frontend.
-
-
-
-
----
-
-Jenkins Fetch SLA Pipeline (sla_fetch_pipeline.groovy)
-
-pipeline {
-    agent any
-    parameters {
-        string(name: 'cluster_name', defaultValue: '', description: 'Cluster name')
-    }
-    stages {
-        stage('Fetch SLA Data') {
-            steps {
-                script {
-                    // 1. Run bsla and capture output
-                    def bslaOutput = sh(script: "bsla -m ${params.cluster_name}", returnStdout: true).trim()
-
-                    // 2. Read lsb.resources file
-                    def lsbFilePath = "/path/to/lsb.resources"
-                    def lsbContent = readFile(lsbFilePath)
-
-                    // 3. Parse bsla output
-                    def slaData = []
-                    def currentSLA = [:]
-                    bslaOutput.split("\\n").each { line ->
-                        if (line.startsWith("SERVICE CLASS NAME:")) {
-                            if (currentSLA) slaData << currentSLA
-                            currentSLA = [sla_name: line.split(":")[1].trim()]
-                        }
-                        else if (line.contains("GUARANTEE") && line.contains("POOL NAME") == false) {
-                            // Skip header lines
-                        }
-                        else if (line.trim().startsWith("TI_SLA_pool")) {
-                            def parts = line.trim().split("\\s+")
-                            currentSLA.guaranteed = parts[2]
-                            currentSLA.used = parts[3]
-                            currentSLA.total_used = parts[4]
-                        }
-                    }
-                    if (currentSLA) slaData << currentSLA
-
-                    // 4. Parse SLA percentage from lsb.resources
-                    def percentPattern = /\[(\w+),\s*([0-9]+)%\]/
-                    def slaPercentMap = [:]
-                    (lsbContent =~ percentPattern).each { match ->
-                        slaPercentMap[match[1]] = match[2]
-                    }
-                    slaData.each { sla ->
-                        sla.sla_percent = slaPercentMap[sla.sla_name] ?: null
-                    }
-
-                    // 5. Get last modified info from Oracle DB
-                    withCredentials([usernamePassword(credentialsId: 'oracle-db-creds', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASS')]) {
-                        def sqlQuery = """
-                        SELECT sla_name, modified_by, TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') AS ts
-                        FROM sla_changes
-                        WHERE cluster_name='${params.cluster_name}'
-                        AND sla_name = :slaName
-                        ORDER BY timestamp DESC FETCH FIRST 1 ROWS ONLY
-                        """
-
-                        slaData.each { sla ->
-                            def dbResult = sh(
-                                script: """sqlplus -S $DB_USER/$DB_PASS@//oracle-host:1521/ORCLPDB1 <<EOF
-                                    SET HEADING OFF FEEDBACK OFF VERIFY OFF
-                                    ${sqlQuery.replace(":slaName", "'${sla.sla_name}'")}
-                                    EXIT;
-EOF""",
-                                returnStdout: true
-                            ).trim()
-
-                            if (dbResult) {
-                                def parts = dbResult.split("\\s+")
-                                sla.last_modified_by = parts[0]
-                                sla.last_modified_time = parts[1] + " " + parts[2]
-                            } else {
-                                sla.last_modified_by = null
-                                sla.last_modified_time = null
-                            }
-                        }
-                    }
-
-                    // 6. Save as JSON for backend
-                    def jsonFile = "/tmp/sla_data_${params.cluster_name}.json"
-                    writeFile file: jsonFile, text: groovy.json.JsonOutput.toJson(slaData)
-
-                    // 7. Send to backend API
-                    sh """
-                        curl -X POST http://flask-backend-url/api/sla/data \\
-                        -H 'Content-Type: application/json' \\
-                        -d @${jsonFile}
-                    """
-                }
-            }
-        }
-    }
-}
+# ===== FUNCTIONS =====
+def find_tools_in_text(text, tools):
+    """Return a set of matching tools from text."""
+    matches = set()
+    for tool in tools:
+        if re.search(r"\b" + re.escape(tool) + r"\b", text, re.IGNORECASE):
+            matches.add(tool.lower())
+    return matches
 
 
----
+# ===== MAIN LOGIC =====
+connection = cx_Oracle.connect(DB_USER, DB_PASSWORD, DB_DSN)
+cursor = connection.cursor()
 
-Changes Needed in Backend
+cursor.execute(f"SELECT {COLUMN_NAME} FROM {TABLE_NAME}")
+rows = cursor.fetchall()
 
-We add a new endpoint /api/sla/data that receives the parsed SLA JSON from Jenkins and stores it temporarily in memory (or cache) so the frontend can retrieve it.
+tool_to_commands = {tool.lower(): [] for tool in tools_list}
 
-# In app.py
-sla_cache = {}
+for row in rows:
+    command_str = row[0] or ""
+    matches = find_tools_in_text(command_str, tools_list)
+    for tool in matches:
+        tool_to_commands[tool].append(command_str)
 
-@app.route('/api/sla/data', methods=['POST'])
-def receive_sla_data():
-    data = request.json
-    cluster = request.args.get('cluster_name')
-    sla_cache[cluster] = data
-    return jsonify({"status": "data received"}), 200
+# Convert to DataFrame for nicer output
+df = pd.DataFrame(
+    [(tool, cmd) for tool, cmds in tool_to_commands.items() for cmd in cmds],
+    columns=["Tool", "Command"]
+)
 
-@app.route('/api/sla/get', methods=['GET'])
-def get_sla_data():
-    cluster = request.args.get('cluster_name')
-    return jsonify(sla_cache.get(cluster, []))
+# Show in console
+print(df)
 
+# Optionally save to CSV
+df.to_csv("tool_command_mapping.csv", index=False)
 
----
-
-Flow
-
-1. Frontend → /api/sla/fetch → triggers fetch pipeline in Jenkins.
-
-
-2. Pipeline:
-
-Runs bsla & parses
-
-Reads lsb.resources & parses
-
-Fetches DB audit info
-
-Merges into JSON
-
-POSTs to backend /api/sla/data
-
-
-
-3. Frontend fetches from /api/sla/get to render in table.
-
-
-
-
----
-
-If you want, I can now merge this fetch pipeline with your update pipeline so that both are in a single job or keep them separate for modularity.
-
-Do you want me to merge or keep separate?
-
+# Cleanup
+cursor.close()
+connection.close()
