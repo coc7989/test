@@ -1,90 +1,244 @@
-Ahh, got it 👍 — thanks for clarifying!
-So in your environment, users don’t provide an expected runtime (walltime) — jobs just run until they finish.
-
-That changes the angle a bit:
-
-The pain point isn’t wrong user estimates.
-
-The opportunity is: if the system knows in advance how long jobs will run, it can schedule smarter, predict queue times better, and optimize resource usage.
-
-
-Let me reframe the hackathon draft accordingly 👇
+Love the pivot — “job classification” makes the value super clear for EDA-on-LSF.
+Below is a clean, simple draft you can drop into a hackathon form.
 
 
 ---
 
-Hackathon Proposal: Job Runtime Prediction for IBM LSF
+Hackathon Proposal: Job Classification for IBM LSF (EDA Workflows)
 
 Problem Statement
 
-In our current cluster setup, users submit jobs without specifying expected runtime. Jobs run until they finish, which makes it hard for the scheduler to plan efficiently. Without knowing runtimes in advance, the system cannot make smart scheduling decisions, and users have no visibility into how long their jobs might wait or run.
+Our EDA tools submit many jobs to IBM LSF. Today, the scheduler does not know which jobs are short, long, inefficient, or “zombie” (stuck).
+If we can classify jobs at submit time (and early during run), we can schedule smarter, alert faster, and avoid wasting compute.
 
-If we can predict the runtime of jobs automatically using AI/ML, the scheduler can plan better, and users can get clearer expectations.
+Target classes
+
+Short-running (finishes quickly)
+
+Long-running (needs long slots)
+
+Inefficient (uses far less CPU/GPU/memory than requested)
+
+Zombie (stuck, no progress, e.g., I/O hang or repeated crash loop)
+
+
+(Under the hood, we will predict runtime and resource usage to make the classification.)
 
 
 ---
 
 Current Challenges
 
-Scheduler has no knowledge of job duration until it completes.
+No early signal on how long a job will run.
 
-Hard to optimize scheduling and backfilling, leading to idle resources.
+Backfilling is conservative; resources sit idle.
 
-Users don’t know in advance how long their jobs will take.
+Some jobs run for hours while doing almost no useful work.
 
-Queue wait times are unpredictable, causing frustration.
+Stuck/zombie jobs waste licenses and cores.
 
-Long jobs may block resources that could be used by shorter ones.
+Users and admins have little visibility to act early.
 
 
 
 ---
 
-Business Impact / Outcome
+Business Impact / Outcomes
 
-Better scheduling & backfilling → improved overall cluster utilization.
+Higher throughput: Better packing of short jobs; long jobs placed on the right nodes.
 
-Reduced waiting times → faster turnaround for jobs.
+Lower waste: Detect and stop zombie/inefficient jobs early; free up licenses and cores.
 
-Predictable experience for users → estimated runtime and completion time.
+Faster feedback: Users see predicted class and ETA; plan work better.
 
-Supports smarter policies → SLA-based scheduling, deadline-aware queues, and energy-efficient job placement.
+Operational savings: Less energy and time wasted; improved ROI on hardware and EDA licenses.
 
-Improved ROI → more work done on the same hardware.
+Foundation for policies: SLA/priority queues, deadline-aware scheduling, and auto-mitigation rules.
 
+
+
+---
+
+What We Will Build (Scope for Hackathon)
+
+1. Classifier service that labels each job as short/long/inefficient/zombie.
+
+Inputs: tool name (e.g., VCS, Xcelium, Innovus…), flow/stage, user/team, request (cores/mem), queue, file sizes, past history of similar jobs, and early runtime signals (first N minutes of CPU/IO metrics).
+
+Under the hood: a simple runtime predictor + utilization predictor → mapped to classes.
+
+
+
+2. LSF integration (prototype):
+
+At submission: show “Predicted: Short (ETA ~45 min)” or “Long”.
+
+Early-run monitor: flip to “Inefficient” or “Zombie” if thresholds are breached.
+
+
+
+3. Dashboard:
+
+Queue view with class badges and ETAs.
+
+“Top waste” panel for zombie/inefficient jobs.
+
+Predicted vs. actual summary for trust.
+
+
+
+4. Policy hooks (demo):
+
+Backfill short jobs aggressively.
+
+Auto-notify or auto-suspend zombies after X minutes.
+
+Nudge users when jobs look inefficient (e.g., requested 64 cores, using 2).
+
+
+
+
+
+---
+
+Simple Definitions (initial, tunable)
+
+Short-running: predicted runtime ≤ 1 hour
+
+Long-running: predicted runtime ≥ 8 hours
+
+Inefficient: average CPU utilization < 20% of requested for ≥15 min, or memory footprint < 25% of requested for long periods
+
+Zombie: no CPU progress, no I/O, or repeated crash/restart loop for ≥10 min after start (thresholds adjustable by queue)
+
+
+(We’ll tune these per-tool and per-queue after we collect data.)
 
 
 ---
 
 Project Requirements
 
-Access to job history (job start time, end time, resources used, user metadata).
+Data access: LSF job history (submit/start/end, exit status), resource usage (CPU, RAM, I/O), EDA tool/flow metadata, and early runtime metrics.
 
-ML/AI pipeline to predict job runtime from job metadata (scripts, user history, job type, resources requested).
+Feature pipeline: Map (tool, stage, options, input sizes, user/team history) → features.
 
-Simple API or integration with LSF to provide runtime estimates at submission.
+Models:
 
-Dashboard to show predicted vs. actual runtimes for transparency.
+Baseline: rules + simple regressors (e.g., gradient boosting) for runtime/utilization.
+
+Stretch: early telemetry model that updates class in first 5–10 minutes.
+
+
+Integration: A lightweight REST API or CLI hook called from EDA wrappers/bsub wrappers.
+
+UI: Small web page or Grafana panel for classes, ETAs, and alerts.
+
+Security/Privacy: Scope to non-sensitive job fields; log only what’s needed.
+
+
+
+---
+
+Estimated Effort (6 weeks prototype)
+
+Week 1:
+
+Pull last 3–6 months of job history; define labels for short/long/inefficient/zombie.
+
+Build baseline rules (thresholds above) to have an immediate MVP.
+
+
+Week 2:
+
+Feature engineering (tool, flow, options, requested cores/mem, input sizes, past runtimes).
+
+Train a simple runtime regressor; map to short/long.
+
+Train/utilization heuristic for inefficient.
+
+
+Week 3:
+
+Add early-run telemetry (first 5–10 min stats) to detect zombies/inefficiency sooner.
+
+Build classifier service (simple REST).
+
+
+Week 4:
+
+LSF/EDA integration (submission wrapper prints predicted class; label stored in job description).
+
+Dashboard with queue view, ETAs, and “Top waste” list.
+
+
+Week 5:
+
+Policy demo:
+
+Preferential backfill for “Short”.
+
+Alert/suspend on “Zombie” after threshold.
+
+Notify user on “Inefficient” with recommended cores/mem.
+
+
+
+Week 6:
+
+Validate on live jobs; collect accuracy/precision; tune thresholds.
+
+Final demo and report (throughput gain, waste reduced, user feedback).
 
 
 
 ---
 
-Estimated Efforts
+Success Metrics (for the demo)
 
-Week 1–2: Collect and preprocess job history data.
+Classification precision/recall for Short and Zombie classes.
 
-Week 3–4: Build baseline ML/AI model for runtime prediction.
+Scheduler wins: % more short jobs backfilled; average queue wait reduced.
 
-Week 5: Integrate with job submission and scheduling workflow (prototype).
+Waste cut: CPU-hours saved by stopping zombies/inefficient jobs.
 
-Week 6: Validation, user feedback, and final demo.
+User trust: Predicted vs actual runtime error (MAPE) for short/long.
 
-
-Total: ~6 weeks for a working prototype.
 
 
 ---
 
-👉 Do you want me to also draft a “future possibilities” section (like extending this to cost prediction, cloud bursting, SLA queues), or should I keep it focused only on the hackathon prototype?
+Risks & Mitigations
+
+Wrong class → bad decisions: Start with advisory mode (no auto-kill), then phase policies.
+
+Data quality gaps: Fall back to rule-based labels until history improves.
+
+Tool diversity: Start with 1–2 critical flows (e.g., simulation + synthesis), then expand.
+
+
+
+---
+
+Deliverables
+
+Working classifier service + API
+
+LSF/EDA submission hook showing predicted class/ETA
+
+Dashboard with live classes and alerts
+
+Policy demo (backfill preference, zombie alert/suspend)
+
+Short report with before/after metrics
+
+
+
+---
+
+One-line pitch
+
+“Know your jobs before they run: classify fast, schedule smart, waste less.”
+
+If you want, I can tailor the thresholds and examples to the exact EDA tools/flows you use (e.g., VCS regressions vs. Innovus place-and-route).
 
