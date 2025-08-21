@@ -1,46 +1,33 @@
-Perfect — thanks for clarifying 🙌
-So your full idea is about:
-
-1. Predicting job success/failure before execution
-
-
-2. Detecting failure patterns + searching docs/KBs for fixes
-
-
-3. Automatically applying fixes (self-healing jobs)
-
-
-
-Here’s a clean, updated hackathon write-up for you:
+Got it 👍 thanks for clarifying — your idea is about scheduling heavy resource jobs (CPU/memory intensive) during off-peak cluster times (night, weekend, holidays), not about electricity tariffs. That makes it more about cluster efficiency & fairness. Here’s the revised hackathon write-up:
 
 
 ---
 
 Topic Name
 
-"Self-Healing Job Scheduler: Predict, Prevent, and Auto-Fix Failures in IBM LSF"
+"Smart Scheduling of Heavy Jobs in IBM LSF"
 
 
 ---
 
 Problem Statement
 
-In large compute environments using IBM LSF, jobs can run for days or even weeks before failing due to common issues like missing files, wrong resource requests, or misconfiguration. This leads to wasted compute, higher costs, and delays. Often, the same failure patterns reoccur but users and admins still spend time debugging them manually.
+In large compute clusters, heavy jobs that demand many CPUs, GPUs, or large memory often run during peak hours. This blocks cluster capacity for smaller or urgent jobs, causes longer queue times, and reduces overall throughput. Currently, jobs are scheduled based only on queue order, not on system load patterns or workload type.
 
 
 ---
 
 Current Challenges
 
-Long jobs waste compute cycles and storage when they fail late.
+Heavy jobs consume significant cluster resources and delay smaller jobs.
 
-Failures follow known patterns but are not proactively detected.
+No automated way to differentiate urgent jobs vs. resource-heavy jobs.
 
-Troubleshooting is manual — users must search documentation or ask support teams.
+During business hours, users may face long wait times due to heavy workloads already running.
 
-Jobs need to be resubmitted after adjusting parameters (CPU, memory, paths), which adds delays.
+Cluster utilization is not optimized across day/night cycles.
 
-Valuable admin and user time is spent on repetitive fixes.
+Admins sometimes have to manually reschedule jobs, which is inefficient.
 
 
 
@@ -48,17 +35,15 @@ Valuable admin and user time is spent on repetitive fixes.
 
 Business Impact / Outcomes
 
-Reduced Compute Waste: Stop jobs early if they’re predicted to fail.
+Improved Cluster Throughput: Smaller/urgent jobs finish faster during peak hours.
 
-Improved Productivity: Automated detection and fixes reduce human effort.
+Optimized Resource Utilization: Heavy jobs are automatically shifted to low-demand times (night, weekends, holidays).
 
-Faster Job Recovery: Jobs can be auto-resubmitted with adjusted resources or corrected paths.
+Fairer Scheduling: Users experience reduced queue wait times for standard workloads.
 
-Knowledge Reuse: Past issues and fixes are automatically leveraged instead of rediscovered.
+Better Productivity: Researchers/engineers get results faster for urgent work.
 
-Smarter Scheduling: Jobs with low success probability are flagged, deprioritized, or rerouted.
-
-Cost Savings: Less wasted CPU/GPU cycles and quicker resolution saves infra and labor cost.
+Operational Efficiency: Admins spend less time managing job priorities manually.
 
 
 
@@ -66,29 +51,22 @@ Cost Savings: Less wasted CPU/GPU cycles and quicker resolution saves infra and 
 
 Project Requirements
 
-1. Collect historical job data (parameters, runtime, exit codes, logs).
+1. Enhance job submission to tag jobs as urgent vs. non-urgent/heavy.
 
 
-2. Build ML model to predict job success/failure before scheduling.
+2. Collect cluster load patterns (peak vs. off-peak usage).
 
 
-3. Implement failure pattern detection and correlation with past runs.
+3. Implement scheduling logic to defer heavy jobs to low-demand periods.
 
 
-4. Integrate with documentation & knowledge base for automatic suggestions.
+4. Ensure urgent jobs can override and run anytime.
 
 
-5. Create self-healing actions:
-
-Resubmit failed jobs
-
-Adjust memory/CPU automatically
-
-Fix file path issues
+5. Provide a dashboard/alerts for users to see expected start times.
 
 
-
-6. Provide a dashboard/notification system to show predictions, actions taken, and results.
+6. Track and report improvements in queue wait times and throughput.
 
 
 
@@ -97,21 +75,21 @@ Fix file path issues
 
 Estimated Effort
 
-Week 1–2: Requirement gathering, historical job data collection & cleaning.
+Week 1–2: Gather requirements, analyze cluster usage data.
 
-Week 3–4: Build predictive ML model for job success/failure.
+Week 3–4: Define tagging mechanism for heavy vs. urgent jobs.
 
-Week 5–6: Failure pattern detection + documentation/KB integration.
+Week 5–6: Implement scheduling logic to prioritize light/urgent jobs in peak hours.
 
-Week 7–8: Develop auto-fix and resubmission mechanisms.
+Week 7: Build dashboard to show queue optimization and predictions.
 
-Week 9: Build dashboard/alerts and integrate with LSF job workflows.
+Week 8: Testing, validation, and integration with LSF environment.
 
 
 
 ---
 
-This way, you’re positioning the project not just as prediction, but a full self-healing system for LSF workloads — much stronger for a hackathon pitch.
+👉 This idea positions itself as fair scheduling & cluster optimization, while your first one was self-healing jobs. Both complement each other nicely.
 
-👉 Do you want me to also make a 2–3 sentence “elevator pitch” version of this idea that you can say quickly to judges/mentors during the hackathon?
+Do you want me to also make a quick 2–3 sentence pitch version of this one (like something you can say in front of judges in <30 seconds)?
 
