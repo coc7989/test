@@ -1,0 +1,105 @@
+rPerfect clarification 🙌 — right now, my code highlights a row as soon as you type something, but it doesn’t check whether the new value actually differs from the original.
+
+We can fix this by:
+
+1. Tracking edits only if the value is different from the original.
+
+If the new value equals the original, remove that row from editedRows.
+
+This way, the highlight disappears when you revert.
+
+
+
+2. Disabling the Save button when editedRows is empty (or when all changes are reverted).
+
+
+
+Here’s the updated code for the SLA percentage cell + save button logic:
+
+{
+  accessorKey: 'sla_percent',
+  header: 'SLA Percentage',
+  Cell: ({ row }) => {
+    const editedRow = editedRows[row.index];
+    const currentValue = editedRow ? editedRow.sla_percent : row.original.sla_percent;
+
+    const handleChange = (e) => {
+      const val = e.target.value;
+
+      if (val === '' || isNaN(val)) {
+        // remove edit if blank
+        setEditedRows((prev) => {
+          const newEdits = { ...prev };
+          delete newEdits[row.index];
+          return newEdits;
+        });
+        return;
+      }
+
+      if (Number(val) === Number(row.original.sla_percent)) {
+        // Reverted back → remove from editedRows
+        setEditedRows((prev) => {
+          const newEdits = { ...prev };
+          delete newEdits[row.index];
+          return newEdits;
+        });
+      } else {
+        // Different → mark as edited
+        setEditedRows((prev) => ({
+          ...prev,
+          [row.index]: {
+            sla_name: row.original.sla_name,
+            original_sla_percent: row.original.sla_percent,
+            sla_percent: val,
+          },
+        }));
+      }
+    };
+
+    return (
+      <TextField
+        type="number"
+        size="small"
+        value={currentValue}
+        onChange={handleChange}
+        sx={{
+          backgroundColor:
+            editedRow &&
+            Number(editedRow.sla_percent) !== Number(row.original.sla_percent)
+              ? 'rgba(255, 245, 157, 0.5)' // highlight yellow only if changed
+              : 'transparent',
+          borderRadius: 1,
+        }}
+      />
+    );
+  },
+}
+
+And update the Save button:
+
+<Button
+  onClick={handleOpenDialog}
+  disabled={Object.keys(editedRows).length === 0} // Disabled when no actual edits
+  variant="contained"
+  color="primary"
+>
+  Save
+</Button>
+
+
+---
+
+✨ Now the behavior will be:
+
+Edit a cell → row highlights.
+
+Revert it back to original → highlight disappears, and it’s removed from editedRows.
+
+If all changes are reverted → Save button disables again.
+
+
+
+---
+
+Do you also want me to automatically reset edited values if user clicks Cancel (instead of just clearing editedRows)? Right now Cancel only clears highlights but doesn’t restore values in the table.
+
