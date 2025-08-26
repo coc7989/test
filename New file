@@ -1,0 +1,233 @@
+himport React, { useContext, useState } from 'react';
+import MaterialReactTable from 'material-react-table';
+import {
+  Button,
+  Stack,
+  Snackbar,
+  Alert,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogActions,
+  DialogContent,
+  Typography,
+} from '@mui/material';
+import { ClusterContext } from '../../../NotificationContext';
+import apiInstance from '../../../api';
+
+const SlaEditor = ({ data, cluster, setSlaData }) => {
+  const { userID } = useContext(ClusterContext);
+  const [tableData, setTableData] = useState(data);
+  const [editedRows, setEditedRows] = useState({});
+  const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+  const [openDialog, setOpenDialog] = useState(false);
+  const [reason, setReason] = useState('');
+  const [openValidationDialog, setOpenValidationDialog] = useState(false);
+  const [currentTotal, setCurrentTotal] = useState(0);
+  const maxChars = 500;
+
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  const columns = [
+    { accessorKey: 'sla_name', header: 'SLA Name' },
+    { accessorKey: 'guaranteed', header: 'SLA Guaranteed' },
+    { accessorKey: 'used', header: 'SLA Used' },
+    { accessorKey: 'total_used', header: 'Total Used SLA' },
+    {
+      accessorKey: 'sla_percent',
+      header: 'SLA Percentage',
+      Cell: ({ row }) => {
+        const isEdited = editedRows[row.index];
+        return (
+          <TextField
+            type="number"
+            size="small"
+            value={isEdited ? isEdited.sla_percent : row.original.sla_percent}
+            onChange={(e) => {
+              const val = e.target.value;
+              setEditedRows((prev) => ({
+                ...prev,
+                [row.index]: {
+                  sla_name: row.original.sla_name,
+                  original_sla_percent: row.original.sla_percent,
+                  sla_percent: val,
+                },
+              }));
+            }}
+            sx={{
+              backgroundColor: isEdited ? 'rgba(255, 245, 157, 0.5)' : 'transparent', // highlight yellow
+              borderRadius: 1,
+            }}
+          />
+        );
+      },
+    },
+    { accessorKey: 'last_modified_by', header: 'Last Modified By' },
+    {
+      accessorKey: 'last_modified_at',
+      header: 'Last Modified At',
+      Cell: ({ cell }) => {
+        const value = cell.getValue();
+        const date = value ? new Date(value) : null;
+        return <span>{date ? formatter.format(date) : ''}</span>;
+      },
+    },
+    { accessorKey: 'reason', header: 'Reason' },
+  ];
+
+  const handleSave = () => {
+    // Check total SLA %
+    const updatedData = tableData.map((row, index) =>
+      editedRows[index] ? { ...row, sla_percent: Number(editedRows[index].sla_percent) } : row
+    );
+    const total = updatedData.reduce((sum, row) => sum + Number(row.sla_percent), 0);
+
+    if (total !== 100) {
+      setCurrentTotal(total);
+      setOpenValidationDialog(true);
+      return;
+    }
+
+    const payload = Object.values(editedRows).map((row) => ({
+      sla_name: row.sla_name,
+      old_value: row.original_sla_percent,
+      new_value: row.sla_percent,
+      reason,
+    }));
+
+    try {
+      apiInstance.post('/sla_change', {
+        cluster_name: cluster,
+        user: userID,
+        changes: payload,
+      });
+      setSnackbarMessage(
+        'Automation triggered successfully. You will receive an email once the changes are applied.'
+      );
+      setSnackbarSeverity('success');
+    } catch (error) {
+      console.error('Error saving SLA changes:', error);
+      setSnackbarMessage('Failed to save SLA changes. Please try again.');
+      setSnackbarSeverity('error');
+    } finally {
+      setSlaData([]);
+      setEditedRows({});
+      setOpenSnackbar(true);
+      setOpenDialog(false); // Close reason dialog
+      setReason(''); // Reset reason
+    }
+  };
+
+  const handleOpenDialog = () => {
+    setOpenDialog(true);
+  };
+
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setReason('');
+  };
+
+  const handleSubmit = () => {
+    if (reason.length <= 500) {
+      handleSave();
+    } else {
+      alert('Reason must be 500 characters or less.');
+    }
+  };
+
+  const handleCloseSnackbar = () => {
+    setOpenSnackbar(false);
+  };
+
+  return (
+    <>
+      <MaterialReactTable
+        columns={columns}
+        data={tableData}
+        muiTableBodyRowProps={({ row }) => ({
+          sx: {
+            backgroundColor: editedRows[row.index]
+              ? 'rgba(255, 245, 157, 0.3)' // highlight entire row
+              : 'transparent',
+          },
+        })}
+      />
+      <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+        <Button
+          onClick={handleOpenDialog}
+          disabled={Object.keys(editedRows).length === 0}
+          variant="contained"
+          color="primary"
+        >
+          Save
+        </Button>
+        <Button onClick={() => setEditedRows({})} variant="outlined" color="secondary">
+          Cancel
+        </Button>
+      </Stack>
+
+      {/* Snackbar */}
+      <Snackbar open={openSnackbar} autoHideDuration={6000} onClose={handleCloseSnackbar}>
+        <Alert onClose={handleCloseSnackbar} severity={snackbarSeverity} sx={{ width: '100%' }}>
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
+
+      {/* Reason Dialog */}
+      <Dialog open={openDialog} onClose={handleCloseDialog} fullWidth>
+        <DialogTitle>Enter Reason</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Reason"
+            fullWidth
+            multiline
+            rows={5}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            inputProps={{ maxLength: 500 }}
+          />
+          <Typography
+            variant="caption"
+            color={reason.length >= maxChars ? 'error' : 'textSecondary'}
+          >
+            {maxChars - reason.length} characters left
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDialog} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} color="error" variant="contained">
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Validation Dialog */}
+      <Dialog open={openValidationDialog} onClose={() => setOpenValidationDialog(false)} fullWidth>
+        <DialogTitle>Invalid SLA Distribution</DialogTitle>
+        <DialogContent>
+          <Typography>
+            The total SLA distribution must equal <strong>100%</strong>. <br />
+            Currently it is: <strong>{currentTotal}%</strong>.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenValidationDialog(false)} color="primary" variant="contained">
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+};
+
+export default SlaEditor;
