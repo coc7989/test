@@ -1,4 +1,4 @@
-himport React, { useContext, useState } from 'react';
+import React, { useContext, useState } from 'react';
 import MaterialReactTable from 'material-react-table';
 import {
   Button,
@@ -16,7 +16,7 @@ import { ClusterContext } from '../../../NotificationContext';
 import apiInstance from '../../../api';
 
 const SlaEditor = ({ data, cluster, setSlaData }) => {
-  const { userID } = useContext(ClusterContext);
+  const { userID, setSessionTimeout } = useContext(ClusterContext);
   const [tableData, setTableData] = useState(data);
   const [editedRows, setEditedRows] = useState({});
   const [openSnackbar, setOpenSnackbar] = useState(false);
@@ -24,10 +24,10 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
   const [snackbarSeverity, setSnackbarSeverity] = useState('success');
   const [openDialog, setOpenDialog] = useState(false);
   const [reason, setReason] = useState('');
+  const [reasonError, setReasonError] = useState(false);
   const [openValidationDialog, setOpenValidationDialog] = useState(false);
   const [currentTotal, setCurrentTotal] = useState(0);
   const maxChars = 500;
-
   const formatter = new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -43,25 +43,64 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
       accessorKey: 'sla_percent',
       header: 'SLA Percentage',
       Cell: ({ row }) => {
-        const isEdited = editedRows[row.index];
+        const editedRow = editedRows[row.index];
+        const currentValue =
+          editedRow !== undefined
+            ? editedRow.sla_percent
+            : row.original?.sla_percent ?? 0;
+
+        const handleChange = (e) => {
+          let val = e.target.value;
+
+          // allow empty string temporarily for user typing
+          if (val === '') {
+            setEditedRows((prev) => ({
+              ...prev,
+              [row.index]: {
+                sla_name: row.original.sla_name,
+                original_sla_percent: row.original.sla_percent,
+                sla_percent: '',
+              },
+            }));
+            return;
+          }
+
+          let numVal = parseInt(val, 10);
+          if (isNaN(numVal) || numVal < 0) {
+            numVal = 0;
+          }
+
+          if (numVal === row.original.sla_percent) {
+            // Reset edit if same as original
+            setEditedRows((prev) => {
+              const newEdits = { ...prev };
+              delete newEdits[row.index];
+              return newEdits;
+            });
+          } else {
+            setEditedRows((prev) => ({
+              ...prev,
+              [row.index]: {
+                sla_name: row.original.sla_name,
+                original_sla_percent: row.original.sla_percent,
+                sla_percent: numVal,
+              },
+            }));
+          }
+        };
+
         return (
           <TextField
             type="number"
             size="small"
-            value={isEdited ? isEdited.sla_percent : row.original.sla_percent}
-            onChange={(e) => {
-              const val = e.target.value;
-              setEditedRows((prev) => ({
-                ...prev,
-                [row.index]: {
-                  sla_name: row.original.sla_name,
-                  original_sla_percent: row.original.sla_percent,
-                  sla_percent: val,
-                },
-              }));
-            }}
+            value={currentValue}
+            onChange={handleChange}
+            inputProps={{ min: 0 }}
             sx={{
-              backgroundColor: isEdited ? 'rgba(255, 245, 157, 0.5)' : 'transparent', // highlight yellow
+              backgroundColor:
+                editedRow && currentValue !== row.original.sla_percent
+                  ? 'rgba(255, 245, 157, 0.5)' // highlight only if changed
+                  : 'transparent',
               borderRadius: 1,
             }}
           />
@@ -82,7 +121,40 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
   ];
 
   const handleSave = () => {
-    // Check total SLA %
+    const payload = Object.values(editedRows).map((row) => ({
+      sla_name: row.sla_name,
+      old_value: row.original_sla_percent,
+      new_value: row.sla_percent,
+      reason,
+    }));
+    console.log('Payload to be sent:', payload);
+    try {
+      apiInstance.post('/sla_change', {
+        cluster_name: cluster,
+        user: userID,
+        changes: payload,
+      });
+      setSnackbarMessage('Automation triggered successfully. You will receive an email once the changes are applied.');
+      setSnackbarSeverity('success');
+    } catch (error) {
+      if (error.response && error.response.status === 401) {
+        console.log('SSO Timeout');
+        setSessionTimeout(true);
+      }
+      if (error.userResponse?.status === 500) {
+        console.error('Error saving SLA changes:', error);
+        setSnackbarMessage('Failed to save SLA changes. Please try again.');
+        setSnackbarSeverity('error');
+      }
+    } finally {
+      setOpenSnackbar(true);
+      setEditedRows({});
+      setOpenDialog(false);
+      setReason('');
+    }
+  };
+
+  const handleOpenDialog = () => {
     const updatedData = tableData.map((row, index) =>
       editedRows[index] ? { ...row, sla_percent: Number(editedRows[index].sla_percent) } : row
     );
@@ -93,38 +165,6 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
       setOpenValidationDialog(true);
       return;
     }
-
-    const payload = Object.values(editedRows).map((row) => ({
-      sla_name: row.sla_name,
-      old_value: row.original_sla_percent,
-      new_value: row.sla_percent,
-      reason,
-    }));
-
-    try {
-      apiInstance.post('/sla_change', {
-        cluster_name: cluster,
-        user: userID,
-        changes: payload,
-      });
-      setSnackbarMessage(
-        'Automation triggered successfully. You will receive an email once the changes are applied.'
-      );
-      setSnackbarSeverity('success');
-    } catch (error) {
-      console.error('Error saving SLA changes:', error);
-      setSnackbarMessage('Failed to save SLA changes. Please try again.');
-      setSnackbarSeverity('error');
-    } finally {
-      setSlaData([]);
-      setEditedRows({});
-      setOpenSnackbar(true);
-      setOpenDialog(false); // Close reason dialog
-      setReason(''); // Reset reason
-    }
-  };
-
-  const handleOpenDialog = () => {
     setOpenDialog(true);
   };
 
@@ -134,15 +174,21 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
   };
 
   const handleSubmit = () => {
+    if (!reason.trim()) {
+      setReasonError(true);
+      return;
+    }
     if (reason.length <= 500) {
+      setReasonError(false);
       handleSave();
     } else {
-      alert('Reason must be 500 characters or less.');
+      setReasonError(true);
     }
   };
 
   const handleCloseSnackbar = () => {
     setOpenSnackbar(false);
+    setSlaData([]);
   };
 
   return (
@@ -153,7 +199,7 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
         muiTableBodyRowProps={({ row }) => ({
           sx: {
             backgroundColor: editedRows[row.index]
-              ? 'rgba(255, 245, 157, 0.3)' // highlight entire row
+              ? 'rgba(255, 245, 157, 0.3)'
               : 'transparent',
           },
         })}
@@ -167,14 +213,21 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
         >
           Save
         </Button>
+
         <Button onClick={() => setEditedRows({})} variant="outlined" color="secondary">
           Cancel
         </Button>
       </Stack>
 
       {/* Snackbar */}
-      <Snackbar open={openSnackbar} autoHideDuration={6000} onClose={handleCloseSnackbar}>
-        <Alert onClose={handleCloseSnackbar} severity={snackbarSeverity} sx={{ width: '100%' }}>
+      <Snackbar
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        open={openSnackbar}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        direction="up"
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbarSeverity} variant="filled" sx={{ width: '100%' }}>
           {snackbarMessage}
         </Alert>
       </Snackbar>
@@ -191,15 +244,18 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
             multiline
             rows={5}
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(e) => {
+              setReason(e.target.value);
+              if (e.target.value.trim()) setReasonError(false);
+            }}
             inputProps={{ maxLength: 500 }}
+            error={reasonError}
+            helperText={
+              reasonError
+                ? 'Reason is required and must be 500 characters or less.'
+                : `${maxChars - reason.length} characters left`
+            }
           />
-          <Typography
-            variant="caption"
-            color={reason.length >= maxChars ? 'error' : 'textSecondary'}
-          >
-            {maxChars - reason.length} characters left
-          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog} color="primary">
