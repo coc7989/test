@@ -205,3 +205,120 @@ You’ll compare these numbers to the ones in the baseline (48epyc_9274F) to see
 
 👉 Do you want me to also show you how to automatically extract and summarize runtimes from the LSF output logs so you don’t have to check them one by one?
 
+
+
+hPerfect 🚀 since the Lenovo eval server has 128 cores, we’ll set up the new benchmark copy accordingly.
+
+
+---
+
+Step 1: Copy the template
+
+From the benchmark directory:
+
+cd /data/dvreport/dev/benchmark/spectreX/tc
+cp -r 48epyc_9274F lenovo_128c
+
+Now you’ll have a fresh benchmark setup at:
+
+/data/dvreport/dev/benchmark/spectreX/tc/lenovo_128c
+
+
+---
+
+Step 2: Decide job packing strategies
+
+You want to fill all 128 cores with different job shapes. Examples:
+
+1 core × 128 jobs
+
+2 cores × 64 jobs
+
+4 cores × 32 jobs
+
+8 cores × 16 jobs
+
+16 cores × 8 jobs
+
+32 cores × 4 jobs
+
+64 cores × 2 jobs
+
+128 cores × 1 job
+
+
+That way you cover single-threaded scaling, medium parallelism, and full-host workloads.
+
+
+---
+
+Step 3: Adjust job scripts
+
+Inside lenovo_128c/, create or edit job submission scripts.
+For example:
+
+1 core × 128 jobs
+
+#!/bin/bash
+#BSUB -J bench_1c[1-128]
+#BSUB -n 1
+#BSUB -R "span[hosts=1]"
+#BSUB -oo logs/bench_1c.%J.%I.out
+#BSUB -eo logs/bench_1c.%J.%I.err
+
+/path/to/benchmark --cores 1
+
+8 cores × 16 jobs
+
+#!/bin/bash
+#BSUB -J bench_8c[1-16]
+#BSUB -n 8
+#BSUB -R "span[ptile=8]"
+#BSUB -oo logs/bench_8c.%J.%I.out
+#BSUB -eo logs/bench_8c.%J.%I.err
+
+/path/to/benchmark --cores 8
+
+128 cores × 1 job
+
+#!/bin/bash
+#BSUB -J bench_128c
+#BSUB -n 128
+#BSUB -R "span[hosts=1]"
+#BSUB -oo logs/bench_128c.%J.out
+#BSUB -eo logs/bench_128c.%J.err
+
+/path/to/benchmark --cores 128
+
+(Repeat for 2c/4c/16c/32c/64c as needed.)
+
+
+---
+
+Step 4: Submit jobs
+
+From inside lenovo_128c/:
+
+mkdir -p logs
+bsub < job_1core.sh
+bsub < job_2core.sh
+bsub < job_4core.sh
+bsub < job_8core.sh
+bsub < job_16core.sh
+bsub < job_32core.sh
+bsub < job_64core.sh
+bsub < job_128core.sh
+
+
+---
+
+Step 5: Compare results
+
+When jobs finish, check logs/*.out for runtimes.
+Compare them against the existing baseline (48epyc_9274F) to see how the Lenovo 128-core box scales.
+
+
+---
+
+⚡ Question for you: do you want me to also give you a script that automatically generates all these job submission scripts (1c/2c/4c…/128c) instead of writing them by hand?
+
