@@ -1,0 +1,217 @@
+Great 👍 let’s add a last_updated timestamp to the API response, so the frontend can display when the data was last refreshed.
+
+
+---
+
+🔹 Backend with last_updated
+
+backend/main.py
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import Optional
+import time
+import requests
+import os
+
+app = FastAPI(title="Slurm Dashboard API with Cache + Timestamp")
+
+# -------------------------
+# Config
+# -------------------------
+SLURM_API_URL = os.getenv("SLURM_API_URL", "http://localhost:6820/slurm/v0.0.39")
+CACHE_TTL = int(os.getenv("CACHE_TTL", 10))  # cache lifetime in seconds
+
+# -------------------------
+# Models
+# -------------------------
+class Job(BaseModel):
+    job_id: int
+    name: str
+    user: str
+    state: str
+    partition: str
+    elapsed: str
+    reason: Optional[str] = None
+
+class JobsResponse(BaseModel):
+    last_updated: float
+    jobs: list[Job]
+
+# -------------------------
+# Cache state
+# -------------------------
+_last_fetch_time = 0.0
+_cached_jobs: list[dict] = []
+
+# -------------------------
+# Helpers
+# -------------------------
+def fetch_jobs_from_slurm():
+    """Fetch all jobs from Slurm REST API."""
+    url = f"{SLURM_API_URL}/jobs"
+    resp = requests.get(url)
+    resp.raise_for_status()
+    return resp.json()["jobs"]
+
+def get_jobs_cached():
+    """Return cached jobs, refresh if stale."""
+    global _last_fetch_time, _cached_jobs
+    now = time.time()
+    if now - _last_fetch_time > CACHE_TTL:
+        try:
+            jobs = fetch_jobs_from_slurm()
+            _cached_jobs = [
+                {
+                    "job_id": j["job_id"],
+                    "name": j.get("name", ""),
+                    "user": j["user_name"],
+                    "state": j["job_state"],
+                    "partition": j["partition"],
+                    "elapsed": j.get("elapsed", "00:00:00"),
+                    "reason": j.get("state_reason"),
+                }
+                for j in jobs
+            ]
+            _last_fetch_time = now
+        except Exception as e:
+            # Keep old cache on error
+            print(f"⚠️ Error fetching Slurm jobs: {e}")
+    return _cached_jobs, _last_fetch_time
+
+# -------------------------
+# API endpoints
+# -------------------------
+@app.get("/myjobs", response_model=JobsResponse)
+def get_my_jobs(user: str):
+    """Return jobs for a specific user (cached)."""
+    jobs, last_updated = get_jobs_cached()
+    user_jobs = [Job(**job) for job in jobs if job["user"] == user]
+    return JobsResponse(last_updated=last_updated, jobs=user_jobs)
+
+@app.get("/alljobs", response_model=JobsResponse)
+def get_all_jobs():
+    """Return all jobs (cached)."""
+    jobs, last_updated = get_jobs_cached()
+    return JobsResponse(last_updated=last_updated, jobs=[Job(**job) for job in jobs])
+
+
+---
+
+🔹 Example API Response
+
+{
+  "last_updated": 1696712345.123, 
+  "jobs": [
+    {
+      "job_id": 101,
+      "name": "train_model",
+      "user": "alice",
+      "state": "RUNNING",
+      "partition": "gpu",
+      "elapsed": "01:23:45",
+      "reason": null
+    },
+    {
+      "job_id": 102,
+      "name": "data_prep",
+      "user": "alice",
+      "state": "PENDING",
+      "partition": "cpu",
+      "elapsed": "00:00:00",
+      "reason": "Resources"
+    }
+  ]
+}
+
+
+---
+
+🔹 Frontend Changes (React)
+
+In frontend/src/api.js update fetch function to expect last_updated:
+
+import axios from "axios";
+
+const API = axios.create({
+  baseURL: "http://localhost:8000",
+});
+
+export const fetchMyJobs = async (user) => {
+  const res = await API.get(`/myjobs?user=${user}`);
+  return res.data; // { last_updated, jobs }
+};
+
+
+---
+
+In frontend/src/App.js:
+
+import React, { useEffect, useState } from "react";
+import { Container, Typography, TextField, Button } from "@mui/material";
+import JobTable from "./components/JobTable";
+import { fetchMyJobs } from "./api";
+
+function App() {
+  const [jobs, setJobs] = useState([]);
+  const [user, setUser] = useState("myusername");
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const loadJobs = async () => {
+    const data = await fetchMyJobs(user);
+    setJobs(data.jobs);
+    setLastUpdated(new Date(data.last_updated * 1000)); // convert epoch -> Date
+  };
+
+  useEffect(() => {
+    loadJobs();
+    const interval = setInterval(loadJobs, 15000); // auto-refresh every 15s
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <Container sx={{ mt: 5 }}>
+      <Typography variant="h3" gutterBottom sx={{ fontWeight: "bold", color: "#1976d2" }}>
+        Slurm Dashboard
+      </Typography>
+
+      <TextField
+        label="Username"
+        value={user}
+        onChange={(e) => setUser(e.target.value)}
+        sx={{ mr: 2 }}
+      />
+      <Button variant="contained" onClick={loadJobs}>
+        Load Jobs
+      </Button>
+
+      {lastUpdated && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+          Last updated: {lastUpdated.toLocaleTimeString()}
+        </Typography>
+      )}
+
+      <JobTable jobs={jobs} />
+    </Container>
+  );
+}
+
+export default App;
+
+
+---
+
+✅ Now:
+
+Backend serves jobs + last_updated.
+
+Frontend displays “Last updated: 12:34:56 PM”.
+
+Refresh happens every 15s (configurable).
+
+
+
+---
+
+Do you also want me to add a loading spinner (e.g. MUI CircularProgress) while jobs are being fetched, so users see feedback?
+
