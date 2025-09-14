@@ -1,41 +1,8 @@
-Awesome choice ⚡ — React + Material UI on the frontend and FastAPI on the backend will give you a modern, fast, and polished Slurm dashboard. I’ll sketch out the project structure, then give you starter code for both backend (FastAPI) and frontend (React + MUI).
-
-
----
-
-🏗 Project Structure
-
-slurm-dashboard/
-├── backend/                # FastAPI backend
-│   ├── main.py
-│   ├── requirements.txt
-│   └── utils/
-│       └── slurm_client.py
-├── frontend/               # React + Material UI frontend
-│   ├── src/
-│   │   ├── App.js
-│   │   ├── api.js
-│   │   ├── components/
-│   │   │   ├── JobTable.js
-│   │   │   └── JobCard.js
-│   │   └── theme.js
-│   └── package.json
-
-
----
-
-⚡ Backend (FastAPI)
-
-backend/main.py
-
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from pydantic import BaseModel
-import requests
-import os
+from typing import Optional
 
-app = FastAPI(title="Slurm Dashboard API")
-
-SLURM_API_URL = os.getenv("SLURM_API_URL", "http://localhost:6820/slurm/v0.0.39")
+app = FastAPI(title="Slurm Dashboard API (Dummy Mode)")
 
 class Job(BaseModel):
     job_id: int
@@ -44,196 +11,49 @@ class Job(BaseModel):
     state: str
     partition: str
     elapsed: str
-    reason: str | None
+    reason: Optional[str] = None
 
-def fetch_jobs():
-    url = f"{SLURM_API_URL}/jobs"
-    resp = requests.get(url)
-    resp.raise_for_status()
-    return resp.json()["jobs"]
+# Dummy dataset
+DUMMY_JOBS = [
+    {
+        "job_id": 101,
+        "name": "train_model",
+        "user": "alice",
+        "state": "RUNNING",
+        "partition": "gpu",
+        "elapsed": "01:23:45",
+        "reason": None,
+    },
+    {
+        "job_id": 102,
+        "name": "data_prep",
+        "user": "alice",
+        "state": "PENDING",
+        "partition": "cpu",
+        "elapsed": "00:00:00",
+        "reason": "Resources",
+    },
+    {
+        "job_id": 103,
+        "name": "sim_analysis",
+        "user": "bob",
+        "state": "FAILED",
+        "partition": "cpu",
+        "elapsed": "00:12:09",
+        "reason": "Error",
+    },
+    {
+        "job_id": 104,
+        "name": "postprocess",
+        "user": "alice",
+        "state": "COMPLETED",
+        "partition": "gpu",
+        "elapsed": "02:01:10",
+        "reason": None,
+    },
+]
 
 @app.get("/myjobs", response_model=list[Job])
 def get_my_jobs(user: str):
-    """Fetch jobs for the given user."""
-    jobs = fetch_jobs()
-    my_jobs = []
-    for j in jobs:
-        my_jobs.append({
-            "job_id": j["job_id"],
-            "name": j.get("name", ""),
-            "user": j["user_name"],
-            "state": j["job_state"],
-            "partition": j["partition"],
-            "elapsed": j.get("elapsed", "00:00:00"),
-            "reason": j.get("state_reason"),
-        })
-    return [Job(**job) for job in my_jobs if job["user"] == user]
-
-backend/requirements.txt
-
-fastapi
-uvicorn
-requests
-pydantic
-
-Run backend:
-
-cd backend
-uvicorn main:app --reload --port 8000
-
-
----
-
-🎨 Frontend (React + Material UI)
-
-Install React + MUI:
-
-npx create-react-app frontend
-cd frontend
-npm install @mui/material @emotion/react @emotion/styled axios @mui/icons-material
-
-
----
-
-🔹 frontend/src/api.js
-
-import axios from "axios";
-
-const API = axios.create({
-  baseURL: "http://localhost:8000",
-});
-
-export const fetchMyJobs = async (user) => {
-  const res = await API.get(`/myjobs?user=${user}`);
-  return res.data;
-};
-
-
----
-
-🔹 frontend/src/components/JobTable.js
-
-import React from "react";
-import {
-  Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Paper, Chip
-} from "@mui/material";
-
-const statusColor = (state) => {
-  switch (state) {
-    case "RUNNING": return "success";
-    case "PENDING": return "warning";
-    case "FAILED": return "error";
-    case "COMPLETED": return "info";
-    default: return "default";
-  }
-};
-
-export default function JobTable({ jobs }) {
-  return (
-    <TableContainer component={Paper} elevation={4} sx={{ mt: 3 }}>
-      <Table>
-        <TableHead>
-          <TableRow sx={{ backgroundColor: "#1976d2" }}>
-            <TableCell sx={{ color: "white" }}>Job ID</TableCell>
-            <TableCell sx={{ color: "white" }}>Name</TableCell>
-            <TableCell sx={{ color: "white" }}>Partition</TableCell>
-            <TableCell sx={{ color: "white" }}>Elapsed</TableCell>
-            <TableCell sx={{ color: "white" }}>State</TableCell>
-            <TableCell sx={{ color: "white" }}>Reason</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {jobs.map((job) => (
-            <TableRow key={job.job_id}>
-              <TableCell>{job.job_id}</TableCell>
-              <TableCell>{job.name}</TableCell>
-              <TableCell>{job.partition}</TableCell>
-              <TableCell>{job.elapsed}</TableCell>
-              <TableCell>
-                <Chip label={job.state} color={statusColor(job.state)} />
-              </TableCell>
-              <TableCell>{job.reason || "-"}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
-}
-
-
----
-
-🔹 frontend/src/App.js
-
-import React, { useEffect, useState } from "react";
-import { Container, Typography, TextField, Button } from "@mui/material";
-import JobTable from "./components/JobTable";
-import { fetchMyJobs } from "./api";
-
-function App() {
-  const [jobs, setJobs] = useState([]);
-  const [user, setUser] = useState("myusername");
-
-  const loadJobs = async () => {
-    const data = await fetchMyJobs(user);
-    setJobs(data);
-  };
-
-  useEffect(() => {
-    loadJobs();
-  }, []);
-
-  return (
-    <Container sx={{ mt: 5 }}>
-      <Typography variant="h3" gutterBottom sx={{ fontWeight: "bold", color: "#1976d2" }}>
-        Slurm Dashboard
-      </Typography>
-
-      <TextField
-        label="Username"
-        value={user}
-        onChange={(e) => setUser(e.target.value)}
-        sx={{ mr: 2 }}
-      />
-      <Button variant="contained" onClick={loadJobs}>
-        Load Jobs
-      </Button>
-
-      <JobTable jobs={jobs} />
-    </Container>
-  );
-}
-
-export default App;
-
-
----
-
-✨ UI Design Features
-
-Material UI Table with Chips → jobs states highlighted by color.
-
-Card-like elevation → dashboard feels modern.
-
-Bold header with primary color → cluster branding possible.
-
-Future improvements: job efficiency charts (Pie, Bar with @mui/x-charts or recharts).
-
-
-
----
-
-✅ At this stage, you’ll have:
-
-A FastAPI backend proxying Slurm REST API.
-
-A React + MUI frontend showing jobs in a beautiful table.
-
-
-
----
-
-👉 Do you want me to add efficiency metrics (CPU, memory, walltime) with charts to the dashboard next, or should we first focus on polishing the job table with filtering/sorting/pagination?
-
+    """Return dummy jobs for the given user."""
+    return [Job(**job) for job in DUMMY_JOBS if job["user"] == user]
