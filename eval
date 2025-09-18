@@ -1,324 +1,323 @@
-Got it 👍 I’ll break down your senior’s instructions into concrete steps so you know what to do.
-
-
----
-
-What your senior is suggesting
-
-The idea is:
-
-Take an existing benchmark test setup (48epyc_9274F) as a template.
-
-Copy it for the new Lenovo eval server.
-
-Adjust the configs so jobs run under different core allocations.
-
-Submit jobs that “fill up” the machine in different ways (1 core per job, multi-core per job, etc.).
-
-Measure runtimes and compare them to the baseline (48epyc_9274F).
-
-
-
----
-
-Step-by-step interpretation
-
-1. Go to the benchmark directory
-
-cd /data/dvreport/dev/benchmark/spectreX/tc
-
-
-2. Find the template benchmark setup
-
-There should be a directory or config named 48epyc_9274F (that’s probably the profile for an AMD EPYC 9274F system).
-
-
-
-3. Copy it for the new server
-
-Say your new Lenovo server is lenovo_eval (replace with real name).
-
-
-cp -r 48epyc_9274F lenovo_eval
-
-
-4. Update job config files inside the new copy
-
-Open the scripts/config files in lenovo_eval/.
-
-Adjust the host name (so jobs actually run on the new server).
-
-Update core counts: if your new server has, for example, 48 cores, you need test cases like:
-
-48 jobs × 1 core each
-
-6 jobs × 8 cores each
-
-Maybe 12 jobs × 4 cores each
-
-Essentially different ways of “packing” the cores until the whole server is full.
-
-
-
-⚡ This simulates different workload patterns.
-
-
-5. Submit jobs to LSF
-
-Likely something like:
-
-bsub < jobscript.sh
-
-The scripts in that directory should already have example submission commands.
-
-
-
-6. Collect timing results
-
-After jobs finish, check LSF output logs (lsf.o* files or similar).
-
-Note runtimes for each job configuration.
-
-
-
-7. Compare with baseline
-
-Look at the runtime results from the existing 48epyc_9274F runs.
-
-See if the Lenovo eval server is faster/slower for different job patterns.
-
-
-
-
-
----
-
-✅ So in summary:
-You are cloning an existing benchmark config → adapting it to your new server (hostname + core layout) → running jobs in different “packing” modes → measuring and comparing runtimes.
-
-
----
-
-Do you want me to draft an exact example of how the job config (say for 48 cores) would look so you can copy-paste and test, or do you prefer just the high-level guidance?
-
-
-
-
-hhPerfect 👍 Let’s make a concrete example.
-I’ll assume your Lenovo eval server has 48 cores (adjust numbers if it’s different).
-
-
----
-
-Example job configs
-
-In your copied folder (e.g. lenovo_eval/), you’ll likely have job scripts like job_1core.sh, job_8core.sh, etc. If not, you can create them.
-
-1. Single-core test (48 × 1 core jobs)
-
-job_1core.sh
-
-#!/bin/bash
-#BSUB -J bench_1c[1-48]       # array job with 48 tasks
-#BSUB -n 1                    # 1 core per task
-#BSUB -R "span[hosts=1]"      # keep each job on one host
-#BSUB -oo logs/bench_1c.%J.%I.out
-#BSUB -eo logs/bench_1c.%J.%I.err
-
-# Run your benchmark workload
-/path/to/benchmark --cores 1
-
-This will submit 48 single-core jobs, filling the host.
-
-
----
-
-2. 8-core test (6 × 8 core jobs)
-
-job_8core.sh
-
-#!/bin/bash
-#BSUB -J bench_8c[1-6]        # array job with 6 tasks
-#BSUB -n 8                    # each job uses 8 cores
-#BSUB -R "span[ptile=8]"      # pack 8 cores per job on the host
-#BSUB -oo logs/bench_8c.%J.%I.out
-#BSUB -eo logs/bench_8c.%J.%I.err
-
-/path/to/benchmark --cores 8
-
-
----
-
-3. 4-core test (12 × 4 core jobs)
-
-job_4core.sh
-
-#!/bin/bash
-#BSUB -J bench_4c[1-12]
-#BSUB -n 4
-#BSUB -R "span[ptile=4]"
-#BSUB -oo logs/bench_4c.%J.%I.out
-#BSUB -eo logs/bench_4c.%J.%I.err
-
-/path/to/benchmark --cores 4
-
-
----
-
-4. Full-host test (1 × 48 core job)
-
-job_48core.sh
-
-#!/bin/bash
-#BSUB -J bench_48c
-#BSUB -n 48
-#BSUB -R "span[hosts=1]"
-#BSUB -oo logs/bench_48c.%J.out
-#BSUB -eo logs/bench_48c.%J.err
-
-/path/to/benchmark --cores 48
-
-
----
-
-Running them
-
-From inside lenovo_eval/:
-
-mkdir -p logs
-bsub < job_1core.sh
-bsub < job_4core.sh
-bsub < job_8core.sh
-bsub < job_48core.sh
-
-
----
-
-Collecting results
-
-After jobs complete, look in logs/.
-Each .out file will contain the runtime of your workload.
-You’ll compare these numbers to the ones in the baseline (48epyc_9274F) to see how the Lenovo server performs.
-
-
----
-
-👉 Do you want me to also show you how to automatically extract and summarize runtimes from the LSF output logs so you don’t have to check them one by one?
-
-
-
-hPerfect 🚀 since the Lenovo eval server has 128 cores, we’ll set up the new benchmark copy accordingly.
-
-
----
-
-Step 1: Copy the template
-
-From the benchmark directory:
-
-cd /data/dvreport/dev/benchmark/spectreX/tc
-cp -r 48epyc_9274F lenovo_128c
-
-Now you’ll have a fresh benchmark setup at:
-
-/data/dvreport/dev/benchmark/spectreX/tc/lenovo_128c
-
-
----
-
-Step 2: Decide job packing strategies
-
-You want to fill all 128 cores with different job shapes. Examples:
-
-1 core × 128 jobs
-
-2 cores × 64 jobs
-
-4 cores × 32 jobs
-
-8 cores × 16 jobs
-
-16 cores × 8 jobs
-
-32 cores × 4 jobs
-
-64 cores × 2 jobs
-
-128 cores × 1 job
-
-
-That way you cover single-threaded scaling, medium parallelism, and full-host workloads.
-
-
----
-
-Step 3: Adjust job scripts
-
-Inside lenovo_128c/, create or edit job submission scripts.
-For example:
-
-1 core × 128 jobs
-
-#!/bin/bash
-#BSUB -J bench_1c[1-128]
-#BSUB -n 1
-#BSUB -R "span[hosts=1]"
-#BSUB -oo logs/bench_1c.%J.%I.out
-#BSUB -eo logs/bench_1c.%J.%I.err
-
-/path/to/benchmark --cores 1
-
-8 cores × 16 jobs
-
-#!/bin/bash
-#BSUB -J bench_8c[1-16]
-#BSUB -n 8
-#BSUB -R "span[ptile=8]"
-#BSUB -oo logs/bench_8c.%J.%I.out
-#BSUB -eo logs/bench_8c.%J.%I.err
-
-/path/to/benchmark --cores 8
-
-128 cores × 1 job
-
-#!/bin/bash
-#BSUB -J bench_128c
-#BSUB -n 128
-#BSUB -R "span[hosts=1]"
-#BSUB -oo logs/bench_128c.%J.out
-#BSUB -eo logs/bench_128c.%J.err
-
-/path/to/benchmark --cores 128
-
-(Repeat for 2c/4c/16c/32c/64c as needed.)
-
-
----
-
-Step 4: Submit jobs
-
-From inside lenovo_128c/:
-
-mkdir -p logs
-bsub < job_1core.sh
-bsub < job_2core.sh
-bsub < job_4core.sh
-bsub < job_8core.sh
-bsub < job_16core.sh
-bsub < job_32core.sh
-bsub < job_64core.sh
-bsub < job_128core.sh
-
-
----
-
-Step 5: Compare results
-
-When jobs finish, check logs/*.out for runtimes.
-Compare them against the existing baseline (48epyc_9274F) to see how the Lenovo 128-core box scales.
-
-
----
-
-⚡ Question for you: do you want me to also give you a script that automatically generates all these job submission scripts (1c/2c/4c…/128c) instead of writing them by hand?
-
+import React, { useContext, useState } from 'react';
+import MaterialReactTable from 'material-react-table';
+import {
+  Button,
+  Stack,
+  Snackbar,
+  Alert,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogActions,
+  DialogContent,
+  Typography,
+} from '@mui/material';
+import { ClusterContext } from '../../../NotificationContext';
+import apiInstance from '../../../api';
+
+const SlaEditor = ({ data, cluster, setSlaData }) => {
+  const { userID, setSessionTimeout } = useContext(ClusterContext);
+  const [tableData, setTableData] = useState(data);
+  const [editedRows, setEditedRows] = useState({});
+  const [openSnackbar, setOpenSnackbar] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+  const [openDialog, setOpenDialog] = useState(false);
+  const [reason, setReason] = useState('');
+  const [reasonError, setReasonError] = useState(false);
+  const [openValidationDialog, setOpenValidationDialog] = useState(false);
+  const [currentTotal, setCurrentTotal] = useState(0);
+  const maxChars = 500;
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  const columns = [
+    { accessorKey: 'sla_name', header: 'SLA Name' },
+    {
+      accessorKey: 'guaranteed',
+      header: 'SLA Guaranteed',
+      Cell: ({ row }) => {
+        const editedRow = editedRows[row.index];
+        return (
+          <span>
+            {editedRow ? editedRow.sla_guaranteed : row.original.guaranteed}
+          </span>
+        );
+      },
+    },
+    { accessorKey: 'used', header: 'SLA Used' },
+    { accessorKey: 'total_used', header: 'Total Used SLA' },
+    {
+      accessorKey: 'sla_percent',
+      header: 'SLA Percentage',
+      Cell: ({ row }) => {
+        const editedRow = editedRows[row.index];
+        const currentValue =
+          editedRow !== undefined
+            ? editedRow.sla_percent
+            : row.original?.sla_percent ?? '';
+
+        const handleChange = (e) => {
+          let val = e.target.value;
+
+          if (val === '') {
+            val = '0';
+          }
+
+          if (!/^\d+$/.test(val)) return;
+
+          val = String(Number(val));
+
+          if (Number(val) > 100) return;
+          if (/^-/.test(val)) return;
+
+          if (val === row.original.sla_percent) {
+            setEditedRows((prev) => {
+              const newEdits = { ...prev };
+              delete newEdits[row.index];
+              return newEdits;
+            });
+          } else {
+            // recalculate SLA guaranteed
+            const recalculatedGuaranteed =
+              (Number(row.original.total_used) * Number(val)) / 100;
+
+            setEditedRows((prev) => ({
+              ...prev,
+              [row.index]: {
+                sla_name: row.original.sla_name,
+                original_sla_percent: row.original.sla_percent,
+                sla_percent: val,
+                sla_guaranteed: recalculatedGuaranteed,
+              },
+            }));
+          }
+        };
+
+        return (
+          <TextField
+            type="text"
+            size="small"
+            value={currentValue}
+            onChange={handleChange}
+            inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+            sx={{
+              backgroundColor:
+                editedRow && currentValue !== row.original.sla_percent
+                  ? 'rgba(255, 245, 157, 0.5)'
+                  : 'transparent',
+              borderRadius: 1,
+            }}
+          />
+        );
+      },
+    },
+    { accessorKey: 'last_modified_by', header: 'Last Modified By' },
+    {
+      accessorKey: 'last_modified_at',
+      header: 'Last Modified At',
+      Cell: ({ cell }) => {
+        const value = cell.getValue();
+        const date = value ? new Date(value) : null;
+        return <span>{date ? formatter.format(date) : ''}</span>;
+      },
+    },
+    { accessorKey: 'reason', header: 'Reason' },
+  ];
+
+  const handleSave = () => {
+    const payload = Object.values(editedRows).map((row) => ({
+      sla_name: row.sla_name,
+      old_value: row.original_sla_percent,
+      new_value: row.sla_percent,
+      reason,
+    }));
+    console.log('Payload to be sent:', payload);
+    try {
+      apiInstance.post('/sla_change', {
+        cluster_name: cluster,
+        user: userID,
+        changes: payload,
+      });
+      setSnackbarMessage(
+        'Automation triggered successfully. You will receive an email once the changes are applied.',
+      );
+      setSnackbarSeverity('success');
+    } catch (error) {
+      if (error.response && error.response.status === 401) {
+        console.log('SSO Timeout');
+        setSessionTimeout(true);
+      }
+      if (error.userResponse?.status === 500) {
+        console.error('Error saving SLA changes:', error);
+        setSnackbarMessage(
+          'Failed to save SLA changes. Please try again.',
+        );
+        setSnackbarSeverity('error');
+      }
+    } finally {
+      setOpenSnackbar(true);
+      setEditedRows({});
+      setOpenDialog(false);
+      setReason('');
+    }
+  };
+
+  const handleOpenDialog = () => {
+    const updatedData = tableData.map((row, index) =>
+      editedRows[index]
+        ? { ...row, sla_percent: Number(editedRows[index].sla_percent) }
+        : row,
+    );
+    const total = updatedData.reduce(
+      (sum, row) => sum + Number(row.sla_percent),
+      0,
+    );
+
+    if (total !== 100) {
+      setCurrentTotal(total);
+      setOpenValidationDialog(true);
+      return;
+    }
+    setOpenDialog(true);
+  };
+
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setReason('');
+  };
+
+  const handleSubmit = () => {
+    if (!reason.trim()) {
+      setReasonError(true);
+      return;
+    }
+    if (reason.length <= 500) {
+      setReasonError(false);
+      handleSave();
+    } else {
+      setReasonError(true);
+    }
+  };
+
+  const handleCloseSnackbar = () => {
+    setOpenSnackbar(false);
+    setSlaData([]);
+  };
+
+  return (
+    <>
+      <MaterialReactTable
+        columns={columns}
+        data={tableData}
+        muiTableBodyRowProps={({ row }) => ({
+          sx: {
+            backgroundColor: editedRows[row.index]
+              ? 'rgba(255, 245, 157, 0.3)'
+              : 'transparent',
+          },
+        })}
+      />
+      <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+        <Button
+          onClick={handleOpenDialog}
+          disabled={Object.keys(editedRows).length === 0}
+          variant="contained"
+          color="primary"
+        >
+          Save
+        </Button>
+
+        <Button
+          onClick={() => setEditedRows({})}
+          variant="outlined"
+          color="secondary"
+        >
+          Cancel
+        </Button>
+      </Stack>
+
+      {/* Snackbar */}
+      <Snackbar
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        open={openSnackbar}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        direction="up"
+      >
+        <Alert
+          onClose={handleCloseSnackbar}
+          severity={snackbarSeverity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
+
+      {/* Reason Dialog */}
+      <Dialog open={openDialog} onClose={handleCloseDialog} fullWidth>
+        <DialogTitle>Enter Reason</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Reason"
+            fullWidth
+            multiline
+            rows={5}
+            value={reason}
+            onChange={(e) => {
+              setReason(e.target.value);
+              if (e.target.value.trim()) setReasonError(false);
+            }}
+            inputProps={{ maxLength: 500 }}
+            error={reasonError}
+            helperText={
+              reasonError
+                ? 'Reason is required and must be 500 characters or less.'
+                : `${maxChars - reason.length} characters left`
+            }
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDialog} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} color="error" variant="contained">
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Validation Dialog */}
+      <Dialog
+        open={openValidationDialog}
+        onClose={() => setOpenValidationDialog(false)}
+        fullWidth
+      >
+        <DialogTitle>Invalid SLA Distribution</DialogTitle>
+        <DialogContent>
+          <Typography>
+            The total SLA distribution must equal <strong>100%</strong>. <br />
+            Currently it is: <strong>{currentTotal}%</strong>.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setOpenValidationDialog(false)}
+            color="primary"
+            variant="contained"
+          >
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+};
+
+export default SlaEditor;
