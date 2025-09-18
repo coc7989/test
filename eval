@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import MaterialReactTable from 'material-react-table';
 import {
   Button,
@@ -27,6 +27,9 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
   const [reasonError, setReasonError] = useState(false);
   const [openValidationDialog, setOpenValidationDialog] = useState(false);
   const [currentTotal, setCurrentTotal] = useState(0);
+  const [totalGuaranteed, setTotalGuaranteed] = useState(0);
+  const [totalPercent, setTotalPercent] = useState(0);
+
   const maxChars = 500;
   const formatter = new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
@@ -34,11 +37,29 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
     year: 'numeric',
   });
 
+  // 🔹 Recalculate totals whenever edits change
+  useEffect(() => {
+    let guaranteedSum = 0;
+    let percentSum = 0;
+
+    tableData.forEach((row, index) => {
+      const edit = editedRows[index];
+      const slaPercent = edit ? Number(edit.sla_percent) : Number(row.sla_percent);
+      const slaGuaranteed = edit ? Number(edit.sla_guaranteed) : Number(row.guaranteed);
+
+      guaranteedSum += slaGuaranteed;
+      percentSum += slaPercent;
+    });
+
+    setTotalGuaranteed(guaranteedSum);
+    setTotalPercent(percentSum);
+  }, [tableData, editedRows]);
+
   const columns = [
     { accessorKey: 'sla_name', header: 'SLA Name' },
     {
       accessorKey: 'guaranteed',
-      header: 'SLA Guaranteed',
+      header: `SLA Guaranteed (${totalGuaranteed})`,
       Cell: ({ row }) => {
         const editedRow = editedRows[row.index];
         return (
@@ -52,7 +73,7 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
     { accessorKey: 'total_used', header: 'Total Used SLA' },
     {
       accessorKey: 'sla_percent',
-      header: 'SLA Percentage',
+      header: `SLA Percentage (${totalPercent}%)`,
       Cell: ({ row }) => {
         const editedRow = editedRows[row.index];
         const currentValue =
@@ -81,9 +102,14 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
               return newEdits;
             });
           } else {
-            // recalculate SLA guaranteed
+            // 🔹 Calculate total guaranteed based on ALL rows
+            const totalGuaranteedBase = tableData.reduce(
+              (sum, r) => sum + Number(r.guaranteed),
+              0
+            );
+
             const recalculatedGuaranteed =
-              (Number(row.original.total_used) * Number(val)) / 100;
+              (totalGuaranteedBase * Number(val)) / 100;
 
             setEditedRows((prev) => ({
               ...prev,
@@ -143,7 +169,7 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
         changes: payload,
       });
       setSnackbarMessage(
-        'Automation triggered successfully. You will receive an email once the changes are applied.',
+        'Automation triggered successfully. You will receive an email once the changes are applied.'
       );
       setSnackbarSeverity('success');
     } catch (error) {
@@ -154,7 +180,7 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
       if (error.userResponse?.status === 500) {
         console.error('Error saving SLA changes:', error);
         setSnackbarMessage(
-          'Failed to save SLA changes. Please try again.',
+          'Failed to save SLA changes. Please try again.'
         );
         setSnackbarSeverity('error');
       }
@@ -170,11 +196,11 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
     const updatedData = tableData.map((row, index) =>
       editedRows[index]
         ? { ...row, sla_percent: Number(editedRows[index].sla_percent) }
-        : row,
+        : row
     );
     const total = updatedData.reduce(
       (sum, row) => sum + Number(row.sla_percent),
-      0,
+      0
     );
 
     if (total !== 100) {
