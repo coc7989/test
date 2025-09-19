@@ -27,8 +27,8 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
   const [reasonError, setReasonError] = useState(false);
   const [openValidationDialog, setOpenValidationDialog] = useState(false);
   const [currentTotal, setCurrentTotal] = useState(0);
-  const [totalGuaranteed, setTotalGuaranteed] = useState(0);
   const [totalPercent, setTotalPercent] = useState(0);
+  const [originalTotalGuaranteed, setOriginalTotalGuaranteed] = useState(0);
 
   const maxChars = 500;
   const formatter = new Intl.DateTimeFormat('en-GB', {
@@ -37,21 +37,25 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
     year: 'numeric',
   });
 
-  // 🔹 Recalculate totals whenever edits change
+  // 🔹 Store original guaranteed total only once
   useEffect(() => {
-    let guaranteedSum = 0;
+    const guaranteedSum = data.reduce(
+      (sum, row) => sum + Number(row.guaranteed),
+      0
+    );
+    setOriginalTotalGuaranteed(guaranteedSum);
+  }, [data]);
+
+  // 🔹 Recalculate only SLA % total when edits change
+  useEffect(() => {
     let percentSum = 0;
 
     tableData.forEach((row, index) => {
       const edit = editedRows[index];
       const slaPercent = edit ? Number(edit.sla_percent) : Number(row.sla_percent);
-      const slaGuaranteed = edit ? Number(edit.sla_guaranteed) : Number(row.guaranteed);
-
-      guaranteedSum += slaGuaranteed;
       percentSum += slaPercent;
     });
 
-    setTotalGuaranteed(guaranteedSum);
     setTotalPercent(percentSum);
   }, [tableData, editedRows]);
 
@@ -59,7 +63,7 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
     { accessorKey: 'sla_name', header: 'SLA Name' },
     {
       accessorKey: 'guaranteed',
-      header: `SLA Guaranteed (${totalGuaranteed})`,
+      header: `SLA Guaranteed (${originalTotalGuaranteed})`,
       Cell: ({ row }) => {
         const editedRow = editedRows[row.index];
         return (
@@ -102,22 +106,14 @@ const SlaEditor = ({ data, cluster, setSlaData }) => {
               return newEdits;
             });
           } else {
-            // 🔹 Calculate total guaranteed based on ALL rows
-            const totalGuaranteedBase = tableData.reduce(
-              (sum, r) => sum + Number(r.guaranteed),
-              0
-            );
-
-            const recalculatedGuaranteed =
-              (totalGuaranteedBase * Number(val)) / 100;
-
+            // 🔹 Keep guaranteed fixed (original value)
             setEditedRows((prev) => ({
               ...prev,
               [row.index]: {
                 sla_name: row.original.sla_name,
                 original_sla_percent: row.original.sla_percent,
                 sla_percent: val,
-                sla_guaranteed: recalculatedGuaranteed,
+                sla_guaranteed: row.original.guaranteed,
               },
             }));
           }
